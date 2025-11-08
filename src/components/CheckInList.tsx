@@ -1,12 +1,14 @@
 import { CheckIn } from "@/types/checkin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatTimeDisplay } from "@/lib/timeUtils";
+import { Button } from "@/components/ui/Button";
 
 interface CheckInListProps {
   checkIns: CheckIn[];
+  onDelete?: (id: string) => void;
 }
 
-export default function CheckInList({ checkIns }: CheckInListProps) {
+export default function CheckInList({ checkIns, onDelete }: CheckInListProps) {
   const formatDuration = (minutes: number): string => {
     const hours = Math.floor(minutes / 60);
     const remainingMinutes = minutes % 60;
@@ -77,10 +79,19 @@ export default function CheckInList({ checkIns }: CheckInListProps) {
                   </p>
                 )}
               </div>
-              <div className="text-right">
+              <div className="flex flex-col items-end gap-2">
                 <p className="text-xs text-muted-foreground">
                   {formatDate(checkIn.timestamp)}
                 </p>
+                {onDelete && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => onDelete(checkIn.id)}
+                  >
+                    Delete
+                  </Button>
+                )}
               </div>
             </div>
           ))}

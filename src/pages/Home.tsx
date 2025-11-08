@@ -16,7 +16,11 @@ import {
 } from "@/lib/conflictUtils";
 import { checkInService } from "@/lib/supabaseClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
-import { getUserCheckInIds } from "@/lib/userCheckIns";
+import {
+  addUserCheckInId,
+  getUserCheckInIds,
+  removeUserCheckInId,
+} from "@/lib/userCheckIns";
 
 export default function Home() {
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]); // All check-ins (for map)
@@ -27,6 +31,104 @@ export default function Home() {
     { original: CheckIn; adjusted: CheckIn }[]
   >([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [formResetKey, setFormResetKey] = useState(0);
+
+  const generateTempId = () =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Date.now().toString();
+
+  const buildCheckInFromForm = (formData: CheckInFormData): CheckIn => {
+    const endTime = calculateEndTime(
+      formData.startTime,
+      formData.durationMinutes
+    );
+    const venueDetails = OHIO_STATE_VENUES.find(
+      (v) => v.name === formData.venue
+    );
+
+    return {
+      id: generateTempId(),
+      venue: formData.venue,
+      venueArea: venueDetails?.area,
+      startTime: formData.startTime,
+      durationMinutes: formData.durationMinutes,
+      endTime,
+      timestamp: new Date(),
+    };
+  };
+
+  const finalizeCheckIn = async (
+    checkIn: CheckIn,
+    adjustedCheckIns: CheckIn[] = []
+  ) => {
+    const result = await checkInService.insertCheckIn({
+      venue: checkIn.venue,
+      start_time: checkIn.startTime,
+      end_time: checkIn.endTime,
+    });
+
+    if (!result?.id) {
+      throw new Error("Failed to save check-in.");
+    }
+
+    addUserCheckInId(result.id);
+
+    const insertedCheckIn: CheckIn = {
+      ...checkIn,
+      id: result.id,
+      timestamp: new Date(result.created_at),
+      durationMinutes: calculateTimeDifference(
+        checkIn.startTime,
+        checkIn.endTime
+      ),
+    };
+
+    const normalizedAdjusted = adjustedCheckIns.map((item) => ({
+      ...item,
+      durationMinutes: calculateTimeDifference(item.startTime, item.endTime),
+    }));
+
+    if (normalizedAdjusted.length > 0) {
+      try {
+        await checkInService.updateMultipleCheckIns(
+          normalizedAdjusted.map((item) => ({
+            id: item.id,
+            start_time: item.startTime,
+            end_time: item.endTime,
+          }))
+        );
+      } catch (error) {
+        console.error(
+          "Failed to update conflicting check-ins in Supabase:",
+          error
+        );
+        throw error;
+      }
+    }
+
+    setCheckIns((prev) => {
+      const filtered = prev.filter(
+        (existing) =>
+          existing.id !== checkIn.id &&
+          existing.id !== result.id &&
+          !normalizedAdjusted.some((adj) => adj.id === existing.id)
+      );
+      return [insertedCheckIn, ...normalizedAdjusted, ...filtered];
+    });
+
+    // Trigger form reset (for both direct submissions and resolved conflicts)
+    setFormResetKey(Date.now());
+  };
+
+  // Keep user's personal list in sync whenever the global check-ins change
+  useEffect(() => {
+    const userCheckInIds = getUserCheckInIds();
+    const userOwnCheckIns = checkIns.filter((checkIn) =>
+      userCheckInIds.includes(checkIn.id)
+    );
+    setUserCheckIns(userOwnCheckIns);
+  }, [checkIns]);
 
   // Function to load check-ins from Supabase
   const loadCheckIns = async () => {
@@ -61,17 +163,8 @@ export default function Home() {
         }
       );
 
-      // Get user's check-in IDs from localStorage
-      const userCheckInIds = getUserCheckInIds();
-
       // Set all check-ins (for map)
       setCheckIns(convertedCheckIns);
-
-      // Filter to only user's check-ins (for list)
-      const userOwnCheckIns = convertedCheckIns.filter((checkIn) =>
-        userCheckInIds.includes(checkIn.id)
-      );
-      setUserCheckIns(userOwnCheckIns);
     } catch (error) {
       console.error("Error loading check-ins from Supabase:", error);
     }
@@ -82,65 +175,61 @@ export default function Home() {
     loadCheckIns();
   }, []);
 
-  const handleCheckInSubmit = (newCheckInData: CheckInFormData) => {
-    const endTime = calculateEndTime(
-      newCheckInData.startTime,
-      newCheckInData.durationMinutes
-    );
-    const newCheckIn: CheckIn = {
-      ...newCheckInData,
-      endTime,
-      id: Date.now().toString(),
-      timestamp: new Date(),
-    };
+  const handleCheckInSubmit = async (
+    formData: CheckInFormData
+  ): Promise<"success" | "conflict"> => {
+    const draftCheckIn = buildCheckInFromForm(formData);
 
-    // Check for conflicts
-    const conflicts = findConflictingCheckIns(newCheckIn, checkIns);
+    // Check for conflicts only within the current user's check-ins
+    const conflicts = findConflictingCheckIns(draftCheckIn, userCheckIns);
 
     if (conflicts.length > 0) {
-      // Show confirmation dialog
-      const calculatedAdjustments = calculateAdjustments(newCheckIn, conflicts);
-      setPendingCheckIn(newCheckIn);
+      setPendingCheckIn(draftCheckIn);
       setConflictingCheckIns(conflicts);
-      setAdjustments(calculatedAdjustments);
+      setAdjustments(calculateAdjustments(draftCheckIn, conflicts));
       setShowConflictDialog(true);
-    } else {
-      // No conflicts, add directly
-      setCheckIns((prev) => [newCheckIn, ...prev]);
+      return "conflict";
+    }
+
+    await finalizeCheckIn(draftCheckIn);
+    return "success";
+  };
+
+  const handleConfirmConflict = async () => {
+    if (!pendingCheckIn) return;
+
+    try {
+      const { adjustedCheckIns, newCheckIn } = adjustCheckInTimes(
+        pendingCheckIn,
+        conflictingCheckIns
+      );
+
+      await finalizeCheckIn(newCheckIn, adjustedCheckIns);
+    } catch (error) {
+      console.error("Error finalizing conflicting check-in:", error);
+    } finally {
+      setShowConflictDialog(false);
+      setPendingCheckIn(null);
+      setConflictingCheckIns([]);
+      setAdjustments([]);
     }
   };
 
-  const handleConfirmConflict = () => {
-    if (!pendingCheckIn) return;
-
-    // Apply adjustments to conflicting check-ins
-    const { adjustedCheckIns } = adjustCheckInTimes(
-      pendingCheckIn,
-      conflictingCheckIns
-    );
-
-    // Update check-ins: remove conflicting ones and add adjusted ones + new check-in
-    setCheckIns((prev) => {
-      const filteredCheckIns = prev.filter(
-        (checkIn) =>
-          !conflictingCheckIns.some((conflict) => conflict.id === checkIn.id)
-      );
-      return [pendingCheckIn, ...adjustedCheckIns, ...filteredCheckIns];
-    });
-
-    // Reset state
+  const handleCancelConflict = () => {
     setShowConflictDialog(false);
     setPendingCheckIn(null);
     setConflictingCheckIns([]);
     setAdjustments([]);
   };
 
-  const handleCancelConflict = () => {
-    // Reset state without making changes
-    setShowConflictDialog(false);
-    setPendingCheckIn(null);
-    setConflictingCheckIns([]);
-    setAdjustments([]);
+  const handleDeleteCheckIn = async (id: string) => {
+    try {
+      await checkInService.deleteCheckIn(id);
+      removeUserCheckInId(id);
+      setCheckIns((prev) => prev.filter((checkIn) => checkIn.id !== id));
+    } catch (error) {
+      console.error("Failed to delete check-in:", error);
+    }
   };
 
   return (
@@ -152,12 +241,15 @@ export default function Home() {
 
       {/* Check-in Form */}
       <div className="mb-8">
-        <CheckInForm onSubmit={handleCheckInSubmit} onSuccess={loadCheckIns} />
+        <CheckInForm
+          onSubmit={handleCheckInSubmit}
+          resetTrigger={formResetKey}
+        />
       </div>
 
       {/* Check-in List - Only user's own check-ins */}
       <div className="mb-8">
-        <CheckInList checkIns={userCheckIns} />
+        <CheckInList checkIns={userCheckIns} onDelete={handleDeleteCheckIn} />
       </div>
 
       {/* Conflict Confirmation Dialog */}

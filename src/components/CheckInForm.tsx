@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
 import { Label } from "@/components/ui/Label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CheckInFormData } from "@/types/checkin";
@@ -11,15 +10,14 @@ import {
   calculateEndTime,
   formatTimeDisplay,
 } from "@/lib/timeUtils";
-import { checkInService } from "@/lib/supabaseClient";
-import { addUserCheckInId } from "@/lib/userCheckIns";
+import DropdownSelect, { DropdownOption } from "@/components/ui/DropdownSelect";
 
 interface CheckInFormProps {
-  onSubmit: (checkIn: CheckInFormData) => void;
-  onSuccess?: () => void; // Optional callback after successful Supabase save
+  onSubmit: (checkIn: CheckInFormData) => Promise<"success" | "conflict">;
+  resetTrigger?: number;
 }
 
-export default function CheckInForm({ onSubmit, onSuccess }: CheckInFormProps) {
+export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps) {
   const [venue, setVenue] = useState("");
   const [startTime, setStartTime] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("");
@@ -29,6 +27,19 @@ export default function CheckInForm({ onSubmit, onSuccess }: CheckInFormProps) {
 
   const startTimeOptions = generateStartTimeOptions();
   const durationOptions = generateDurationOptions(startTime);
+
+  // Build dropdown options
+  const venueOptions: DropdownOption[] = CAMPUS_AREAS.flatMap((area) =>
+    OHIO_STATE_VENUES.filter((v) => v.area === area).map((v) => ({
+      label: v.name,
+      value: v.name,
+      group: area,
+    }))
+  );
+  const startTimeDropdown: DropdownOption[] = startTimeOptions.map((t) => ({
+    label: formatTimeDisplay(t),
+    value: t,
+  }));
 
   // Calculate end time whenever start time or duration changes
   useEffect(() => {
@@ -49,6 +60,17 @@ export default function CheckInForm({ onSubmit, onSuccess }: CheckInFormProps) {
     setEndTime("");
   }, [startTime]);
 
+  // Allow parent to trigger a reset (e.g., after conflict resolution)
+  useEffect(() => {
+    if (resetTrigger) {
+      setVenue("");
+      setStartTime("");
+      setDurationMinutes("");
+      setEndTime("");
+      setSubmitError("");
+    }
+  }, [resetTrigger]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError("");
@@ -61,41 +83,18 @@ export default function CheckInForm({ onSubmit, onSuccess }: CheckInFormProps) {
     setIsSubmitting(true);
 
     try {
-      // Calculate end time
-      const calculatedEndTime = calculateEndTime(
-        startTime,
-        parseInt(durationMinutes)
-      );
-
-      // Save to Supabase
-      const result = await checkInService.insertCheckIn({
-        venue,
-        start_time: startTime,
-        end_time: calculatedEndTime,
-      });
-
-      // Track this check-in as created by this user
-      if (result && result.id) {
-        addUserCheckInId(result.id);
-      }
-
-      // Also call the local onSubmit for immediate UI update
-      onSubmit({
+      const result = await onSubmit({
         venue,
         startTime,
         durationMinutes: parseInt(durationMinutes),
       });
 
-      // Call success callback to reload data
-      if (onSuccess) {
-        onSuccess();
+      if (result === "success") {
+        setVenue("");
+        setStartTime("");
+        setDurationMinutes("");
+        setEndTime("");
       }
-
-      // Reset form
-      setVenue("");
-      setStartTime("");
-      setDurationMinutes("");
-      setEndTime("");
     } catch (error) {
       console.error("Error saving check-in:", error);
       setSubmitError("Failed to save check-in. Please try again.");
@@ -113,65 +112,42 @@ export default function CheckInForm({ onSubmit, onSuccess }: CheckInFormProps) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="venue">Venue</Label>
-            <Select
-              id="venue"
+            <DropdownSelect
               value={venue}
-              onChange={(e) => setVenue(e.target.value)}
-              required
-            >
-              <option value="">Select a venue...</option>
-              {CAMPUS_AREAS.map((area) => (
-                <optgroup key={area} label={area}>
-                  {OHIO_STATE_VENUES.filter((venue) => venue.area === area).map(
-                    (venueOption) => (
-                      <option key={venueOption.name} value={venueOption.name}>
-                        {venueOption.name}
-                      </option>
-                    )
-                  )}
-                </optgroup>
-              ))}
-            </Select>
+              onChange={setVenue}
+              options={venueOptions}
+              placeholder="Select a venue..."
+              disabled={isSubmitting}
+            />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="startTime">Start Time</Label>
-            <Select
-              id="startTime"
+            <DropdownSelect
               value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              required
-            >
-              <option value="">Select start time...</option>
-              {startTimeOptions.map((time) => (
-                <option key={time} value={time}>
-                  {formatTimeDisplay(time)}
-                </option>
-              ))}
-            </Select>
+              onChange={setStartTime}
+              options={startTimeDropdown}
+              placeholder="Select start time..."
+              disabled={!venue || isSubmitting}
+            />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="duration">Duration</Label>
-            <Select
-              id="duration"
+            <DropdownSelect
               value={durationMinutes}
-              onChange={(e) => setDurationMinutes(e.target.value)}
-              disabled={!startTime}
-              required
-            >
-              <option value="">
-                {startTime
-                  ? "Select duration..."
-                  : "Select start time first..."}
-              </option>
-              {durationOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                  {option.endTime && ` - ${formatTimeDisplay(option.endTime)}`}
-                </option>
-              ))}
-            </Select>
+              onChange={setDurationMinutes}
+              options={durationOptions.map((option) => ({
+                label: option.endTime
+                  ? `${option.label} - ${formatTimeDisplay(option.endTime)}`
+                  : option.label,
+                value: option.value,
+              }))}
+              placeholder={
+                startTime ? "Select duration..." : "Select start time first..."
+              }
+              disabled={!startTime || isSubmitting}
+            />
           </div>
 
           {endTime && (

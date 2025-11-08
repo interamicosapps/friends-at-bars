@@ -47,4 +47,38 @@ export const checkInService = {
       )
       .subscribe();
   },
+
+  // Update the start/end time for a single check-in
+  async updateCheckInTimes(
+    id: string,
+    updates: { start_time?: string; end_time?: string }
+  ) {
+    const { data, error } = await supabase
+      .from("checkins")
+      .update(updates)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as SupabaseCheckIn;
+  },
+
+  // Update multiple check-ins in parallel
+  async updateMultipleCheckIns(
+    updates: { id: string; start_time?: string; end_time?: string }[]
+  ) {
+    return Promise.all(
+      updates.map(({ id, start_time, end_time }) =>
+        checkInService.updateCheckInTimes(id, { start_time, end_time })
+      )
+    );
+  },
+
+  // Delete a check-in by ID
+  async deleteCheckIn(id: string) {
+    const { error } = await supabase.from("checkins").delete().eq("id", id);
+
+    if (error) throw error;
+  },
 };
