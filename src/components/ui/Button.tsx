@@ -6,8 +6,10 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 
+type ButtonVariant = "default" | "outline" | "ghost" | "destructive";
+
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "default" | "outline" | "ghost";
+  variant?: ButtonVariant;
   size?: "default" | "sm" | "lg";
   asChild?: boolean;
 }
@@ -32,6 +34,8 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         "border border-input hover:bg-accent hover:text-accent-foreground":
           variant === "outline",
         "hover:bg-accent hover:text-accent-foreground": variant === "ghost",
+        "bg-destructive text-destructive-foreground hover:bg-destructive/90":
+          variant === "destructive",
       },
       {
         "h-10 py-2 px-4": size === "default",
