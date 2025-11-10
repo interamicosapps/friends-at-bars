@@ -1,4 +1,9 @@
 import { CheckIn } from "@/types/checkin";
+import {
+  calculateEndDateTime,
+  calculateTimeDifference,
+  combineDateAndTime,
+} from "@/lib/timeUtils";
 
 // Example usage:
 // If user has check-in: "Bar A" from 7:30 PM to 9:30 PM
@@ -18,7 +23,25 @@ export const timeToMinutes = (timeString: string): number => {
 export const minutesToTime = (minutes: number): string => {
   const hours = Math.floor(minutes / 60) % 24;
   const mins = minutes % 60;
-  return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`;
+  return `${hours.toString().padStart(2, "0")}:${mins
+    .toString()
+    .padStart(2, "0")}`;
+};
+
+const syncDerivedFields = (checkIn: CheckIn): CheckIn => {
+  const { endTime, endDateTime } = calculateEndDateTime(
+    checkIn.date,
+    checkIn.startTime,
+    checkIn.durationMinutes
+  );
+
+  return {
+    ...checkIn,
+    startDateTime: combineDateAndTime(checkIn.date, checkIn.startTime),
+    endTime,
+    endDateTime,
+    durationMinutes: calculateTimeDifference(checkIn.startTime, endTime),
+  };
 };
 
 // Check if two time ranges overlap
@@ -43,6 +66,10 @@ export const findConflictingCheckIns = (
   existingCheckIns: CheckIn[]
 ): CheckIn[] => {
   return existingCheckIns.filter((existing) => {
+    if (existing.date !== newCheckIn.date || existing.id === newCheckIn.id) {
+      return false;
+    }
+
     return checkTimeOverlap(
       newCheckIn.startTime,
       newCheckIn.endTime,
@@ -57,7 +84,7 @@ export const adjustCheckInTimes = (
   newCheckIn: CheckIn,
   conflictingCheckIns: CheckIn[]
 ): { adjustedCheckIns: CheckIn[]; newCheckIn: CheckIn } => {
-  const adjustedCheckIns = [...conflictingCheckIns];
+  const adjustedCheckIns = conflictingCheckIns.map((checkIn) => ({ ...checkIn }));
   let adjustedNewCheckIn = { ...newCheckIn };
 
   // Sort conflicting check-ins by start time
@@ -77,30 +104,37 @@ export const adjustCheckInTimes = (
     if (newStart < conflictStart) {
       // Adjust conflicting check-in to start when new one ends
       if (newEnd > conflictStart) {
-        adjustedCheckIns[i] = {
-          ...conflicting,
-          startTime: minutesToTime(newEnd),
-        };
+        conflicting.startTime = minutesToTime(newEnd);
+        conflicting.durationMinutes = calculateTimeDifference(
+          conflicting.startTime,
+          conflicting.endTime
+        );
       }
     }
     // If new check-in starts after conflicting one
     else if (newStart > conflictStart) {
       // Adjust conflicting check-in to end when new one starts
       if (newStart < conflictEnd) {
-        adjustedCheckIns[i] = {
-          ...conflicting,
-          endTime: minutesToTime(newStart),
-        };
+        conflicting.endTime = minutesToTime(newStart);
+        conflicting.durationMinutes = calculateTimeDifference(
+          conflicting.startTime,
+          conflicting.endTime
+        );
       }
     }
     // If they start at the same time, adjust conflicting one to end when new one ends
     else {
-      adjustedCheckIns[i] = {
-        ...conflicting,
-        endTime: minutesToTime(newEnd),
-      };
+      conflicting.endTime = minutesToTime(newEnd);
+      conflicting.durationMinutes = calculateTimeDifference(
+        conflicting.startTime,
+        conflicting.endTime
+      );
     }
+
+    adjustedCheckIns[i] = syncDerivedFields(conflicting);
   }
+
+  adjustedNewCheckIn = syncDerivedFields(adjustedNewCheckIn);
 
   return {
     adjustedCheckIns,

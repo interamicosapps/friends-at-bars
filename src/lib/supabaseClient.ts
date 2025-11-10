@@ -51,7 +51,7 @@ export const checkInService = {
   // Update the start/end time for a single check-in
   async updateCheckInTimes(
     id: string,
-    updates: { start_time?: string; end_time?: string }
+    updates: { start_time?: string; end_time?: string; date?: string | null }
   ) {
     const { data, error } = await supabase
       .from("checkins")
@@ -66,11 +66,16 @@ export const checkInService = {
 
   // Update multiple check-ins in parallel
   async updateMultipleCheckIns(
-    updates: { id: string; start_time?: string; end_time?: string }[]
+    updates: {
+      id: string;
+      start_time?: string;
+      end_time?: string;
+      date?: string | null;
+    }[]
   ) {
     return Promise.all(
-      updates.map(({ id, start_time, end_time }) =>
-        checkInService.updateCheckInTimes(id, { start_time, end_time })
+      updates.map(({ id, start_time, end_time, date }) =>
+        checkInService.updateCheckInTimes(id, { start_time, end_time, date })
       )
     );
   },

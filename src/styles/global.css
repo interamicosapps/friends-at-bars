@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import "react-day-picker/dist/style.css";
+
 /* MapLibre GL JS styles */
 .maplibregl-popup-content {
   padding: 0;

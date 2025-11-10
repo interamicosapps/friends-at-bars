@@ -1,14 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
+import { addDays, format } from "date-fns";
+import { Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Calendar } from "@/components/ui/Calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover";
 import { CheckInFormData } from "@/types/checkin";
 import { OHIO_STATE_VENUES, CAMPUS_AREAS } from "@/data/venues";
 import {
+  DEFAULT_START_TIME,
   generateStartTimeOptions,
   generateDurationOptions,
   calculateEndTime,
   formatTimeDisplay,
+  formatDateDisplay,
 } from "@/lib/timeUtils";
 import DropdownSelect, { DropdownOption } from "@/components/ui/DropdownSelect";
 
@@ -17,13 +23,24 @@ interface CheckInFormProps {
   resetTrigger?: number;
 }
 
+type DateOption = "today" | "tomorrow" | "calendar";
+
+const formatDateValue = (date: Date) => format(date, "yyyy-MM-dd");
+
 export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps) {
+  const today = formatDateValue(new Date());
+  const tomorrow = formatDateValue(addDays(new Date(), 1));
+
   const [venue, setVenue] = useState("");
+  const [dateOption, setDateOption] = useState<DateOption>("today");
+  const [selectedDate, setSelectedDate] = useState<string>(today);
   const [startTime, setStartTime] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("");
   const [endTime, setEndTime] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const previousSelectedDate = useRef<string>(today);
 
   const startTimeOptions = generateStartTimeOptions();
   const durationOptions = generateDurationOptions(startTime);
@@ -40,6 +57,28 @@ export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps
     label: formatTimeDisplay(t),
     value: t,
   }));
+
+  const handleDateOptionSelect = (option: DateOption) => {
+    setDateOption(option);
+
+    if (option === "today") {
+      setSelectedDate(today);
+      setIsCalendarOpen(false);
+    } else if (option === "tomorrow") {
+      setSelectedDate(tomorrow);
+      setIsCalendarOpen(false);
+    } else {
+      setIsCalendarOpen(true);
+    }
+  };
+
+  const handleCalendarSelect = (day?: Date) => {
+    if (!day) return;
+    const value = formatDateValue(day);
+    setSelectedDate(value);
+    setDateOption("calendar");
+    setIsCalendarOpen(false);
+  };
 
   // Calculate end time whenever start time or duration changes
   useEffect(() => {
@@ -60,22 +99,42 @@ export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps
     setEndTime("");
   }, [startTime]);
 
+  // Default start time when venue is selected
+  useEffect(() => {
+    if (venue && !startTime) {
+      setStartTime(DEFAULT_START_TIME);
+    }
+  }, [venue, startTime]);
+
   // Allow parent to trigger a reset (e.g., after conflict resolution)
   useEffect(() => {
     if (resetTrigger) {
       setVenue("");
+      setDateOption("today");
+      setSelectedDate(today);
       setStartTime("");
       setDurationMinutes("");
       setEndTime("");
       setSubmitError("");
+      setIsCalendarOpen(false);
     }
-  }, [resetTrigger]);
+  }, [resetTrigger, today]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (
+      isCalendarOpen &&
+      previousSelectedDate.current !== selectedDate
+    ) {
+      setIsCalendarOpen(false);
+    }
+    previousSelectedDate.current = selectedDate;
+  }, [selectedDate, isCalendarOpen]);
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitError("");
 
-    if (!venue || !startTime || !durationMinutes) {
+    if (!venue || !selectedDate || !startTime || !durationMinutes) {
       setSubmitError("Please fill in all fields");
       return;
     }
@@ -85,15 +144,19 @@ export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps
     try {
       const result = await onSubmit({
         venue,
+        date: selectedDate,
         startTime,
         durationMinutes: parseInt(durationMinutes),
       });
 
       if (result === "success") {
         setVenue("");
+        setDateOption("today");
+        setSelectedDate(today);
         setStartTime("");
         setDurationMinutes("");
         setEndTime("");
+        setIsCalendarOpen(false);
       }
     } catch (error) {
       console.error("Error saving check-in:", error);
@@ -119,6 +182,55 @@ export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps
               placeholder="Select a venue..."
               disabled={isSubmitting}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="date">Date</Label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={dateOption === "today" ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleDateOptionSelect("today")}
+                disabled={isSubmitting}
+              >
+                Today
+              </Button>
+              <Button
+                type="button"
+                variant={dateOption === "tomorrow" ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleDateOptionSelect("tomorrow")}
+                disabled={isSubmitting}
+              >
+                Tomorrow
+              </Button>
+              <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={dateOption === "calendar" ? "default" : "outline"}
+                    size="sm"
+                    className="flex items-center gap-2"
+                    onClick={() => handleDateOptionSelect("calendar")}
+                    disabled={isSubmitting}
+                  >
+                    <CalendarIcon className="h-4 w-4" /> Calendar
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate ? new Date(`${selectedDate}T00:00:00`) : undefined}
+                    onSelect={handleCalendarSelect}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Selected: {formatDateDisplay(selectedDate)}
+            </p>
           </div>
 
           <div className="space-y-2">

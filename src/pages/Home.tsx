@@ -1,13 +1,18 @@
 import { useState, useEffect } from "react";
+import { format } from "date-fns";
 import CheckInForm from "@/components/CheckInForm";
 import CheckInList from "@/components/CheckInList";
 import MapView from "@/components/MapView";
 import ConflictConfirmationDialog from "@/components/ConflictConfirmationDialog";
 import { CheckIn, CheckInFormData, SupabaseCheckIn } from "@/types/checkin";
 import {
-  calculateEndTime,
+  calculateEndDateTime,
+  combineDateAndTime,
   extractTimeFromTimestamp,
   calculateTimeDifference,
+  isCheckInInPast,
+  DEFAULT_START_TIME,
+  normalizeDateTime,
 } from "@/lib/timeUtils";
 import {
   findConflictingCheckIns,
@@ -32,6 +37,12 @@ export default function Home() {
   >([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [formResetKey, setFormResetKey] = useState(0);
+  const [mapSelectedDate, setMapSelectedDate] = useState<string>(() =>
+    format(new Date(), "yyyy-MM-dd")
+  );
+  const [mapSelectedTime, setMapSelectedTime] = useState<string>(
+    DEFAULT_START_TIME
+  );
 
   const generateTempId = () =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -39,9 +50,14 @@ export default function Home() {
       : Date.now().toString();
 
   const buildCheckInFromForm = (formData: CheckInFormData): CheckIn => {
-    const endTime = calculateEndTime(
+    const { endTime, endDateTime } = calculateEndDateTime(
+      formData.date,
       formData.startTime,
       formData.durationMinutes
+    );
+    const startDateTime = combineDateAndTime(
+      formData.date,
+      formData.startTime
     );
     const venueDetails = OHIO_STATE_VENUES.find(
       (v) => v.name === formData.venue
@@ -51,9 +67,12 @@ export default function Home() {
       id: generateTempId(),
       venue: formData.venue,
       venueArea: venueDetails?.area,
+      date: formData.date,
       startTime: formData.startTime,
       durationMinutes: formData.durationMinutes,
       endTime,
+      startDateTime,
+      endDateTime,
       timestamp: new Date(),
     };
   };
@@ -64,8 +83,9 @@ export default function Home() {
   ) => {
     const result = await checkInService.insertCheckIn({
       venue: checkIn.venue,
-      start_time: checkIn.startTime,
-      end_time: checkIn.endTime,
+      start_time: checkIn.startDateTime,
+      end_time: checkIn.endDateTime,
+      date: checkIn.date,
     });
 
     if (!result?.id) {
@@ -74,28 +94,53 @@ export default function Home() {
 
     addUserCheckInId(result.id);
 
+    const startTimeFromResult = extractTimeFromTimestamp(
+      result.start_time ?? checkIn.startDateTime
+    );
+    const endTimeFromResult = extractTimeFromTimestamp(
+      result.end_time ?? checkIn.endDateTime
+    );
+
     const insertedCheckIn: CheckIn = {
       ...checkIn,
       id: result.id,
-      timestamp: new Date(result.created_at),
+      date: result.date ?? checkIn.date,
+      startTime: startTimeFromResult,
+      endTime: endTimeFromResult,
+      startDateTime: result.start_time ?? checkIn.startDateTime,
+      endDateTime: result.end_time ?? checkIn.endDateTime,
       durationMinutes: calculateTimeDifference(
-        checkIn.startTime,
-        checkIn.endTime
+        startTimeFromResult,
+        endTimeFromResult
       ),
+      timestamp: new Date(result.created_at),
     };
 
-    const normalizedAdjusted = adjustedCheckIns.map((item) => ({
-      ...item,
-      durationMinutes: calculateTimeDifference(item.startTime, item.endTime),
-    }));
+    const normalizedAdjusted = adjustedCheckIns.map((item) => {
+      const startDateTime = combineDateAndTime(item.date, item.startTime);
+      const { endTime, endDateTime } = calculateEndDateTime(
+        item.date,
+        item.startTime,
+        item.durationMinutes
+      );
+
+      return {
+        ...item,
+        startDateTime,
+        endTime,
+        endDateTime,
+        durationMinutes: calculateTimeDifference(item.startTime, endTime),
+      };
+    });
 
     if (normalizedAdjusted.length > 0) {
       try {
         await checkInService.updateMultipleCheckIns(
           normalizedAdjusted.map((item) => ({
             id: item.id,
-            start_time: item.startTime,
-            end_time: item.endTime,
+            start_time: item.startDateTime,
+            end_time: item.endDateTime,
+            date: item.date,
           }))
         );
       } catch (error) {
@@ -114,20 +159,35 @@ export default function Home() {
           existing.id !== result.id &&
           !normalizedAdjusted.some((adj) => adj.id === existing.id)
       );
-      return [insertedCheckIn, ...normalizedAdjusted, ...filtered];
+
+      const updated = [insertedCheckIn, ...normalizedAdjusted, ...filtered];
+
+      return updated.sort(
+        (a, b) =>
+          new Date(a.startDateTime).getTime() -
+          new Date(b.startDateTime).getTime()
+      );
     });
 
     // Trigger form reset (for both direct submissions and resolved conflicts)
     setFormResetKey(Date.now());
   };
 
+  const getCurrentUserCheckIns = () => {
+    const userCheckInIds = getUserCheckInIds();
+    return checkIns
+      .filter((checkIn) => userCheckInIds.includes(checkIn.id))
+      .filter((checkIn) => !isCheckInInPast(checkIn.endDateTime))
+      .sort(
+        (a, b) =>
+          new Date(a.startDateTime).getTime() -
+          new Date(b.startDateTime).getTime()
+      );
+  };
+
   // Keep user's personal list in sync whenever the global check-ins change
   useEffect(() => {
-    const userCheckInIds = getUserCheckInIds();
-    const userOwnCheckIns = checkIns.filter((checkIn) =>
-      userCheckInIds.includes(checkIn.id)
-    );
-    setUserCheckIns(userOwnCheckIns);
+    setUserCheckIns(getCurrentUserCheckIns());
   }, [checkIns]);
 
   // Function to load check-ins from Supabase
@@ -135,17 +195,58 @@ export default function Home() {
     try {
       const supabaseData = await checkInService.fetchCheckIns();
 
-      // Convert Supabase check-ins to local CheckIn format
       const convertedCheckIns: CheckIn[] = supabaseData.map(
         (supabaseCheckIn: SupabaseCheckIn) => {
-          // Extract time strings from timestamps (handles both timestamp and HH:MM formats)
-          const startTime = extractTimeFromTimestamp(
-            supabaseCheckIn.start_time
-          );
-          const endTime = extractTimeFromTimestamp(supabaseCheckIn.end_time);
+          const startFallbackTime =
+            extractTimeFromTimestamp(
+              supabaseCheckIn.start_time ?? supabaseCheckIn.created_at
+            ) || DEFAULT_START_TIME;
 
-          // Calculate duration properly (handles overnight)
-          const durationMinutes = calculateTimeDifference(startTime, endTime);
+          const normalizedStart = normalizeDateTime({
+            raw: supabaseCheckIn.start_time,
+            date: supabaseCheckIn.date,
+            fallbackTime: startFallbackTime,
+          });
+
+          const normalizedEnd = normalizeDateTime({
+            raw: supabaseCheckIn.end_time,
+            date: normalizedStart.date,
+            fallbackTime: normalizedStart.time,
+          });
+
+          let startDateTime = normalizedStart.iso;
+          let startTime = normalizedStart.time;
+          let eventDate = normalizedStart.date;
+
+          let endDateTime = normalizedEnd.iso;
+          let endTime = normalizedEnd.time;
+
+          let durationMinutes = Math.round(
+            (new Date(endDateTime).getTime() -
+              new Date(startDateTime).getTime()) /
+              60000
+          );
+
+          if (
+            !supabaseCheckIn.end_time ||
+            !Number.isFinite(durationMinutes) ||
+            durationMinutes <= 0
+          ) {
+            const fallbackDuration = calculateTimeDifference(
+              startTime,
+              endTime
+            );
+            const duration =
+              fallbackDuration > 0 ? fallbackDuration : 60;
+            const computed = calculateEndDateTime(
+              eventDate,
+              startTime,
+              duration
+            );
+            endTime = computed.endTime;
+            endDateTime = computed.endDateTime;
+            durationMinutes = duration;
+          }
 
           const venue = OHIO_STATE_VENUES.find(
             (v) => v.name === supabaseCheckIn.venue
@@ -155,16 +256,24 @@ export default function Home() {
             id: supabaseCheckIn.id,
             venue: supabaseCheckIn.venue,
             venueArea: venue?.area,
-            startTime: startTime,
-            endTime: endTime,
+            date: eventDate,
+            startTime,
             durationMinutes,
+            endTime,
+            startDateTime,
+            endDateTime,
             timestamp: new Date(supabaseCheckIn.created_at),
           };
         }
       );
 
-      // Set all check-ins (for map)
-      setCheckIns(convertedCheckIns);
+      setCheckIns(
+        convertedCheckIns.sort(
+          (a, b) =>
+            new Date(a.startDateTime).getTime() -
+            new Date(b.startDateTime).getTime()
+        )
+      );
     } catch (error) {
       console.error("Error loading check-ins from Supabase:", error);
     }
@@ -181,7 +290,10 @@ export default function Home() {
     const draftCheckIn = buildCheckInFromForm(formData);
 
     // Check for conflicts only within the current user's check-ins
-    const conflicts = findConflictingCheckIns(draftCheckIn, userCheckIns);
+    const conflicts = findConflictingCheckIns(
+      draftCheckIn,
+      getCurrentUserCheckIns()
+    );
 
     if (conflicts.length > 0) {
       setPendingCheckIn(draftCheckIn);
@@ -232,11 +344,26 @@ export default function Home() {
     }
   };
 
+  const handleMapDateChange = (date: string) => {
+    setMapSelectedDate(date);
+    setMapSelectedTime(DEFAULT_START_TIME);
+  };
+
+  const handleMapTimeChange = (time: string) => {
+    setMapSelectedTime(time);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Map Section */}
       <div className="mb-8">
-        <MapView checkIns={checkIns} />
+        <MapView
+          checkIns={checkIns}
+          selectedDate={mapSelectedDate}
+          selectedTime={mapSelectedTime}
+          onSelectDate={handleMapDateChange}
+          onSelectTime={handleMapTimeChange}
+        />
       </div>
 
       {/* Check-in Form */}

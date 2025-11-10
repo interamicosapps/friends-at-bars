@@ -1,39 +1,16 @@
 // Time utility functions for check-in form
 
+export const DEFAULT_START_TIME = "20:30";
+
 export const generateStartTimeOptions = (): string[] => {
   const options: string[] = [];
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
 
-  // Default start time is 5:00 PM (17:00) unless it's already past 5 PM today
-  let startHour = 17; // 5 PM
-  let startMinute = 0;
-
-  // If it's past 5 PM, start from the next half hour
-  if (currentHour > 17 || (currentHour === 17 && currentMinute > 0)) {
-    startHour = currentHour;
-    startMinute = currentMinute <= 30 ? 30 : 0;
-    if (currentMinute > 30) {
-      startHour += 1;
-    }
-  }
-
-  // Generate times from start time through 2:00 AM next day
-  let hour = startHour;
-  let minute = startMinute;
-
-  while (hour < 26) {
-    // 2 AM next day = 26 hours from midnight
-    const timeString = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
-    options.push(timeString);
-
-    // Increment by 30 minutes
-    minute += 30;
-    if (minute >= 60) {
-      minute = 0;
-      hour += 1;
-    }
+  for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
+    const hours = Math.floor(minutes / 60)
+      .toString()
+      .padStart(2, "0");
+    const mins = (minutes % 60).toString().padStart(2, "0");
+    options.push(`${hours}:${mins}`);
   }
 
   return options;
@@ -117,7 +94,39 @@ export const calculateEndTime = (
   const endHour = Math.floor(totalMinutes / 60) % 24;
   const endMinute = totalMinutes % 60;
 
-  return `${endHour.toString().padStart(2, "0")}:${endMinute.toString().padStart(2, "0")}`;
+  return `${endHour.toString().padStart(2, "0")}:${endMinute
+    .toString()
+    .padStart(2, "0")}`;
+};
+
+const pad = (value: number): string => value.toString().padStart(2, "0");
+
+const toLocalDateString = (date: Date): string =>
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+const toLocalTimeString = (date: Date): string =>
+  `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+
+export const calculateEndDateTime = (
+  date: string,
+  startTime: string,
+  durationMinutes: number
+): { endTime: string; endDateTime: string } => {
+  const startDateTime = combineDateAndTime(date, startTime);
+  const start = new Date(startDateTime);
+  const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
+
+  const endTime = toLocalTimeString(end);
+
+  return { endTime, endDateTime: end.toISOString() };
+};
+
+export const combineDateAndTime = (date: string, time: string): string => {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+
+  const combined = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  return combined.toISOString();
 };
 
 export const formatTimeDisplay = (timeString: string): string => {
@@ -127,27 +136,34 @@ export const formatTimeDisplay = (timeString: string): string => {
   return `${hour}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 };
 
+export const formatDateDisplay = (dateString: string): string => {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+};
+
 // Extract time from Supabase timestamptz format
 // Handles both full timestamps ("2024-01-01T10:30:00+00:00") and time strings ("10:30")
 export const extractTimeFromTimestamp = (timestamp: string): string => {
+  if (!timestamp) return "";
+
   // If it's just a time string (HH:MM), return it as is
-  if (timestamp.match(/^\d{2}:\d{2}$/)) {
+  if (/^\d{2}:\d{2}$/.test(timestamp)) {
     return timestamp;
   }
 
-  // If it's a full timestamp, extract the time portion
-  // Format: "2024-01-01T10:30:00+00:00" or "2024-01-01 10:30:00+00:00"
+  const parsed = new Date(timestamp);
+  if (!isNaN(parsed.getTime())) {
+    return toLocalTimeString(parsed);
+  }
+
   const match = timestamp.match(/(\d{2}):(\d{2})/);
   if (match) {
     return `${match[1]}:${match[2]}`;
-  }
-
-  // Fallback: try parsing as Date and extracting time
-  const date = new Date(timestamp);
-  if (!isNaN(date.getTime())) {
-    const hours = date.getHours().toString().padStart(2, "0");
-    const minutes = date.getMinutes().toString().padStart(2, "0");
-    return `${hours}:${minutes}`;
   }
 
   return timestamp; // Return original if we can't parse it
@@ -173,4 +189,65 @@ export const calculateTimeDifference = (
   }
 
   return endTotalMinutes - startTotalMinutes;
+};
+
+export const isCheckInInPast = (endDateTime: string): boolean => {
+  return new Date(endDateTime).getTime() < Date.now();
+};
+
+export const isCheckInActiveAt = (
+  checkIn: { startDateTime: string; endDateTime: string },
+  targetDate: string,
+  targetTime: string
+): boolean => {
+  const targetDateTime = combineDateAndTime(targetDate, targetTime);
+  const target = new Date(targetDateTime).getTime();
+  const start = new Date(checkIn.startDateTime).getTime();
+  const end = new Date(checkIn.endDateTime).getTime();
+
+  return target >= start && target <= end;
+};
+
+const ensureDateString = (value?: string | null): string => {
+  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  return toLocalDateString(new Date());
+};
+
+export const normalizeDateTime = ({
+  raw,
+  date,
+  fallbackTime = DEFAULT_START_TIME,
+}: {
+  raw?: string | null;
+  date?: string | null;
+  fallbackTime?: string;
+}): { iso: string; date: string; time: string } => {
+  let resolvedDate = ensureDateString(date);
+
+  if (raw && /^\d{2}:\d{2}$/.test(raw)) {
+    return {
+      iso: combineDateAndTime(resolvedDate, raw),
+      date: resolvedDate,
+      time: raw,
+    };
+  }
+
+  if (raw) {
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime())) {
+      return {
+        iso: parsed.toISOString(),
+        date: toLocalDateString(parsed),
+        time: toLocalTimeString(parsed),
+      };
+    }
+  }
+
+  return {
+    iso: combineDateAndTime(resolvedDate, fallbackTime),
+    date: resolvedDate,
+    time: fallbackTime,
+  };
 };

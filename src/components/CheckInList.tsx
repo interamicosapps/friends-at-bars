@@ -1,6 +1,6 @@
 import { CheckIn } from "@/types/checkin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatTimeDisplay } from "@/lib/timeUtils";
+import { formatDateDisplay, formatTimeDisplay } from "@/lib/timeUtils";
 import { Button } from "@/components/ui/Button";
 
 interface CheckInListProps {
@@ -26,8 +26,8 @@ export default function CheckInList({ checkIns, onDelete }: CheckInListProps) {
     }
   };
 
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString("en-US", {
+  const formatCreatedAt = (date: Date) => {
+    return date.toLocaleString(undefined, {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -66,6 +66,9 @@ export default function CheckInList({ checkIns, onDelete }: CheckInListProps) {
                 <h3 className="font-semibold text-foreground">
                   {checkIn.venue}
                 </h3>
+                <p className="text-sm font-medium text-foreground">
+                  {formatDateDisplay(checkIn.date)}
+                </p>
                 <p className="text-sm text-muted-foreground">
                   {formatTimeDisplay(checkIn.startTime)} -{" "}
                   {formatTimeDisplay(checkIn.endTime)}
@@ -81,7 +84,7 @@ export default function CheckInList({ checkIns, onDelete }: CheckInListProps) {
               </div>
               <div className="flex flex-col items-end gap-2">
                 <p className="text-xs text-muted-foreground">
-                  {formatDate(checkIn.timestamp)}
+                  Added {formatCreatedAt(checkIn.timestamp)}
                 </p>
                 {onDelete && (
                   <Button

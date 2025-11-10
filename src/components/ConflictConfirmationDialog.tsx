@@ -1,7 +1,7 @@
 import { CheckIn } from "@/types/checkin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { formatTimeDisplay } from "@/lib/timeUtils";
+import { formatDateDisplay, formatTimeDisplay } from "@/lib/timeUtils";
 
 interface ConflictConfirmationDialogProps {
   newCheckIn: CheckIn;
@@ -44,6 +44,9 @@ export default function ConflictConfirmationDialog({
                 <strong>Venue:</strong> {newCheckIn.venue}
               </p>
               <p>
+                <strong>Date:</strong> {formatDateDisplay(newCheckIn.date)}
+              </p>
+              <p>
                 <strong>Time:</strong> {formatTimeDisplay(newCheckIn.startTime)}{" "}
                 - {formatTimeDisplay(newCheckIn.endTime)}
               </p>
@@ -62,6 +65,9 @@ export default function ConflictConfirmationDialog({
               >
                 <div className="mb-2">
                   <p className="font-medium">{adjustment.original.venue}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDateDisplay(adjustment.original.date)}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 text-sm">
