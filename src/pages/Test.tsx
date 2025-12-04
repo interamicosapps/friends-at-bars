@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import CheckInForm from "@/components/CheckInForm";
 import CheckInList from "@/components/CheckInList";
@@ -13,13 +13,14 @@ import {
   isCheckInInPast,
   DEFAULT_START_TIME,
   normalizeDateTime,
+  generateNightlifeTimeOptions,
 } from "@/lib/timeUtils";
 import {
   findConflictingCheckIns,
   calculateAdjustments,
   adjustCheckInTimes,
 } from "@/lib/conflictUtils";
-import { checkInService } from "@/lib/supabaseClient";
+import { jsonService } from "@/lib/jsonClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import {
   addUserCheckInId,
@@ -27,7 +28,7 @@ import {
   removeUserCheckInId,
 } from "@/lib/userCheckIns";
 
-export default function Home() {
+export default function Test() {
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]); // All check-ins (for map)
   const [userCheckIns, setUserCheckIns] = useState<CheckIn[]>([]); // User's own check-ins (for list)
   const [pendingCheckIn, setPendingCheckIn] = useState<CheckIn | null>(null);
@@ -37,12 +38,11 @@ export default function Home() {
   >([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [formResetKey, setFormResetKey] = useState(0);
-  const [mapSelectedDate, setMapSelectedDate] = useState<string>(() =>
-    format(new Date(), "yyyy-MM-dd")
-  );
-  const [mapSelectedTime, setMapSelectedTime] = useState<string>(
-    DEFAULT_START_TIME
-  );
+  const [mapSelectedDate, setMapSelectedDate] = useState<string>("2025-11-19");
+  const [mapSelectedTime, setMapSelectedTime] = useState<string>("21:00");
+  const nightlifeTimeOptions = generateNightlifeTimeOptions();
+  const [jsonStatus, setJsonStatus] = useState<string>("Loaded");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generateTempId = () =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -81,7 +81,7 @@ export default function Home() {
     checkIn: CheckIn,
     adjustedCheckIns: CheckIn[] = []
   ) => {
-    const result = await checkInService.insertCheckIn({
+    const result = await jsonService.insertCheckIn({
       venue: checkIn.venue,
       start_time: checkIn.startDateTime,
       end_time: checkIn.endDateTime,
@@ -125,7 +125,7 @@ export default function Home() {
       );
 
       return {
-      ...item,
+        ...item,
         startDateTime,
         endTime,
         endDateTime,
@@ -135,7 +135,7 @@ export default function Home() {
 
     if (normalizedAdjusted.length > 0) {
       try {
-        await checkInService.updateMultipleCheckIns(
+        await jsonService.updateMultipleCheckIns(
           normalizedAdjusted.map((item) => ({
             id: item.id,
             start_time: item.startDateTime,
@@ -145,7 +145,7 @@ export default function Home() {
         );
       } catch (error) {
         console.error(
-          "Failed to update conflicting check-ins in Supabase:",
+          "Failed to update conflicting check-ins in JSON:",
           error
         );
         throw error;
@@ -190,26 +190,26 @@ export default function Home() {
     setUserCheckIns(getCurrentUserCheckIns());
   }, [checkIns]);
 
-  // Function to load check-ins from Supabase
+  // Function to load check-ins from JSON
   const loadCheckIns = async () => {
     try {
-      const supabaseData = await checkInService.fetchCheckIns();
+      const jsonData = await jsonService.fetchCheckIns();
 
-      const convertedCheckIns: CheckIn[] = supabaseData.map(
-        (supabaseCheckIn: SupabaseCheckIn) => {
+      const convertedCheckIns: CheckIn[] = jsonData.map(
+        (jsonCheckIn: SupabaseCheckIn) => {
           const startFallbackTime =
             extractTimeFromTimestamp(
-              supabaseCheckIn.start_time ?? supabaseCheckIn.created_at
+              jsonCheckIn.start_time ?? jsonCheckIn.created_at
             ) || DEFAULT_START_TIME;
 
           const normalizedStart = normalizeDateTime({
-            raw: supabaseCheckIn.start_time,
-            date: supabaseCheckIn.date,
+            raw: jsonCheckIn.start_time,
+            date: jsonCheckIn.date,
             fallbackTime: startFallbackTime,
           });
 
           const normalizedEnd = normalizeDateTime({
-            raw: supabaseCheckIn.end_time,
+            raw: jsonCheckIn.end_time,
             date: normalizedStart.date,
             fallbackTime: normalizedStart.time,
           });
@@ -228,7 +228,7 @@ export default function Home() {
           );
 
           if (
-            !supabaseCheckIn.end_time ||
+            !jsonCheckIn.end_time ||
             !Number.isFinite(durationMinutes) ||
             durationMinutes <= 0
           ) {
@@ -249,12 +249,12 @@ export default function Home() {
           }
 
           const venue = OHIO_STATE_VENUES.find(
-            (v) => v.name === supabaseCheckIn.venue
+            (v) => v.name === jsonCheckIn.venue
           );
 
           return {
-            id: supabaseCheckIn.id,
-            venue: supabaseCheckIn.venue,
+            id: jsonCheckIn.id,
+            venue: jsonCheckIn.venue,
             venueArea: venue?.area,
             date: eventDate,
             startTime,
@@ -262,7 +262,7 @@ export default function Home() {
             endTime,
             startDateTime,
             endDateTime,
-            timestamp: new Date(supabaseCheckIn.created_at),
+            timestamp: new Date(jsonCheckIn.created_at),
           };
         }
       );
@@ -274,12 +274,14 @@ export default function Home() {
             new Date(b.startDateTime).getTime()
         )
       );
+      setJsonStatus(`Loaded ${convertedCheckIns.length} check-ins`);
     } catch (error) {
-      console.error("Error loading check-ins from Supabase:", error);
+      console.error("Error loading check-ins from JSON:", error);
+      setJsonStatus("Error loading data");
     }
   };
 
-  // Fetch check-ins from Supabase on page load
+  // Fetch check-ins from JSON on page load
   useEffect(() => {
     loadCheckIns();
   }, []);
@@ -336,7 +338,7 @@ export default function Home() {
 
   const handleDeleteCheckIn = async (id: string) => {
     try {
-      await checkInService.deleteCheckIn(id);
+      await jsonService.deleteCheckIn(id);
       removeUserCheckInId(id);
       setCheckIns((prev) => prev.filter((checkIn) => checkIn.id !== id));
     } catch (error) {
@@ -346,11 +348,41 @@ export default function Home() {
 
   const handleMapDateChange = (date: string) => {
     setMapSelectedDate(date);
-    setMapSelectedTime(DEFAULT_START_TIME);
+    setMapSelectedTime("21:00"); // Reset to default time (9:00 PM)
   };
 
   const handleMapTimeChange = (time: string) => {
     setMapSelectedTime(time);
+  };
+
+  const handleDownloadJSON = () => {
+    try {
+      jsonService.downloadJSON();
+      setJsonStatus("Downloaded test-data.json");
+    } catch (error) {
+      console.error("Failed to download JSON:", error);
+      setJsonStatus("Error downloading");
+    }
+  };
+
+  const handleUploadJSON = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      await jsonService.uploadJSON(file);
+      setJsonStatus(`Loaded ${file.name}`);
+      // Reload check-ins after upload
+      await loadCheckIns();
+    } catch (error) {
+      console.error("Failed to upload JSON:", error);
+      setJsonStatus("Error uploading file");
+    } finally {
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
   };
 
   return (
@@ -363,6 +395,9 @@ export default function Home() {
           selectedTime={mapSelectedTime}
           onSelectDate={handleMapDateChange}
           onSelectTime={handleMapTimeChange}
+          heatMapMode={true}
+          showRightPanel={true}
+          timeOptions={nightlifeTimeOptions}
         />
       </div>
 
@@ -392,3 +427,4 @@ export default function Home() {
     </div>
   );
 }
+

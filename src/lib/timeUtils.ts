@@ -1,11 +1,28 @@
 // Time utility functions for check-in form
 
-export const DEFAULT_START_TIME = "20:30";
+export const DEFAULT_START_TIME = "21:00";
 
 export const generateStartTimeOptions = (): string[] => {
   const options: string[] = [];
 
   for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
+    const hours = Math.floor(minutes / 60)
+      .toString()
+      .padStart(2, "0");
+    const mins = (minutes % 60).toString().padStart(2, "0");
+    options.push(`${hours}:${mins}`);
+  }
+
+  return options;
+};
+
+// Generate time options from 5 AM to 4:30 AM next day (for nightlife hours)
+export const generateNightlifeTimeOptions = (): string[] => {
+  const options: string[] = [];
+
+  // Start at 5:00 AM (300 minutes from midnight)
+  // End at 4:30 AM next day (28.5 hours = 1710 minutes from midnight)
+  for (let minutes = 5 * 60; minutes <= 28.5 * 60; minutes += 30) {
     const hours = Math.floor(minutes / 60)
       .toString()
       .padStart(2, "0");
@@ -125,14 +142,29 @@ export const combineDateAndTime = (date: string, time: string): string => {
   const [year, month, day] = date.split("-").map(Number);
   const [hours, minutes] = time.split(":").map(Number);
 
-  const combined = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  // Handle times >= 24:00 (next day)
+  let actualDay = day;
+  let actualHours = hours;
+  if (hours >= 24) {
+    actualDay = day + 1;
+    actualHours = hours % 24;
+  }
+
+  const combined = new Date(year, month - 1, actualDay, actualHours, minutes, 0, 0);
   return combined.toISOString();
 };
 
 export const formatTimeDisplay = (timeString: string): string => {
   const [hours, minutes] = timeString.split(":").map(Number);
-  const hour = hours % 12 || 12;
-  const ampm = hours >= 12 ? "PM" : "AM";
+  
+  // Handle times >= 24:00 (next day)
+  let displayHours = hours;
+  if (hours >= 24) {
+    displayHours = hours % 24;
+  }
+  
+  const hour = displayHours % 12 || 12;
+  const ampm = displayHours >= 12 ? "PM" : "AM";
   return `${hour}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 };
 
@@ -200,7 +232,22 @@ export const isCheckInActiveAt = (
   targetDate: string,
   targetTime: string
 ): boolean => {
-  const targetDateTime = combineDateAndTime(targetDate, targetTime);
+  // Handle times >= 24:00 (next day) - adjust date and normalize time
+  const [hours, minutes] = targetTime.split(":").map(Number);
+  let actualTargetDate = targetDate;
+  let normalizedTime = targetTime;
+  
+  if (hours >= 24) {
+    // Add one day to the target date
+    const date = new Date(targetDate + "T00:00:00");
+    date.setDate(date.getDate() + 1);
+    actualTargetDate = toLocalDateString(date);
+    // Normalize time: 24:00 -> 00:00, 25:30 -> 01:30, etc.
+    const normalizedHours = hours % 24;
+    normalizedTime = `${normalizedHours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+  }
+  
+  const targetDateTime = combineDateAndTime(actualTargetDate, normalizedTime);
   const target = new Date(targetDateTime).getTime();
   const start = new Date(checkIn.startDateTime).getTime();
   const end = new Date(checkIn.endDateTime).getTime();
