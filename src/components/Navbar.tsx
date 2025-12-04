@@ -17,9 +17,7 @@ export default function Navbar() {
                 N
               </span>
             </div>
-            <span className="text-xl font-bold text-foreground">
-              Ohio State Nightlife Map
-            </span>
+            <span className="text-xl font-bold text-foreground">Nightlife</span>
           </Link>
 
           {/* Navigation Links */}
