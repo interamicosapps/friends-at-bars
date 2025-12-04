@@ -599,7 +599,7 @@ export default function MapView({
         )}
       </Map>
 
-      {/* Right-side list panel (Test page only) */}
+      {/* Right-side list panel */}
       {showRightPanel && (
         <>
           {isRightPanelCollapsed ? (

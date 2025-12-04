@@ -13,6 +13,7 @@ import {
   isCheckInInPast,
   DEFAULT_START_TIME,
   normalizeDateTime,
+  generateNightlifeTimeOptions,
 } from "@/lib/timeUtils";
 import {
   findConflictingCheckIns,
@@ -43,6 +44,7 @@ export default function Home() {
   const [mapSelectedTime, setMapSelectedTime] = useState<string>(
     DEFAULT_START_TIME
   );
+  const nightlifeTimeOptions = generateNightlifeTimeOptions();
 
   const generateTempId = () =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -346,7 +348,7 @@ export default function Home() {
 
   const handleMapDateChange = (date: string) => {
     setMapSelectedDate(date);
-    setMapSelectedTime(DEFAULT_START_TIME);
+    setMapSelectedTime("21:00"); // Reset to default time (9:00 PM)
   };
 
   const handleMapTimeChange = (time: string) => {
@@ -363,6 +365,9 @@ export default function Home() {
           selectedTime={mapSelectedTime}
           onSelectDate={handleMapDateChange}
           onSelectTime={handleMapTimeChange}
+          heatMapMode={true}
+          showRightPanel={true}
+          timeOptions={nightlifeTimeOptions}
         />
       </div>
 
