@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef } from "react";
-import { format } from "date-fns";
+import { useState, useEffect } from "react";
 import CheckInForm from "@/components/CheckInForm";
 import CheckInList from "@/components/CheckInList";
 import MapView from "@/components/MapView";
@@ -41,8 +40,6 @@ export default function Test() {
   const [mapSelectedDate, setMapSelectedDate] = useState<string>("2025-11-19");
   const [mapSelectedTime, setMapSelectedTime] = useState<string>("21:00");
   const nightlifeTimeOptions = generateNightlifeTimeOptions();
-  const [jsonStatus, setJsonStatus] = useState<string>("Loaded");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generateTempId = () =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -274,10 +271,8 @@ export default function Test() {
             new Date(b.startDateTime).getTime()
         )
       );
-      setJsonStatus(`Loaded ${convertedCheckIns.length} check-ins`);
     } catch (error) {
       console.error("Error loading check-ins from JSON:", error);
-      setJsonStatus("Error loading data");
     }
   };
 
@@ -353,36 +348,6 @@ export default function Test() {
 
   const handleMapTimeChange = (time: string) => {
     setMapSelectedTime(time);
-  };
-
-  const handleDownloadJSON = () => {
-    try {
-      jsonService.downloadJSON();
-      setJsonStatus("Downloaded test-data.json");
-    } catch (error) {
-      console.error("Failed to download JSON:", error);
-      setJsonStatus("Error downloading");
-    }
-  };
-
-  const handleUploadJSON = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      await jsonService.uploadJSON(file);
-      setJsonStatus(`Loaded ${file.name}`);
-      // Reload check-ins after upload
-      await loadCheckIns();
-    } catch (error) {
-      console.error("Failed to upload JSON:", error);
-      setJsonStatus("Error uploading file");
-    } finally {
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
   };
 
   return (
