@@ -34,15 +34,6 @@ export default function Navbar() {
               Home
             </Link>
             <Link
-              to="/test"
-              className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
-                isActive("/test") ? "text-primary" : "text-muted-foreground"
-              )}
-            >
-              Test
-            </Link>
-            <Link
               to="/about"
               className={cn(
                 "text-sm font-medium transition-colors hover:text-primary",
