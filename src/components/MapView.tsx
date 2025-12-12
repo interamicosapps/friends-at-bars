@@ -5,7 +5,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { format } from "date-fns";
 import {
   Calendar as CalendarIcon,
-  ChevronLeft,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
@@ -32,7 +31,6 @@ interface MapViewProps {
   onSelectDate: (date: string) => void;
   onSelectTime: (time: string) => void;
   heatMapMode?: boolean;
-  showRightPanel?: boolean; // Enable right-side list panel
   timeOptions?: string[]; // Custom time options (for nightlife hours)
 }
 
@@ -54,18 +52,21 @@ export default function MapView({
   onSelectDate,
   onSelectTime,
   heatMapMode = false,
-  showRightPanel = false,
   timeOptions,
 }: MapViewProps) {
   const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
   const [zoom, setZoom] = useState<number>(14);
-  const previousSelectedDate = useRef<string>(selectedDate);
+  const [viewState, setViewState] = useState({
+    longitude: -83.0067,
+    latitude: 39.9917,
+    zoom: 14,
+  });
+  const previousSelectedDate = useRef<string | null>(null);
+  const previousSelectedTime = useRef<string | null>(null);
   const topSliderRef = useRef<HTMLDivElement>(null);
-  const rightSliderRef = useRef<HTMLDivElement>(null);
   const dateFieldRef = useRef<HTMLButtonElement>(null);
 
   const sliderOptions = useMemo(
@@ -88,13 +89,65 @@ export default function MapView({
   const getVenueActivity = (venueName: string) =>
     activeCheckIns.filter((checkIn) => checkIn.venue === venueName);
 
+  // Calculate the venue with the most check-ins for the current time
+  const venueWithMostCheckIns = useMemo(() => {
+    if (activeCheckIns.length === 0) {
+      return null; // No check-ins, use default coordinates
+    }
+
+    // Count check-ins per venue
+    const venueCounts: Record<string, number> = {};
+    activeCheckIns.forEach((checkIn) => {
+      venueCounts[checkIn.venue] = (venueCounts[checkIn.venue] || 0) + 1;
+    });
+
+    // Find the maximum count
+    const maxCount = Math.max(...Object.values(venueCounts));
+
+    // Find all venues with the max count (handle ties)
+    const topVenues = OHIO_STATE_VENUES.filter(
+      (venue) => venueCounts[venue.name] === maxCount
+    );
+
+    // Randomly select one if there's a tie
+    if (topVenues.length > 0) {
+      const randomIndex = Math.floor(Math.random() * topVenues.length);
+      return topVenues[randomIndex];
+    }
+
+    return null;
+  }, [activeCheckIns]);
+
+  // Update map view to center on venue with most check-ins when date/time changes
+  useEffect(() => {
+    // Only update when date or time changes, not on every check-in update
+    const dateChanged = previousSelectedDate.current !== selectedDate;
+    const timeChanged = previousSelectedTime.current !== selectedTime;
+    
+    if (dateChanged || timeChanged) {
+      if (venueWithMostCheckIns) {
+        setViewState({
+          longitude: venueWithMostCheckIns.coordinates[1],
+          latitude: venueWithMostCheckIns.coordinates[0],
+          zoom: 14,
+        });
+      } else {
+        // No check-ins, use default coordinates
+        setViewState({
+          longitude: -83.0067,
+          latitude: 39.9917,
+          zoom: 14,
+        });
+      }
+      previousSelectedDate.current = selectedDate;
+      previousSelectedTime.current = selectedTime;
+    }
+  }, [venueWithMostCheckIns, selectedDate, selectedTime]);
+
   useEffect(() => {
     if (!popupInfo) return;
     const updatedActivity = getVenueActivity(popupInfo.venue.name);
-    if (updatedActivity.length === 0) {
-      setPopupInfo(null);
-      return;
-    }
+    // Keep popup open even if check-ins become 0 (user can still see venue info)
     setPopupInfo((prev) =>
       prev
         ? {
@@ -114,9 +167,11 @@ export default function MapView({
   }, [selectedDate, isCalendarOpen]);
 
   const createMarkerElement = (activityCount: number) => {
-    const size = activityCount > 0 ? 36 : 0;
-
-    if (size === 0) return null;
+    // Show marker even if no check-ins (for visibility)
+    const size = activityCount > 0 ? 36 : 24;
+    const backgroundColor = activityCount > 0 ? "#C72608" : "#9CA3AF"; // Gray for no check-ins
+    const borderWidth = activityCount > 0 ? 4 : 3;
+    const fontSize = activityCount > 0 ? "14px" : "0px"; // Hide text for empty markers
 
     return (
       <div
@@ -124,16 +179,16 @@ export default function MapView({
         style={{
           width: `${size}px`,
           height: `${size}px`,
-          backgroundColor: "#FF6B35",
+          backgroundColor: backgroundColor,
           borderRadius: "50%",
-          border: "4px solid white",
+          border: `${borderWidth}px solid white`,
           boxShadow: "0 4px 12px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.1)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: "white",
           fontWeight: "700",
-          fontSize: "14px",
+          fontSize: fontSize,
           cursor: "pointer",
           transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
           zIndex: 1000,
@@ -150,7 +205,7 @@ export default function MapView({
             "0 4px 12px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.1)";
         }}
       >
-        {activityCount}
+        {activityCount > 0 ? activityCount : ""}
       </div>
     );
   };
@@ -177,9 +232,8 @@ export default function MapView({
     onSelectTime(time);
   };
 
-  const markers = OHIO_STATE_VENUES.filter(
-    (venue) => getVenueActivity(venue.name).length > 0
-  );
+  // Show all venues, not just those with check-ins
+  const markers = OHIO_STATE_VENUES;
 
   // Heat map helper functions
   // Color interpolation: bright blue (high) to light cyan (low)
@@ -320,12 +374,7 @@ export default function MapView({
       {isCollapsed ? (
         <button
           type="button"
-          onClick={() => {
-            setIsCollapsed(false);
-            if (showRightPanel) {
-              setIsRightPanelCollapsed(true);
-            }
-          }}
+          onClick={() => setIsCollapsed(false)}
           className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
         >
           <CalendarIcon className="h-4 w-4 text-gray-500" />
@@ -333,83 +382,198 @@ export default function MapView({
         </button>
       ) : (
         <div className="pointer-events-none absolute left-4 right-4 top-4 z-10">
-          <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/60 bg-white/90 px-3 py-3 shadow-lg backdrop-blur">
-            <button
-              type="button"
-              onClick={() => setIsCollapsed(true)}
-              className="flex h-10 w-8 flex-col items-center justify-center gap-[3px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-white"
-              aria-label="Collapse map filters"
-            >
-              <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
-              <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
-              <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
-            </button>
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Date
-              </span>
-              <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    ref={dateFieldRef}
-                    type="button"
-                    onClick={() => setIsCalendarOpen((prev) => !prev)}
-                    className="flex items-center gap-2 rounded-md border border-gray-200 bg-white/80 px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-white"
-                  >
-                    <CalendarIcon className="h-4 w-4 text-gray-500" />
-                    {formatDateDisplay(selectedDate)}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={
-                      selectedDate
-                        ? new Date(`${selectedDate}T00:00:00`)
-                        : undefined
-                    }
-                    onSelect={handleCalendarSelect}
-                    initialFocus
+          <div className="pointer-events-auto flex flex-col gap-3 rounded-xl border border-white/60 bg-white/90 px-3 py-3 shadow-lg backdrop-blur max-w-md max-h-[360px] overflow-hidden">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsCollapsed(true)}
+                className="flex h-10 w-8 flex-col items-center justify-center gap-[3px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-white"
+                aria-label="Collapse map filters"
+              >
+                <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
+                <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
+                <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
+              </button>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  Date
+                </span>
+                <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      ref={dateFieldRef}
+                      type="button"
+                      onClick={() => setIsCalendarOpen((prev) => !prev)}
+                      className="flex items-center gap-2 rounded-md border border-gray-200 bg-white/80 px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-white"
+                    >
+                      <CalendarIcon className="h-4 w-4 text-gray-500" />
+                      {formatDateDisplay(selectedDate)}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={
+                        selectedDate
+                          ? new Date(`${selectedDate}T00:00:00`)
+                          : undefined
+                      }
+                      onSelect={handleCalendarSelect}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="relative flex flex-1 flex-col gap-2">
+                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-gray-500">
+                  <span>Time</span>
+                </div>
+                <div ref={topSliderRef} className="relative flex items-center">
+                  <input
+                    type="range"
+                    min={0}
+                    max={sliderOptions.length - 1}
+                    step={1}
+                    value={sliderIndex}
+                    onChange={handleSliderChange}
+                    className="flex-1 accent-[#007AFF]"
                   />
-                </PopoverContent>
-              </Popover>
+                  <span
+                    className="pointer-events-none absolute -top-7 whitespace-nowrap rounded-full bg-white px-2 py-1 text-xs font-semibold text-gray-700 shadow-sm"
+                    style={{
+                      left: `${calculateClampedTooltipPosition(
+                        sliderPercentage,
+                        topSliderRef,
+                        70,
+                        0 // Allow tooltip to extend to left edge of slider container
+                      )}%`,
+                      transform: "translateX(-50%)",
+                    }}
+                  >
+                    {formatTimeDisplay(selectedTime)}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className="relative flex flex-1 flex-col gap-2">
-              <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-gray-500">
-                <span>Time</span>
-              </div>
-              <div ref={topSliderRef} className="relative flex items-center">
-                <input
-                  type="range"
-                  min={0}
-                  max={sliderOptions.length - 1}
-                  step={1}
-                  value={sliderIndex}
-                  onChange={handleSliderChange}
-                  className="flex-1 accent-[#007AFF]"
-                />
-                <span
-                  className="pointer-events-none absolute -top-7 whitespace-nowrap rounded-full bg-white px-2 py-1 text-xs font-semibold text-gray-700 shadow-sm"
-                  style={{
-                    left: `${calculateClampedTooltipPosition(
-                      sliderPercentage,
-                      topSliderRef,
-                      70,
-                      0 // Allow tooltip to extend to left edge of slider container
-                    )}%`,
-                    transform: "translateX(-50%)",
-                  }}
-                >
-                  {formatTimeDisplay(selectedTime)}
-                </span>
+            {/* Check-ins list */}
+            <div className="border-t border-gray-200 pt-3 flex-1 min-h-0 flex flex-col overflow-hidden">
+              <h2 className="mb-3 text-sm font-bold text-gray-900 flex-shrink-0">
+                Active Check-ins
+              </h2>
+              <div className="overflow-y-auto flex-1 min-h-0">
+                {activeCheckIns.length === 0 ? (
+                  <p className="py-4 text-center text-sm text-gray-500">
+                    No check-ins during this time
+                  </p>
+                ) : (
+                  (() => {
+                    // Group venues by area and count check-ins
+                    type AreaData = {
+                      venues: Record<string, number>;
+                      total: number;
+                    };
+                    const areaMap: Record<string, AreaData> = {};
+
+                    OHIO_STATE_VENUES.forEach((venue) => {
+                      const venueCheckIns = getVenueActivity(venue.name);
+                      if (venueCheckIns.length > 0 && venue.area) {
+                        if (!areaMap[venue.area]) {
+                          areaMap[venue.area] = {
+                            venues: {},
+                            total: 0,
+                          };
+                        }
+                        const areaData = areaMap[venue.area];
+                        areaData.venues[venue.name] = venueCheckIns.length;
+                        areaData.total += venueCheckIns.length;
+                      }
+                    });
+
+                    const toggleArea = (area: string) => {
+                      setExpandedAreas((prev) => {
+                        const next = new Set<string>(prev);
+                        if (next.has(area)) {
+                          next.delete(area);
+                        } else {
+                          next.add(area);
+                        }
+                        return next;
+                      });
+                    };
+
+                    const areaEntries = Object.entries(areaMap);
+                    areaEntries.sort((a, b) => b[1].total - a[1].total);
+
+                    return (
+                      <div className="space-y-2">
+                        {areaEntries.map(([area, areaData]) => {
+                          const isExpanded = expandedAreas.has(area);
+                          const venueEntries = Object.entries(
+                            areaData.venues
+                          );
+                          venueEntries.sort((a, b) => b[1] - a[1]);
+
+                          return (
+                            <div
+                              key={area}
+                              className="rounded-lg border border-gray-200 bg-gray-50"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleArea(area)}
+                                className="flex w-full items-center justify-between p-3 text-left transition hover:bg-gray-100"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 text-gray-500" />
+                                  )}
+                                  <span className="font-semibold text-gray-900">
+                                    {area}
+                                  </span>
+                                </div>
+                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                                  {areaData.total}
+                                </span>
+                              </button>
+                              {isExpanded && (
+                                <div className="border-t border-gray-200 bg-white">
+                                  <div className="space-y-1 p-2">
+                                    {venueEntries.map(
+                                      ([venueName, count]) => (
+                                        <div
+                                          key={venueName}
+                                          className="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50"
+                                        >
+                                          <span className="text-sm font-medium text-gray-700">
+                                            {venueName}
+                                          </span>
+                                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                                            {count}
+                                          </span>
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {activeCheckIns.length === 0 && (
+      {activeCheckIns.length === 0 && isCollapsed && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 text-center">
           <span className="rounded-full bg-white/90 px-4 py-2 text-sm font-medium text-gray-600 shadow">
             No check-ins during this time
@@ -419,17 +583,14 @@ export default function MapView({
 
       <Map
         mapLib={maplibregl}
-        initialViewState={{
-          longitude: -83.0067,
-          latitude: 39.9917,
-          zoom: 14,
+        {...viewState}
+        onMove={(evt) => {
+          setZoom(evt.viewState.zoom);
+          setViewState(evt.viewState);
         }}
         style={{ width: "100%", height: "100%" }}
         mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
         attributionControl={false}
-        onMove={(evt) => {
-          setZoom(evt.viewState.zoom);
-        }}
       >
         {/* Custom attribution */}
         <div className="pointer-events-none absolute bottom-2 right-2 rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
@@ -440,11 +601,12 @@ export default function MapView({
         {heatMapMode ? (
           // Heat map mode - show both heat circles and small markers
           <>
-            {/* Heat circles */}
+            {/* Heat circles - only show for venues with check-ins */}
             {OHIO_STATE_VENUES.map((venue) => {
               const venueActivity = getVenueActivity(venue.name);
               const activityCount = venueActivity.length;
 
+              // Only show heat circles for venues with check-ins
               if (activityCount === 0) return null;
 
               const opacity = calculateOpacity(activityCount);
@@ -495,15 +657,15 @@ export default function MapView({
                 </Marker>
               );
             })}
-            {/* Small location markers */}
+            {/* Small location markers - show all venues */}
             {markers.map((venue) => {
               const venueActivity = getVenueActivity(venue.name);
               const activityCount = venueActivity.length;
 
-              if (activityCount === 0) return null;
-
               // Small marker - 1/3 the original size (36px -> 12px)
+              // Use gray for venues with no check-ins
               const smallMarkerSize = 12;
+              const backgroundColor = activityCount > 0 ? "#C72608" : "#9CA3AF";
 
               return (
                 <Marker
@@ -518,7 +680,7 @@ export default function MapView({
                     style={{
                       width: `${smallMarkerSize}px`,
                       height: `${smallMarkerSize}px`,
-                      backgroundColor: "#FF6B35",
+                      backgroundColor: backgroundColor,
                       borderRadius: "50%",
                       border: "2px solid white",
                       boxShadow:
@@ -545,13 +707,11 @@ export default function MapView({
             })}
           </>
         ) : (
-          // Regular marker mode
+          // Regular marker mode - show all venues
           markers.map((venue) => {
             const venueActivity = getVenueActivity(venue.name);
             const activityCount = venueActivity.length;
             const markerElement = createMarkerElement(activityCount);
-
-            if (!markerElement) return null;
 
             return (
               <Marker
@@ -598,190 +758,6 @@ export default function MapView({
           </Popup>
         )}
       </Map>
-
-      {/* Right-side list panel */}
-      {showRightPanel && (
-        <>
-          {isRightPanelCollapsed ? (
-            <button
-              type="button"
-              onClick={() => {
-                setIsRightPanelCollapsed(false);
-                setIsCollapsed(true);
-                setIsCalendarOpen(false);
-              }}
-              className="absolute right-0 top-1/2 z-20 -translate-y-1/2 rounded-l-lg bg-white/90 px-2 py-4 text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
-              aria-label="Expand check-ins list"
-            >
-              <ChevronLeft className="h-5 w-5 text-gray-500" />
-            </button>
-          ) : (
-            <div className="pointer-events-none absolute bottom-0 right-0 top-0 z-20 w-80">
-              <div className="pointer-events-auto h-full overflow-y-auto rounded-l-xl border-b border-l border-t border-white/60 bg-white/95 shadow-2xl backdrop-blur">
-                <div className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 backdrop-blur">
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <h2 className="text-lg font-bold text-gray-900">
-                      Active Check-ins
-                    </h2>
-                    <button
-                      type="button"
-                      onClick={() => setIsRightPanelCollapsed(true)}
-                      className="flex h-8 w-8 flex-col items-center justify-center gap-[3px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-gray-100"
-                      aria-label="Collapse check-ins list"
-                    >
-                      <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
-                      <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
-                      <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
-                    </button>
-                  </div>
-                  {/* Time slider */}
-                  <div className="border-t border-gray-200 px-4 py-3">
-                    <div className="relative flex flex-col gap-2">
-                      <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-gray-500">
-                        <span>Time</span>
-                      </div>
-                      <div
-                        ref={rightSliderRef}
-                        className="relative flex items-center"
-                      >
-                        <input
-                          type="range"
-                          min={0}
-                          max={sliderOptions.length - 1}
-                          step={1}
-                          value={sliderIndex}
-                          onChange={handleSliderChange}
-                          className="flex-1 accent-[#007AFF]"
-                        />
-                        <span
-                          className="pointer-events-none absolute -top-7 whitespace-nowrap rounded-full bg-white px-2 py-1 text-xs font-semibold text-gray-700 shadow-sm"
-                          style={{
-                            left: `${calculateClampedTooltipPosition(
-                              sliderPercentage,
-                              rightSliderRef,
-                              70,
-                              0 // No left offset needed for right panel
-                            )}%`,
-                            transform: "translateX(-50%)",
-                          }}
-                        >
-                          {formatTimeDisplay(selectedTime)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="p-4">
-                  {activeCheckIns.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-gray-500">
-                      No check-ins during this time
-                    </p>
-                  ) : (
-                    (() => {
-                      // Group venues by area and count check-ins
-                      type AreaData = {
-                        venues: Record<string, number>;
-                        total: number;
-                      };
-                      const areaMap: Record<string, AreaData> = {};
-
-                      OHIO_STATE_VENUES.forEach((venue) => {
-                        const venueCheckIns = getVenueActivity(venue.name);
-                        if (venueCheckIns.length > 0 && venue.area) {
-                          if (!areaMap[venue.area]) {
-                            areaMap[venue.area] = {
-                              venues: {},
-                              total: 0,
-                            };
-                          }
-                          const areaData = areaMap[venue.area];
-                          areaData.venues[venue.name] = venueCheckIns.length;
-                          areaData.total += venueCheckIns.length;
-                        }
-                      });
-
-                      const toggleArea = (area: string) => {
-                        setExpandedAreas((prev) => {
-                          const next = new Set<string>(prev);
-                          if (next.has(area)) {
-                            next.delete(area);
-                          } else {
-                            next.add(area);
-                          }
-                          return next;
-                        });
-                      };
-
-                      const areaEntries = Object.entries(areaMap);
-                      areaEntries.sort((a, b) => b[1].total - a[1].total);
-
-                      return (
-                        <div className="space-y-2">
-                          {areaEntries.map(([area, areaData]) => {
-                            const isExpanded = expandedAreas.has(area);
-                            const venueEntries = Object.entries(
-                              areaData.venues
-                            );
-                            venueEntries.sort((a, b) => b[1] - a[1]);
-
-                            return (
-                              <div
-                                key={area}
-                                className="rounded-lg border border-gray-200 bg-gray-50"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => toggleArea(area)}
-                                  className="flex w-full items-center justify-between p-3 text-left transition hover:bg-gray-100"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    {isExpanded ? (
-                                      <ChevronDown className="h-4 w-4 text-gray-500" />
-                                    ) : (
-                                      <ChevronRight className="h-4 w-4 text-gray-500" />
-                                    )}
-                                    <span className="font-semibold text-gray-900">
-                                      {area}
-                                    </span>
-                                  </div>
-                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-                                    {areaData.total}
-                                  </span>
-                                </button>
-                                {isExpanded && (
-                                  <div className="border-t border-gray-200 bg-white">
-                                    <div className="space-y-1 p-2">
-                                      {venueEntries.map(
-                                        ([venueName, count]) => (
-                                          <div
-                                            key={venueName}
-                                            className="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50"
-                                          >
-                                            <span className="text-sm font-medium text-gray-700">
-                                              {venueName}
-                                            </span>
-                                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
-                                              {count}
-                                            </span>
-                                          </div>
-                                        )
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
     </div>
   );
 }

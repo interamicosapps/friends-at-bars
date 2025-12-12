@@ -378,7 +378,6 @@ export default function Test() {
             onSelectDate={handleMapDateChange}
             onSelectTime={handleMapTimeChange}
             heatMapMode={true}
-            showRightPanel={true}
             timeOptions={nightlifeTimeOptions}
           />
         </Suspense>
@@ -410,4 +409,5 @@ export default function Test() {
     </div>
   );
 }
+
 

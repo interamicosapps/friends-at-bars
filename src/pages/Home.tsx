@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import { format } from "date-fns";
 import CheckInForm from "@/components/CheckInForm";
 import CheckInList from "@/components/CheckInList";
-import MapView from "@/components/MapView";
 import ConflictConfirmationDialog from "@/components/ConflictConfirmationDialog";
+
+// Lazy load MapView component (includes heavy map libraries)
+const MapView = lazy(() => import("@/components/MapView"));
 import { CheckIn, CheckInFormData, SupabaseCheckIn } from "@/types/checkin";
 import {
   calculateEndDateTime,
@@ -359,16 +361,26 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       {/* Map Section */}
       <div className="mb-8">
-        <MapView
-          checkIns={checkIns}
-          selectedDate={mapSelectedDate}
-          selectedTime={mapSelectedTime}
-          onSelectDate={handleMapDateChange}
-          onSelectTime={handleMapTimeChange}
-          heatMapMode={true}
-          showRightPanel={true}
-          timeOptions={nightlifeTimeOptions}
-        />
+        <Suspense
+          fallback={
+            <div className="flex h-96 items-center justify-center rounded-xl border border-gray-200 bg-gray-50">
+              <div className="text-center">
+                <div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
+                <p className="text-sm text-gray-600">Loading map...</p>
+              </div>
+            </div>
+          }
+        >
+          <MapView
+            checkIns={checkIns}
+            selectedDate={mapSelectedDate}
+            selectedTime={mapSelectedTime}
+            onSelectDate={handleMapDateChange}
+            onSelectTime={handleMapTimeChange}
+            heatMapMode={true}
+            timeOptions={nightlifeTimeOptions}
+          />
+        </Suspense>
       </div>
 
       {/* Check-in Form */}

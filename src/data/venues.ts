@@ -29,7 +29,6 @@ export const OHIO_STATE_VENUES: Venue[] = [
     area: "South Campus",
     coordinates: [39.9972, -83.0073], // 39°59'50"N 83°00'26"W
   },
-  { name: "Uno", area: "South Campus", coordinates: [39.9985, -83.0073] }, // 39°59'54"N 83°00'27"W
   {
     name: "Ugly Tuna 2",
     area: "South Campus",
@@ -45,7 +44,7 @@ export const OHIO_STATE_VENUES: Venue[] = [
   {
     name: "Good Night John Boy",
     area: "Short North",
-    coordinates: [39.98098, -83.00403], // 39°58'51"N 83°00'14"W
+    coordinates: [39.98103, -83.00403], // 39°58'51"N 83°00'14"W
   },
   {
     name: "Pint House",
@@ -57,6 +56,21 @@ export const OHIO_STATE_VENUES: Venue[] = [
     area: "Short North",
     coordinates: [39.9794, -83.00375],
   }, // 39°58'46"N 83°00'13"W
+  {
+    name: "The Go Go",
+    area: "Short North",
+    coordinates: [39.98314, -82.9994],
+  }, // 39°58'59"N 82°59'57"W
+  {
+    name: "Axis",
+    area: "Short North",
+    coordinates: [39.97805, -83.00443],
+  }, // 39°58'40"N 83°00'15"W
+  {
+    name: "Galla Park",
+    area: "Short North",
+    coordinates: [39.98065, -83.00397],
+  }, // 39°58'50"N 83°00'14"W
 ];
 
 export const CAMPUS_AREAS = [
