@@ -25,8 +25,27 @@ export default function DropdownSelect({
   className,
 }: DropdownSelectProps) {
   const [open, setOpen] = useState(false);
+  const [positionAbove, setPositionAbove] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Calculate dropdown position based on available space
+  useEffect(() => {
+    if (open && triggerRef.current) {
+      const triggerRect = triggerRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - triggerRect.bottom;
+      const spaceAbove = triggerRect.top;
+      const estimatedMenuHeight = Math.min(300, viewportHeight * 0.5); // Max 50vh or 300px
+
+      // Position above if there's not enough space below but enough space above
+      if (spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow) {
+        setPositionAbove(true);
+      } else {
+        setPositionAbove(false);
+      }
+    }
+  }, [open]);
 
   // Close on outside click
   useEffect(() => {
@@ -90,11 +109,13 @@ export default function DropdownSelect({
         <div
           ref={menuRef}
           className={cn(
-            "absolute z-50 mt-2 w-full overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md",
+            "absolute z-50 w-full overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md",
             // Ensure the menu stays within the viewport height
             "max-h-[50vh] overflow-auto",
             // Prevent overflow on mobile small screens
-            "sm:max-h-[60vh]"
+            "sm:max-h-[60vh]",
+            // Position above or below based on available space
+            positionAbove ? "bottom-full mb-2" : "top-full mt-2"
           )}
         >
           <div className="py-1">

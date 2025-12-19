@@ -10,6 +10,7 @@ import { CheckInFormData } from "@/types/checkin";
 import { OHIO_STATE_VENUES, CAMPUS_AREAS } from "@/data/venues";
 import {
   DEFAULT_START_TIME,
+  getDynamicStartTime,
   generateStartTimeOptions,
   generateDurationOptions,
   calculateEndTime,
@@ -42,7 +43,9 @@ export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const previousSelectedDate = useRef<string>(today);
 
-  const startTimeOptions = generateStartTimeOptions();
+  // Calculate dynamic start time based on current time
+  const dynamicStartTime = getDynamicStartTime();
+  const startTimeOptions = generateStartTimeOptions(dynamicStartTime);
   const durationOptions = generateDurationOptions(startTime);
 
   // Build dropdown options
@@ -99,12 +102,12 @@ export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps
     setEndTime("");
   }, [startTime]);
 
-  // Default start time when venue is selected
+  // Default start time when venue is selected - use dynamic start time
   useEffect(() => {
     if (venue && !startTime) {
-      setStartTime(DEFAULT_START_TIME);
+      setStartTime(dynamicStartTime);
     }
-  }, [venue, startTime]);
+  }, [venue, startTime, dynamicStartTime]);
 
   // Allow parent to trigger a reset (e.g., after conflict resolution)
   useEffect(() => {

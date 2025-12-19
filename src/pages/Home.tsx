@@ -16,6 +16,7 @@ import {
   DEFAULT_START_TIME,
   normalizeDateTime,
   generateNightlifeTimeOptions,
+  getDynamicStartTime,
 } from "@/lib/timeUtils";
 import {
   findConflictingCheckIns,
@@ -43,10 +44,25 @@ export default function Home() {
   const [mapSelectedDate, setMapSelectedDate] = useState<string>(() =>
     format(new Date(), "yyyy-MM-dd")
   );
+  // Calculate dynamic start time based on current time
+  const dynamicStartTime = getDynamicStartTime();
   const [mapSelectedTime, setMapSelectedTime] = useState<string>(
-    DEFAULT_START_TIME
+    dynamicStartTime
   );
-  const nightlifeTimeOptions = generateNightlifeTimeOptions();
+  // Filter nightlife time options to start from dynamic start time
+  const allNightlifeOptions = generateNightlifeTimeOptions();
+  const nightlifeTimeOptions = allNightlifeOptions.filter((time) => {
+    const [hours, minutes] = time.split(":").map(Number);
+    const [startHours, startMinutes] = dynamicStartTime.split(":").map(Number);
+    const timeMinutes = hours * 60 + minutes;
+    const startMinutesTotal = startHours * 60 + startMinutes;
+    // Times >= 24:00 are next day, so always include them
+    if (hours >= 24) {
+      return true;
+    }
+    // For today's times, include if >= start time
+    return timeMinutes >= startMinutesTotal;
+  });
 
   const generateTempId = () =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -350,7 +366,7 @@ export default function Home() {
 
   const handleMapDateChange = (date: string) => {
     setMapSelectedDate(date);
-    setMapSelectedTime("21:00"); // Reset to default time (9:00 PM)
+    setMapSelectedTime(dynamicStartTime); // Reset to dynamic start time
   };
 
   const handleMapTimeChange = (time: string) => {

@@ -2,10 +2,50 @@
 
 export const DEFAULT_START_TIME = "21:00";
 
-export const generateStartTimeOptions = (): string[] => {
+/**
+ * Get the dynamic start time based on current time of day
+ * - 00:00-02:00: Returns current time rounded to nearest 30-min interval (late night/early morning)
+ * - 02:01-15:29: Returns "15:30" (3:30 PM) - afternoon/early evening
+ * - 15:30-23:59: Returns current time rounded to nearest 30-min interval (evening/night)
+ */
+export const getDynamicStartTime = (): string => {
+  const now = new Date();
+  const currentHours = now.getHours();
+  const currentMinutes = now.getMinutes();
+  const currentTotalMinutes = currentHours * 60 + currentMinutes;
+
+  // Round current time up to nearest 30-minute interval
+  const roundedMinutes = Math.ceil(currentTotalMinutes / 30) * 30;
+  const roundedHours = Math.floor(roundedMinutes / 60) % 24;
+  const roundedMins = roundedMinutes % 60;
+  const currentTimeRounded = `${roundedHours.toString().padStart(2, "0")}:${roundedMins.toString().padStart(2, "0")}`;
+
+  // 00:00-02:00 (0-120 minutes): Start at current time rounded up
+  if (currentTotalMinutes >= 0 && currentTotalMinutes <= 120) {
+    return currentTimeRounded;
+  }
+
+  // 02:01-15:29 (121-929 minutes): Start at 15:30 (3:30 PM)
+  if (currentTotalMinutes >= 121 && currentTotalMinutes <= 929) {
+    return "15:30";
+  }
+
+  // 15:30-23:59 (930-1439 minutes): Start at current time rounded up
+  return currentTimeRounded;
+};
+
+export const generateStartTimeOptions = (startTime?: string): string[] => {
   const options: string[] = [];
 
-  for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
+  // Determine starting point
+  let startMinutes = 0;
+  if (startTime) {
+    const [hours, minutes] = startTime.split(":").map(Number);
+    startMinutes = hours * 60 + minutes;
+  }
+
+  // Generate options from start time to end of day
+  for (let minutes = startMinutes; minutes < 24 * 60; minutes += 30) {
     const hours = Math.floor(minutes / 60)
       .toString()
       .padStart(2, "0");
