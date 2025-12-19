@@ -9,7 +9,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover
 import { CheckInFormData } from "@/types/checkin";
 import { OHIO_STATE_VENUES, CAMPUS_AREAS } from "@/data/venues";
 import {
-  DEFAULT_START_TIME,
   getDynamicStartTime,
   generateStartTimeOptions,
   generateDurationOptions,
