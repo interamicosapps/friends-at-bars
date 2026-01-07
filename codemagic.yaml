@@ -1,0 +1,65 @@
+workflows:
+  ios-workflow:
+    name: iOS Build and Deploy
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      groups:
+        # Add your Codemagic group name here after setting up certificates
+        # - app_store_credentials
+      vars:
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
+        XCODE_SCHEME: "App"
+        BUNDLE_ID: "com.ohiostate.nightlifemap"
+        APP_ID: "" # Will be set in App Store Connect
+      node: 20.18.0
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm ci
+      - name: Build web app
+        script: |
+          npm run build
+      - name: Sync Capacitor iOS
+        script: |
+          npx cap sync ios
+      - name: Set up code signing settings on Xcode project
+        script: |
+          xcode-project use-profiles
+          # Alternative: xcode-project run-target $XCODE_SCHEME build \
+          #   CODE_SIGN_IDENTITY="" \
+          #   CODE_SIGNING_REQUIRED=NO \
+          #   CODE_SIGNING_ALLOWED=NO
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      email:
+        recipients:
+          - user@example.com # Update with your email
+        notify:
+          success: true
+          failure: false
+      app_store_connect:
+        # Uncomment and configure after setting up Apple Developer account
+        # auth: integration
+        #
+        # # Configuration related to TestFlight (optional)
+        # # Note: This action is performed during post-processing.
+        # submit_to_testflight: false
+        # beta_groups: # Specify the names of beta tester groups that will receive the build once it has passed beta review.
+        #   - group name 1
+        #   - group name 2
+        #
+        # # Configuration related to App Store submission (optional)
+        # # Note: This action is performed during post-processing.
+        # submit_to_app_store: false

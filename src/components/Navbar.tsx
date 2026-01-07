@@ -7,7 +7,10 @@ export default function Navbar() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-border bg-card">
+    <nav 
+      className="sticky top-0 z-50 border-b border-border bg-card"
+      style={{ paddingTop: 'var(--safe-area-inset-top)' }}
+    >
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}

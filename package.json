@@ -10,9 +10,19 @@
     "lint:fix": "eslint . --ext ts,tsx --fix",
     "preview": "vite preview",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "cap:sync": "npx cap sync",
+    "cap:sync:android": "npx cap sync android",
+    "cap:sync:ios": "npx cap sync ios",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios",
+    "cap:build": "npm run build && npx cap sync",
+    "cap:build:ios": "npm run build && npx cap sync ios"
   },
   "dependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0",
     "@radix-ui/react-popover": "^1.1.15",
     "@supabase/supabase-js": "^2.76.1",
     "@types/react-router-dom": "^5.3.3",
@@ -30,6 +40,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.0.0",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@typescript-eslint/eslint-plugin": "^6.10.0",

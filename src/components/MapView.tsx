@@ -387,7 +387,7 @@ export default function MapView({
               <button
                 type="button"
                 onClick={() => setIsCollapsed(true)}
-                className="flex h-10 w-8 flex-col items-center justify-center gap-[3px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-white"
+                className="flex h-11 w-11 min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-[3px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-white"
                 aria-label="Collapse map filters"
               >
                 <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
