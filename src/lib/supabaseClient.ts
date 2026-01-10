@@ -1,5 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
-import { SupabaseCheckIn, SupabaseCheckInInsert } from "@/types/checkin";
+import {
+  SupabaseCheckIn,
+  SupabaseCheckInInsert,
+  LiveLocation,
+  LiveLocationInsert,
+  VenueCounts,
+} from "@/types/checkin";
 
 // You'll need to replace these with your actual Supabase project URL and anon key
 // Get these from your Supabase project settings
@@ -83,6 +89,88 @@ export const checkInService = {
   // Delete a check-in by ID
   async deleteCheckIn(id: string) {
     const { error } = await supabase.from("checkins").delete().eq("id", id);
+
+    if (error) throw error;
+  },
+};
+
+// Live location tracking service
+export const liveLocationService = {
+  // Upsert location record (one location per user)
+  async upsertLocation(data: LiveLocationInsert) {
+    const { data: result, error } = await supabase
+      .from("live_locations")
+      .upsert(
+        {
+          ...data,
+          last_updated: new Date().toISOString(),
+        },
+        {
+          onConflict: "user_id",
+        }
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+    return result as LiveLocation;
+  },
+
+  // Fetch aggregated venue counts
+  async fetchVenueCounts(): Promise<VenueCounts> {
+    const { data, error } = await supabase
+      .from("live_locations")
+      .select("venue_name")
+      .eq("is_active", true);
+
+    if (error) throw error;
+
+    const counts: VenueCounts = {};
+    data?.forEach((location) => {
+      if (!counts[location.venue_name]) {
+        counts[location.venue_name] = 0;
+      }
+      counts[location.venue_name]++;
+    });
+
+    return counts;
+  },
+
+  // Subscribe to live location changes
+  subscribeToLocations(callback: (payload: any) => void) {
+    return supabase
+      .channel("live_locations_subscription")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "live_locations",
+        },
+        callback
+      )
+      .subscribe();
+  },
+
+  // Delete user's location (when stopping tracking)
+  async deleteUserLocation(userId: string) {
+    const { error } = await supabase
+      .from("live_locations")
+      .delete()
+      .eq("user_id", userId);
+
+    if (error) throw error;
+  },
+
+  // Mark user's location as inactive
+  async deactivateUserLocation(userId: string) {
+    const { error } = await supabase
+      .from("live_locations")
+      .update({
+        is_active: false,
+        last_updated: new Date().toISOString(),
+      })
+      .eq("user_id", userId);
 
     if (error) throw error;
   },

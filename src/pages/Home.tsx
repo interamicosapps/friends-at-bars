@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import CheckInForm from "@/components/CheckInForm";
 import CheckInList from "@/components/CheckInList";
 import ConflictConfirmationDialog from "@/components/ConflictConfirmationDialog";
+import LocationToggle from "@/components/LocationToggle";
 
 // Lazy load MapView component (includes heavy map libraries)
 const MapView = lazy(() => import("@/components/MapView"));
@@ -375,6 +376,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Location Tracking Toggle */}
+      <div className="mb-4 flex justify-end">
+        <LocationToggle />
+      </div>
+
       {/* Map Section */}
       <div className="mb-8">
         <Suspense

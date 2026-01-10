@@ -40,3 +40,25 @@ export interface SupabaseCheckInInsert {
   end_time: string;
   date?: string | null;
 }
+
+// Live location tracking types
+export interface LiveLocation {
+  id: string;
+  user_id: string;
+  venue_name: string;
+  latitude: number;
+  longitude: number;
+  detected_at: string;
+  last_updated: string;
+  is_active: boolean;
+}
+
+export interface LiveLocationInsert {
+  user_id: string;
+  venue_name: string;
+  latitude: number;
+  longitude: number;
+  is_active: boolean;
+}
+
+export type VenueCounts = Record<string, number>;

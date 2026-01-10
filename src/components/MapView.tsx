@@ -15,7 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/Popover";
-import { CheckIn } from "@/types/checkin";
+import { CheckIn, VenueCounts } from "@/types/checkin";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import {
   formatDateDisplay,
@@ -23,6 +23,7 @@ import {
   generateStartTimeOptions,
   isCheckInActiveAt,
 } from "@/lib/timeUtils";
+import { locationService } from "@/lib/locationService";
 
 interface MapViewProps {
   checkIns: CheckIn[];
@@ -59,6 +60,7 @@ export default function MapView({
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
   const [zoom, setZoom] = useState<number>(14);
+  const [liveCounts, setLiveCounts] = useState<VenueCounts>({});
   const [viewState, setViewState] = useState({
     longitude: -83.0067,
     latitude: 39.9917,
@@ -88,6 +90,17 @@ export default function MapView({
 
   const getVenueActivity = (venueName: string) =>
     activeCheckIns.filter((checkIn) => checkIn.venue === venueName);
+
+  // Subscribe to live location updates
+  useEffect(() => {
+    const subscription = locationService.subscribeToVenueCounts((counts) => {
+      setLiveCounts(counts);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Calculate the venue with the most check-ins for the current time
   const venueWithMostCheckIns = useMemo(() => {
@@ -157,7 +170,7 @@ export default function MapView({
         : null
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCheckIns]);
+  }, [activeCheckIns, liveCounts]);
 
   useEffect(() => {
     if (isCalendarOpen && previousSelectedDate.current !== selectedDate) {
@@ -166,12 +179,13 @@ export default function MapView({
     previousSelectedDate.current = selectedDate;
   }, [selectedDate, isCalendarOpen]);
 
-  const createMarkerElement = (activityCount: number) => {
-    // Show marker even if no check-ins (for visibility)
-    const size = activityCount > 0 ? 36 : 24;
-    const backgroundColor = activityCount > 0 ? "#C72608" : "#9CA3AF"; // Gray for no check-ins
-    const borderWidth = activityCount > 0 ? 4 : 3;
-    const fontSize = activityCount > 0 ? "14px" : "0px"; // Hide text for empty markers
+  const createMarkerElement = (activityCount: number, liveCount: number = 0) => {
+    const totalCount = activityCount + liveCount;
+    // Show marker even if no check-ins or live users (for visibility)
+    const size = totalCount > 0 ? 36 : 24;
+    const backgroundColor = totalCount > 0 ? "#C72608" : "#9CA3AF"; // Gray for no activity
+    const borderWidth = totalCount > 0 ? 4 : 3;
+    const fontSize = totalCount > 0 ? "14px" : "0px"; // Hide text for empty markers
 
     return (
       <div
@@ -205,7 +219,7 @@ export default function MapView({
             "0 4px 12px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.1)";
         }}
       >
-        {activityCount > 0 ? activityCount : ""}
+        {totalCount > 0 ? totalCount : ""}
       </div>
     );
   };
@@ -605,12 +619,14 @@ export default function MapView({
             {OHIO_STATE_VENUES.map((venue) => {
               const venueActivity = getVenueActivity(venue.name);
               const activityCount = venueActivity.length;
+              const liveCount = liveCounts[venue.name] || 0;
+              const totalCount = activityCount + liveCount;
 
-              // Only show heat circles for venues with check-ins
-              if (activityCount === 0) return null;
+              // Only show heat circles for venues with check-ins or live users
+              if (totalCount === 0) return null;
 
-              const opacity = calculateOpacity(activityCount);
-              const centerColor = getHeatMapColor(activityCount, opacity);
+              const opacity = calculateOpacity(totalCount);
+              const centerColor = getHeatMapColor(totalCount, opacity);
               const transparentColor = centerColor.replace(/[\d.]+\)$/, "0)");
 
               // Calculate radius based on zoom level to maintain constant geographic footprint
@@ -661,11 +677,13 @@ export default function MapView({
             {markers.map((venue) => {
               const venueActivity = getVenueActivity(venue.name);
               const activityCount = venueActivity.length;
+              const liveCount = liveCounts[venue.name] || 0;
+              const totalCount = activityCount + liveCount;
 
               // Small marker - 1/3 the original size (36px -> 12px)
-              // Use gray for venues with no check-ins
+              // Use gray for venues with no check-ins or live users
               const smallMarkerSize = 12;
-              const backgroundColor = activityCount > 0 ? "#C72608" : "#9CA3AF";
+              const backgroundColor = totalCount > 0 ? "#C72608" : "#9CA3AF";
 
               return (
                 <Marker
@@ -711,7 +729,8 @@ export default function MapView({
           markers.map((venue) => {
             const venueActivity = getVenueActivity(venue.name);
             const activityCount = venueActivity.length;
-            const markerElement = createMarkerElement(activityCount);
+            const liveCount = liveCounts[venue.name] || 0;
+            const markerElement = createMarkerElement(activityCount, liveCount);
 
             return (
               <Marker
@@ -744,16 +763,40 @@ export default function MapView({
                 {popupInfo.venue.area}
               </p>
 
-              {popupInfo.checkIns.length > 0 ? (
-                <p className="text-sm font-bold text-gray-800">
-                  {popupInfo.checkIns.length} check-in
-                  {popupInfo.checkIns.length > 1 ? "s" : ""}
-                </p>
-              ) : (
-                <p className="text-sm font-semibold text-gray-500">
-                  No check-ins during this time
-                </p>
-              )}
+              {(() => {
+                const checkInCount = popupInfo.checkIns.length;
+                const liveCount = liveCounts[popupInfo.venue.name] || 0;
+                const totalCount = checkInCount + liveCount;
+
+                if (totalCount === 0) {
+                  return (
+                    <p className="text-sm font-semibold text-gray-500">
+                      No check-ins during this time
+                    </p>
+                  );
+                }
+
+                return (
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-gray-800">
+                      {totalCount} {totalCount === 1 ? "person" : "people"} total
+                    </p>
+                    <div className="text-xs text-gray-600 space-y-0.5">
+                      {checkInCount > 0 && (
+                        <p>
+                          {checkInCount} scheduled check-in
+                          {checkInCount > 1 ? "s" : ""}
+                        </p>
+                      )}
+                      {liveCount > 0 && (
+                        <p>
+                          {liveCount} live user{liveCount > 1 ? "s" : ""} at venue
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </Popup>
         )}
