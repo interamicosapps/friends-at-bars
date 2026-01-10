@@ -1,4 +1,4 @@
-import { Geolocation } from "@capacitor/geolocation";
+import { Capacitor } from "@capacitor/core";
 import { supabase } from "./supabaseClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
@@ -12,6 +12,20 @@ interface LocationData {
 interface VenueMatch {
   venue: Venue;
   distance: number;
+}
+
+// Type definitions for geolocation
+interface GeolocationPosition {
+  coords: {
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+  };
+}
+
+interface GeolocationPositionError {
+  code: number;
+  message: string;
 }
 
 // Calculate distance between two coordinates using Haversine formula (in meters)
@@ -71,12 +85,116 @@ function getUserId(): string {
   return userId;
 }
 
+// Web Geolocation implementation (browser API)
+const webGeolocation = {
+  async requestPermissions(): Promise<boolean> {
+    // Browser geolocation doesn't have explicit permission request
+    // We check by attempting to get position
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(false);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        () => resolve(true),
+        () => resolve(false),
+        { timeout: 1000 }
+      );
+    });
+  },
+
+  async checkPermissions(): Promise<boolean> {
+    // Browser geolocation permission check via Permissions API if available
+    if ("permissions" in navigator && "query" in navigator.permissions) {
+      try {
+        const result = await navigator.permissions.query({
+          name: "geolocation",
+        });
+        return result.state === "granted";
+      } catch {
+        // Permissions API not fully supported, try via getCurrentPosition
+        return webGeolocation.requestPermissions();
+      }
+    }
+    // Fallback: try to get position (will prompt if needed)
+    return webGeolocation.requestPermissions();
+  },
+
+  async getCurrentPosition(options?: {
+    enableHighAccuracy?: boolean;
+    timeout?: number;
+  }): Promise<GeolocationPosition> {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (position: GeolocationPosition) => resolve(position),
+        (error: GeolocationPositionError) => reject(error),
+        {
+          enableHighAccuracy: options?.enableHighAccuracy ?? true,
+          timeout: options?.timeout ?? 10000,
+        }
+      );
+    });
+  },
+
+  async watchPosition(
+    options: { enableHighAccuracy?: boolean; timeout?: number },
+    callback: (
+      position: GeolocationPosition | null,
+      error?: GeolocationPositionError
+    ) => void
+  ): Promise<number> {
+    const watchId = navigator.geolocation.watchPosition(
+      (position: GeolocationPosition) => callback(position),
+      (error: GeolocationPositionError) => callback(null, error),
+      {
+        enableHighAccuracy: options.enableHighAccuracy ?? true,
+        timeout: options.timeout ?? 10000,
+      }
+    );
+    return watchId;
+  },
+
+  async clearWatch(watchId: number | string): Promise<void> {
+    navigator.geolocation.clearWatch(Number(watchId));
+  },
+};
+
+// Platform detection and geolocation adapter
+const isNative = Capacitor.isNativePlatform();
+
+// Lazy load Capacitor Geolocation for native platforms only
+let CapacitorGeolocation:
+  | typeof import("@capacitor/geolocation").Geolocation
+  | null = null;
+
+async function getGeolocation() {
+  if (isNative && !CapacitorGeolocation) {
+    try {
+      const module = await import("@capacitor/geolocation");
+      CapacitorGeolocation = module.Geolocation;
+    } catch (error) {
+      console.error("Failed to load Capacitor Geolocation:", error);
+      // Fallback to web implementation if Capacitor fails
+      return webGeolocation;
+    }
+  }
+  return isNative && CapacitorGeolocation
+    ? CapacitorGeolocation
+    : webGeolocation;
+}
+
 export const locationService = {
   // Request location permissions
   async requestPermissions(): Promise<boolean> {
     try {
-      const status = await Geolocation.requestPermissions();
-      return status.location === "granted";
+      if (isNative) {
+        await getGeolocation();
+        if (CapacitorGeolocation) {
+          const status = await CapacitorGeolocation.requestPermissions();
+          return status.location === "granted";
+        }
+      }
+      return await webGeolocation.requestPermissions();
     } catch (error) {
       console.error("Permission request failed:", error);
       return false;
@@ -86,8 +204,14 @@ export const locationService = {
   // Check current permissions
   async checkPermissions(): Promise<boolean> {
     try {
-      const status = await Geolocation.checkPermissions();
-      return status.location === "granted";
+      if (isNative) {
+        await getGeolocation();
+        if (CapacitorGeolocation) {
+          const status = await CapacitorGeolocation.checkPermissions();
+          return status.location === "granted";
+        }
+      }
+      return await webGeolocation.checkPermissions();
     } catch (error) {
       return false;
     }
@@ -96,10 +220,29 @@ export const locationService = {
   // Get current location (one-time)
   async getCurrentLocation(): Promise<LocationData | null> {
     try {
-      const position = await Geolocation.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 10000,
-      });
+      if (isNative) {
+        await getGeolocation();
+      }
+      let position: GeolocationPosition;
+
+      if (isNative && CapacitorGeolocation) {
+        const capPosition = await CapacitorGeolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 10000,
+        });
+        position = {
+          coords: {
+            latitude: capPosition.coords.latitude,
+            longitude: capPosition.coords.longitude,
+            accuracy: capPosition.coords.accuracy ?? null,
+          },
+        };
+      } else {
+        position = await webGeolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 10000,
+        });
+      }
 
       return {
         latitude: position.coords.latitude,
@@ -117,33 +260,78 @@ export const locationService = {
     callback: (location: LocationData) => void,
     options?: { enableHighAccuracy?: boolean; timeout?: number }
   ): Promise<string> {
-    const watchId = await Geolocation.watchPosition(
-      {
-        enableHighAccuracy: options?.enableHighAccuracy ?? true,
-        timeout: options?.timeout ?? 10000,
-      },
-      (position, err) => {
-        if (err) {
-          console.error("Location watch error:", err);
-          return;
-        }
+    if (isNative) {
+      await getGeolocation();
+    }
 
-        if (position) {
-          callback({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy || 0,
-          });
-        }
-      }
-    );
+    if (isNative && CapacitorGeolocation) {
+      // Native implementation using Capacitor
+      const watchId = await CapacitorGeolocation.watchPosition(
+        {
+          enableHighAccuracy: options?.enableHighAccuracy ?? true,
+          timeout: options?.timeout ?? 10000,
+        },
+        (
+          position: GeolocationPosition | null,
+          err?: GeolocationPositionError
+        ) => {
+          if (err) {
+            console.error("Location watch error:", err);
+            return;
+          }
 
-    return watchId;
+          if (position) {
+            callback({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy || 0,
+            });
+          }
+        }
+      );
+
+      return watchId;
+    } else {
+      // Web implementation using browser API
+      const watchId = await webGeolocation.watchPosition(
+        {
+          enableHighAccuracy: options?.enableHighAccuracy ?? true,
+          timeout: options?.timeout ?? 10000,
+        },
+        (
+          position: GeolocationPosition | null,
+          err?: GeolocationPositionError
+        ) => {
+          if (err) {
+            console.error("Location watch error:", err);
+            return;
+          }
+
+          if (position) {
+            callback({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy || 0,
+            });
+          }
+        }
+      );
+
+      return String(watchId);
+    }
   },
 
   // Stop watching location
   async clearWatch(watchId: string): Promise<void> {
-    await Geolocation.clearWatch({ id: watchId });
+    if (isNative) {
+      await getGeolocation();
+    }
+
+    if (isNative && CapacitorGeolocation) {
+      await CapacitorGeolocation.clearWatch({ id: watchId });
+    } else {
+      await webGeolocation.clearWatch(watchId);
+    }
   },
 
   // Update user's live location in database
@@ -212,9 +400,7 @@ export const locationService = {
   },
 
   // Subscribe to real-time venue count updates
-  subscribeToVenueCounts(
-    callback: (counts: VenueCounts) => void
-  ) {
+  subscribeToVenueCounts(callback: (counts: VenueCounts) => void) {
     const channel = supabase
       .channel("live_locations")
       .on(
@@ -244,7 +430,9 @@ export const locationService = {
 
   // Cleanup: Remove stale locations (older than 30 minutes)
   async cleanupStaleLocations(): Promise<void> {
-    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const thirtyMinutesAgo = new Date(
+      Date.now() - 30 * 60 * 1000
+    ).toISOString();
 
     const { error } = await supabase
       .from("live_locations")
