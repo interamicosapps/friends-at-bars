@@ -262,7 +262,6 @@ const SwitchSearch = () => {
       const fraction = Math.min(elapsedTime / endTime, 1);
 
       let red: number, green: number;
-      const blue = 0;
 
       if (fraction <= 0.5) {
         red = 255;
