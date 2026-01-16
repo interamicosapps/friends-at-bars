@@ -33,6 +33,7 @@ interface MapViewProps {
   onSelectTime: (time: string) => void;
   heatMapMode?: boolean;
   timeOptions?: string[]; // Custom time options (for nightlife hours)
+  userLocation?: { latitude: number; longitude: number } | null;
 }
 
 interface PopupInfo {
@@ -54,6 +55,7 @@ export default function MapView({
   onSelectTime,
   heatMapMode = false,
   timeOptions,
+  userLocation,
 }: MapViewProps) {
   const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -743,6 +745,30 @@ export default function MapView({
               </Marker>
             );
           })
+        )}
+
+        {/* User location marker (green dot) */}
+        {userLocation && (
+          <Marker
+            longitude={userLocation.longitude}
+            latitude={userLocation.latitude}
+            anchor="center"
+          >
+            <div
+              className="user-location-marker"
+              style={{
+                width: "16px",
+                height: "16px",
+                backgroundColor: "#10B981",
+                borderRadius: "50%",
+                border: "3px solid white",
+                boxShadow: "0 2px 8px rgba(16, 185, 129, 0.4), 0 0 0 4px rgba(16, 185, 129, 0.1)",
+                cursor: "pointer",
+                zIndex: 3000,
+                position: "absolute",
+              }}
+            />
+          </Marker>
         )}
 
         {/* Popup */}

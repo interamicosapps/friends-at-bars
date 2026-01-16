@@ -45,6 +45,7 @@ export default function Home() {
   const [mapSelectedDate, setMapSelectedDate] = useState<string>(() =>
     format(new Date(), "yyyy-MM-dd")
   );
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   // Calculate dynamic start time based on current time
   const dynamicStartTime = getDynamicStartTime();
   const [mapSelectedTime, setMapSelectedTime] = useState<string>(
@@ -378,7 +379,7 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       {/* Location Tracking Toggle */}
       <div className="mb-4 flex justify-end">
-        <LocationToggle />
+        <LocationToggle onLocationUpdate={setUserLocation} />
       </div>
 
       {/* Map Section */}
@@ -401,6 +402,7 @@ export default function Home() {
             onSelectTime={handleMapTimeChange}
             heatMapMode={true}
             timeOptions={nightlifeTimeOptions}
+            userLocation={userLocation}
           />
         </Suspense>
       </div>

@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { Geolocation as CapacitorGeolocation } from "@capacitor/geolocation";
 import { supabase } from "./supabaseClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
@@ -92,13 +93,31 @@ const webGeolocation = {
     // We check by attempting to get position
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
+        console.warn("Geolocation is not supported by this browser");
         resolve(false);
         return;
       }
       navigator.geolocation.getCurrentPosition(
-        () => resolve(true),
-        () => resolve(false),
-        { timeout: 1000 }
+        () => {
+          console.log("Web geolocation permission granted");
+          resolve(true);
+        },
+        (error) => {
+          console.warn(
+            "Web geolocation permission error:",
+            error.code,
+            error.message
+          );
+          // Error code 1 = PERMISSION_DENIED
+          // Error code 2 = POSITION_UNAVAILABLE
+          // Error code 3 = TIMEOUT
+          resolve(false);
+        },
+        {
+          timeout: 10000, // Increased from 1000ms to 10000ms to allow time for user to respond
+          enableHighAccuracy: false, // Use less accurate for permission check to be faster
+          maximumAge: 0, // Don't use cached position
+        }
       );
     });
   },
@@ -110,14 +129,50 @@ const webGeolocation = {
         const result = await navigator.permissions.query({
           name: "geolocation",
         });
-        return result.state === "granted";
-      } catch {
+        const isGranted = result.state === "granted";
+        console.log("Web geolocation permission state:", result.state);
+
+        // Listen for permission state changes (for reactive updates)
+        result.onchange = () => {
+          console.log(
+            "Web geolocation permission state changed to:",
+            result.state
+          );
+        };
+
+        return isGranted;
+      } catch (error) {
+        console.warn(
+          "Permissions API not fully supported, falling back:",
+          error
+        );
         // Permissions API not fully supported, try via getCurrentPosition
-        return webGeolocation.requestPermissions();
+        // But don't prompt - just check silently
+        return new Promise((resolve) => {
+          if (!navigator.geolocation) {
+            resolve(false);
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(
+            () => resolve(true),
+            () => resolve(false),
+            { timeout: 1000, maximumAge: Infinity } // Use cached if available, quick check
+          );
+        });
       }
     }
-    // Fallback: try to get position (will prompt if needed)
-    return webGeolocation.requestPermissions();
+    // Fallback: try to get position silently (won't prompt if denied)
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(false);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        () => resolve(true),
+        () => resolve(false),
+        { timeout: 1000, maximumAge: Infinity } // Use cached if available, quick check
+      );
+    });
   },
 
   async getCurrentPosition(options?: {
@@ -162,38 +217,23 @@ const webGeolocation = {
 // Platform detection and geolocation adapter
 const isNative = Capacitor.isNativePlatform();
 
-// Lazy load Capacitor Geolocation for native platforms only
-let CapacitorGeolocation:
-  | typeof import("@capacitor/geolocation").Geolocation
-  | null = null;
-
-async function getGeolocation() {
-  if (isNative && !CapacitorGeolocation) {
-    try {
-      const module = await import("@capacitor/geolocation");
-      CapacitorGeolocation = module.Geolocation;
-    } catch (error) {
-      console.error("Failed to load Capacitor Geolocation:", error);
-      // Fallback to web implementation if Capacitor fails
-      return webGeolocation;
-    }
-  }
-  return isNative && CapacitorGeolocation
-    ? CapacitorGeolocation
-    : webGeolocation;
-}
-
 export const locationService = {
   // Request location permissions
   async requestPermissions(): Promise<boolean> {
     try {
       if (isNative) {
-        await getGeolocation();
-        if (CapacitorGeolocation) {
-          const status = await CapacitorGeolocation.requestPermissions();
-          return status.location === "granted";
-        }
+        console.log("Requesting native location permissions...");
+        const status = await CapacitorGeolocation.requestPermissions();
+        const granted = status.location === "granted";
+        console.log(
+          "Native location permission status:",
+          status.location,
+          "Granted:",
+          granted
+        );
+        return granted;
       }
+      console.log("Requesting web location permissions...");
       return await webGeolocation.requestPermissions();
     } catch (error) {
       console.error("Permission request failed:", error);
@@ -205,14 +245,19 @@ export const locationService = {
   async checkPermissions(): Promise<boolean> {
     try {
       if (isNative) {
-        await getGeolocation();
-        if (CapacitorGeolocation) {
-          const status = await CapacitorGeolocation.checkPermissions();
-          return status.location === "granted";
-        }
+        const status = await CapacitorGeolocation.checkPermissions();
+        const granted = status.location === "granted";
+        console.log(
+          "Native location permission check:",
+          status.location,
+          "Granted:",
+          granted
+        );
+        return granted;
       }
       return await webGeolocation.checkPermissions();
     } catch (error) {
+      console.warn("Permission check failed:", error);
       return false;
     }
   },
@@ -220,12 +265,9 @@ export const locationService = {
   // Get current location (one-time)
   async getCurrentLocation(): Promise<LocationData | null> {
     try {
-      if (isNative) {
-        await getGeolocation();
-      }
       let position: GeolocationPosition;
 
-      if (isNative && CapacitorGeolocation) {
+      if (isNative) {
         const capPosition = await CapacitorGeolocation.getCurrentPosition({
           enableHighAccuracy: true,
           timeout: 10000,
@@ -261,10 +303,6 @@ export const locationService = {
     options?: { enableHighAccuracy?: boolean; timeout?: number }
   ): Promise<string> {
     if (isNative) {
-      await getGeolocation();
-    }
-
-    if (isNative && CapacitorGeolocation) {
       // Native implementation using Capacitor
       const watchId = await CapacitorGeolocation.watchPosition(
         {
@@ -324,10 +362,6 @@ export const locationService = {
   // Stop watching location
   async clearWatch(watchId: string): Promise<void> {
     if (isNative) {
-      await getGeolocation();
-    }
-
-    if (isNative && CapacitorGeolocation) {
       await CapacitorGeolocation.clearWatch({ id: watchId });
     } else {
       await webGeolocation.clearWatch(watchId);
@@ -339,40 +373,53 @@ export const locationService = {
     const userId = getUserId();
     const venueMatch = findNearestVenue(location.latitude, location.longitude);
 
-    if (venueMatch) {
-      // User is at a venue - upsert location
-      const locationData: LiveLocationInsert = {
-        user_id: userId,
-        venue_name: venueMatch.venue.name,
-        latitude: location.latitude,
-        longitude: location.longitude,
-        is_active: true,
-      };
-
-      const { error } = await supabase
-        .from("live_locations")
-        .upsert(locationData, {
-          onConflict: "user_id",
-        });
-
-      if (error) {
-        console.error("Error updating live location:", error);
-      }
-    } else {
-      // User is not at any venue - mark as inactive
-      const { error } = await supabase
-        .from("live_locations")
-        .update({
-          is_active: false,
-          last_updated: new Date().toISOString(),
-        })
-        .eq("user_id", userId);
-
-      if (error && error.code !== "PGRST116") {
-        // PGRST116 means no rows matched, which is fine
-        console.error("Error deactivating live location:", error);
-      }
+    // Only update backend if at a venue
+    // If not at venue, do nothing (no backend effect)
+    if (!venueMatch) {
+      return; // No backend update when not at venue
     }
+
+    // User is at a venue - upsert location
+    const locationData: LiveLocationInsert = {
+      user_id: userId,
+      venue_name: venueMatch.venue.name,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      is_active: true,
+    };
+
+    const { error } = await supabase
+      .from("live_locations")
+      .upsert(locationData, {
+        onConflict: "user_id",
+      });
+
+    if (error) {
+      console.error("Error updating live location:", error);
+    }
+  },
+
+  // Deactivate user's location in database (when tracking stops)
+  async deactivateUserLocation(): Promise<void> {
+    const userId = getUserId();
+    const { error } = await supabase
+      .from("live_locations")
+      .update({
+        is_active: false,
+        last_updated: new Date().toISOString(),
+      })
+      .eq("user_id", userId);
+
+    if (error && error.code !== "PGRST116") {
+      // PGRST116 means no rows matched, which is fine
+      console.error("Error deactivating live location:", error);
+    }
+  },
+
+  // Check if location is at a venue (exposed for LocationToggle to check before backend updates)
+  checkIfAtVenue(latitude: number, longitude: number): boolean {
+    const venueMatch = findNearestVenue(latitude, longitude);
+    return venueMatch !== null;
   },
 
   // Get live user counts per venue

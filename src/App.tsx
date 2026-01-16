@@ -6,6 +6,8 @@ import Layout from "./components/Layout";
 const Home = lazy(() => import("./pages/Home"));
 const Test = lazy(() => import("./pages/Test"));
 const About = lazy(() => import("./pages/About"));
+const Games = lazy(() => import("./pages/Games"));
+const SwitchSearch = lazy(() => import("./pages/SwitchSearch"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Loading fallback component
@@ -44,6 +46,22 @@ function App() {
             element={
               <Suspense fallback={<LoadingFallback />}>
                 <About />
+              </Suspense>
+            }
+          />
+          <Route
+            path="games"
+            element={
+              <Suspense fallback={<LoadingFallback />}>
+                <Games />
+              </Suspense>
+            }
+          />
+          <Route
+            path="games/switch-search"
+            element={
+              <Suspense fallback={<LoadingFallback />}>
+                <SwitchSearch />
               </Suspense>
             }
           />

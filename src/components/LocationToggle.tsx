@@ -3,19 +3,49 @@ import { MapPin, MapPinOff } from "lucide-react";
 import { locationService } from "@/lib/locationService";
 import { Button } from "@/components/ui/Button";
 
-export default function LocationToggle() {
+interface LocationToggleProps {
+  onLocationUpdate?: (location: { latitude: number; longitude: number } | null) => void;
+  skipSupabase?: boolean; // If true, skip Supabase updates (for local-only testing)
+}
+
+export default function LocationToggle({ onLocationUpdate, skipSupabase = false }: LocationToggleProps) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const watchIdRef = useRef<string | null>(null);
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isEnabledRef = useRef(isEnabled);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    isEnabledRef.current = isEnabled;
+  }, [isEnabled]);
 
   useEffect(() => {
     // Check permissions on mount
     checkPermissions();
-    // Cleanup on unmount
+    
+    // Re-check permissions when window regains focus (for web - handles browser permission changes)
+    const handleFocus = () => {
+      console.log("Window focused, re-checking permissions...");
+      checkPermissions();
+    };
+    
+    // Re-check permissions periodically (every 30 seconds) to catch external permission changes
+    const permissionCheckInterval = setInterval(() => {
+      if (!isEnabledRef.current) {
+        // Only check if tracking is not enabled to avoid interrupting active tracking
+        checkPermissions();
+      }
+    }, 30000);
+    
+    window.addEventListener("focus", handleFocus);
+    
+    // Cleanup on unmount only (not when isEnabled changes)
     return () => {
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(permissionCheckInterval);
       if (watchIdRef.current) {
         locationService.clearWatch(watchIdRef.current);
       }
@@ -23,15 +53,18 @@ export default function LocationToggle() {
         clearInterval(updateIntervalRef.current);
       }
     };
-  }, []);
+  }, []); // Empty dependency array - only run on mount/unmount
 
   const checkPermissions = async () => {
     const granted = await locationService.checkPermissions();
+    console.log("Permission check result:", granted);
     setHasPermission(granted);
     // If we had tracking enabled but lost permission, disable tracking
     if (isEnabled && !granted) {
+      console.warn("Permission lost while tracking was enabled, stopping tracking");
       stopTracking();
     }
+    return granted;
   };
 
   const startTracking = async () => {
@@ -39,45 +72,89 @@ export default function LocationToggle() {
     setError(null);
 
     try {
+      // Always re-check permissions first to ensure state is current
+      // This handles cases where user granted permission externally (Settings/browser)
+      const currentPermissionStatus = await checkPermissions();
+      
       // Request permissions if not already granted
-      if (!hasPermission) {
-        const granted = await locationService.requestPermissions();
-        if (!granted) {
-          setError("Location permission is required for live tracking");
+      if (!currentPermissionStatus) {
+        console.log("Requesting location permissions...");
+        await locationService.requestPermissions();
+        
+        // Verify permission was actually granted by checking again
+        // This handles edge cases where request returns success but permission isn't actually granted
+        const verified = await checkPermissions();
+        
+        if (!verified) {
+          setError("Location permission was denied. Please enable location access in your device settings or browser.");
           setIsLoading(false);
           return;
         }
-        setHasPermission(true);
+        
+        console.log("Permission granted and verified");
       }
 
-      // Get initial location
+      // Get initial location for local display (green dot)
+      console.log("Getting initial location...");
       const initialLocation = await locationService.getCurrentLocation();
       if (initialLocation) {
-        await locationService.updateLiveLocation(initialLocation);
+        console.log("Initial location obtained:", initialLocation.latitude, initialLocation.longitude);
+        // Update local state only (green dot) - backend update happens on 60-second interval
+        const loc = { latitude: initialLocation.latitude, longitude: initialLocation.longitude };
+        onLocationUpdate?.(loc);
+      } else {
+        console.warn("Failed to get initial location");
+        setError("Unable to get your current location. Please check your device settings.");
+        setIsLoading(false);
+        return;
       }
 
-      // Start watching position (updates every 60 seconds)
+      // Start watching position - real-time local updates only (for green dot)
       const watchId = await locationService.watchPosition(
         async (location) => {
-          await locationService.updateLiveLocation(location);
+          // Real-time local update (green dot moves immediately)
+          const loc = { latitude: location.latitude, longitude: location.longitude };
+          onLocationUpdate?.(loc);
+          // NO backend update here - backend updates happen separately every 60 seconds
         },
         { enableHighAccuracy: true, timeout: 10000 }
       );
 
       watchIdRef.current = watchId;
 
-      // Also set up a periodic update (every 60 seconds) as backup
+      // Backend update interval - check venue proximity every 60 seconds
       updateIntervalRef.current = setInterval(async () => {
-        const location = await locationService.getCurrentLocation();
-        if (location) {
-          await locationService.updateLiveLocation(location);
+        try {
+          const location = await locationService.getCurrentLocation();
+          if (location) {
+            // Check if at venue before updating backend
+            const isAtVenue = locationService.checkIfAtVenue(location.latitude, location.longitude);
+            
+            if (isAtVenue && !skipSupabase) {
+              // Only update backend if at a venue
+              await locationService.updateLiveLocation(location);
+            }
+            // If not at venue, do nothing (no backend update)
+          }
+        } catch (err) {
+          // Suppress timeout errors (code 3) - they're expected when device is idle
+          if (err && typeof err === 'object' && 'code' in err && err.code === 3) {
+            return; // Timeout is expected, ignore silently
+          }
+          console.error("Error in backend location update:", err);
         }
       }, 60000);
 
       setIsEnabled(true);
+      console.log("Location tracking started successfully");
     } catch (err) {
       console.error("Error starting location tracking:", err);
-      setError("Failed to start location tracking");
+      const errorMessage = err instanceof Error 
+        ? `Failed to start location tracking: ${err.message}`
+        : "Failed to start location tracking. Please try again.";
+      setError(errorMessage);
+      // Re-check permissions in case they changed
+      await checkPermissions();
     } finally {
       setIsLoading(false);
     }
@@ -95,18 +172,17 @@ export default function LocationToggle() {
         updateIntervalRef.current = null;
       }
 
-      // Deactivate user's location in database
-      // Use coordinates that are guaranteed to be far from any venue
-      // This will mark the location as inactive in the database
-      try {
-        await locationService.updateLiveLocation({
-          latitude: 0,
-          longitude: 0,
-          accuracy: 0,
-        }); // Coordinates (0,0) are far from all venues, so location will be marked inactive
-      } catch (err) {
-        console.error("Error deactivating location:", err);
+      // Deactivate user's location in database (only if Supabase updates are enabled)
+      if (!skipSupabase) {
+        try {
+          await locationService.deactivateUserLocation();
+        } catch (err) {
+          console.error("Error deactivating location:", err);
+        }
       }
+
+      // Clear current location
+      onLocationUpdate?.(null);
     } catch (err) {
       console.error("Error stopping location tracking:", err);
     } finally {
@@ -118,6 +194,9 @@ export default function LocationToggle() {
     if (isEnabled) {
       stopTracking();
     } else {
+      // Re-check permissions before starting to ensure state is current
+      // This is especially important if user granted permission externally
+      await checkPermissions();
       startTracking();
     }
   };
@@ -148,9 +227,14 @@ export default function LocationToggle() {
       {error && (
         <p className="text-sm text-red-600">{error}</p>
       )}
-      {!hasPermission && !error && (
+      {!hasPermission && !error && !isLoading && (
         <p className="text-xs text-gray-500">
-          Enable to share your location at bars
+          Click to enable location tracking. You'll be prompted to allow location access.
+        </p>
+      )}
+      {isLoading && (
+        <p className="text-xs text-gray-500">
+          Requesting location permission...
         </p>
       )}
     </div>

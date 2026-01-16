@@ -31,5 +31,6 @@ dist-ssr
 .env.production.local
 
 # Capacitor native projects
-android/
-ios/
+# Note: We track android/ and ios/ folders but ignore build artifacts
+# Build artifacts are handled by android/.gitignore and ios/.gitignore
+# The native project source files should be committed to version control

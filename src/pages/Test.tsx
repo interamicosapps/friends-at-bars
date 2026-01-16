@@ -30,6 +30,7 @@ import {
   getUserCheckInIds,
   removeUserCheckInId,
 } from "@/lib/userCheckIns";
+import LocationToggle from "@/components/LocationToggle";
 
 export default function Test() {
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]); // All check-ins (for map)
@@ -44,6 +45,7 @@ export default function Test() {
   const [mapSelectedDate, setMapSelectedDate] = useState<string>(() =>
     format(new Date(), "yyyy-MM-dd")
   );
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   // Calculate dynamic start time based on current time
   const dynamicStartTime = getDynamicStartTime();
   const [mapSelectedTime, setMapSelectedTime] = useState<string>(
@@ -375,6 +377,14 @@ export default function Test() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Location Toggle - Local only (no Supabase) */}
+      <div className="mb-4">
+        <LocationToggle 
+          onLocationUpdate={setUserLocation}
+          skipSupabase={true}
+        />
+      </div>
+
       {/* Map Section */}
       <div className="mb-8">
         <Suspense
@@ -395,6 +405,7 @@ export default function Test() {
             onSelectTime={handleMapTimeChange}
             heatMapMode={true}
             timeOptions={nightlifeTimeOptions}
+            userLocation={userLocation}
           />
         </Suspense>
       </div>

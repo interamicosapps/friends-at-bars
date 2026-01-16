@@ -20,7 +20,7 @@ export default function Navbar() {
                 N
               </span>
             </div>
-            <span className="text-xl font-bold text-foreground">
+            <span className="text-sm sm:text-base md:text-lg lg:text-xl xl:text-2xl font-bold text-foreground">
               Ohio State Nightlife Map
             </span>
           </Link>
@@ -30,7 +30,7 @@ export default function Navbar() {
             <Link
               to="/"
               className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
+                "flex items-center justify-center text-sm font-medium transition-colors hover:text-primary",
                 isActive("/") ? "text-primary" : "text-muted-foreground"
               )}
             >
@@ -39,7 +39,7 @@ export default function Navbar() {
             <Link
               to="/test"
               className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
+                "flex items-center justify-center text-sm font-medium transition-colors hover:text-primary",
                 isActive("/test") ? "text-primary" : "text-muted-foreground"
               )}
             >
@@ -48,11 +48,20 @@ export default function Navbar() {
             <Link
               to="/about"
               className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
+                "flex items-center justify-center text-sm font-medium transition-colors hover:text-primary",
                 isActive("/about") ? "text-primary" : "text-muted-foreground"
               )}
             >
               About
+            </Link>
+            <Link
+              to="/games"
+              className={cn(
+                "flex items-center justify-center text-sm font-medium transition-colors hover:text-primary",
+                isActive("/games") ? "text-primary" : "text-muted-foreground"
+              )}
+            >
+              Games
             </Link>
           </div>
         </div>
