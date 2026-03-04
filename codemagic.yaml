@@ -10,7 +10,7 @@ workflows:
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.barfest.app"
         APP_ID: "6759994494"
-      node: 20.18.0
+      node: 22.18.0
       xcode: latest
       cocoapods: default
     scripts:
