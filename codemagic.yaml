@@ -10,7 +10,7 @@ workflows:
       vars:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
-        BUNDLE_ID: "com.ohiostate.nightlifemap"
+        BUNDLE_ID: "com.barfest.app"
         APP_ID: "" # Will be set in App Store Connect
       node: 20.18.0
       xcode: latest

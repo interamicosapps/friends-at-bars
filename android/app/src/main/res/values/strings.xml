@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Ohio State Nightlife Map</string>
-    <string name="title_activity_main">Ohio State Nightlife Map</string>
-    <string name="package_name">com.ohiostate.nightlifemap</string>
-    <string name="custom_url_scheme">com.ohiostate.nightlifemap</string>
+    <string name="app_name">Bar Fest</string>
+    <string name="title_activity_main">Bar Fest</string>
+    <string name="package_name">com.barfest.app</string>
+    <string name="custom_url_scheme">com.barfest.app</string>
 </resources>

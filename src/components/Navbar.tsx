@@ -21,7 +21,7 @@ export default function Navbar() {
               </span>
             </div>
             <span className="text-sm sm:text-base md:text-lg lg:text-xl xl:text-2xl font-bold text-foreground">
-              Ohio State Nightlife Map
+              Bar Fest
             </span>
           </Link>
 
@@ -35,6 +35,15 @@ export default function Navbar() {
               )}
             >
               Home
+            </Link>
+            <Link
+              to="/test"
+              className={cn(
+                "flex items-center justify-center text-sm font-medium transition-colors hover:text-primary",
+                isActive("/test") ? "text-primary" : "text-muted-foreground"
+              )}
+            >
+              Test
             </Link>
             <Link
               to="/about"

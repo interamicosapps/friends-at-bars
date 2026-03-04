@@ -29,6 +29,26 @@ interface GridCell {
   color?: string;
 }
 
+const TRANSITION_DURATION_MS = 1500;
+const WHITE_RGB = { r: 255, g: 255, b: 255 };
+const BLACK_RGB = { r: 0, g: 0, b: 0 };
+const CELL_BG_EASY = { r: 211, g: 211, b: 211 };
+const CELL_BG_HARD = { r: 82, g: 82, b: 82 };
+const CELL_BORDER_EASY = { r: 209, g: 213, b: 219 };
+const CELL_BORDER_HARD = { r: 107, g: 114, b: 128 };
+
+function lerpRgb(
+  start: { r: number; g: number; b: number },
+  end: { r: number; g: number; b: number },
+  t: number
+): { r: number; g: number; b: number } {
+  return {
+    r: Math.round(start.r + (end.r - start.r) * t),
+    g: Math.round(start.g + (end.g - start.g) * t),
+    b: Math.round(start.b + (end.b - start.b) * t),
+  };
+}
+
 const SwitchSearch = () => {
   const navigate = useNavigate();
   const [view, setView] = useState<View>("homescreen");
@@ -40,16 +60,19 @@ const SwitchSearch = () => {
   const [grid, setGrid] = useState<GridCell[][]>([]);
   const [wordPositions, setWordPositions] = useState<WordPosition[]>([]);
   const [gameTime, setGameTime] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(56);
+  const [timeLeft, setTimeLeft] = useState(42);
   const [countdownTime, setCountdownTime] = useState(12);
   const [wordHints, setWordHints] = useState<string>("");
   const [isSelecting, setIsSelecting] = useState(false);
   const [startCell, setStartCell] = useState<Cell | null>(null);
   const [endCell, setEndCell] = useState<Cell | null>(null);
   const [selectionType, setSelectionType] = useState<SelectionType>("none");
+  const [backgroundRgb, setBackgroundRgb] = useState<{ r: number; g: number; b: number }>(WHITE_RGB);
+  const [isTimeFrozen, setIsTimeFrozen] = useState(false);
 
-  const gameTimeLimit = difficulty === "easy" ? 56 : 60;
-  const gameDuration = difficulty === "easy" ? 12 : 20;
+  const gameTimeLimit = difficulty === "easy" ? 42 : 56;
+  const gameDuration = difficulty === "easy" ? 12 : 16;
+  const bonusFreezeDuration = difficulty === "easy" ? 1 : 3;
   const gridSize = difficulty === "easy" ? 7 : 8;
 
   const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -57,6 +80,93 @@ const SwitchSearch = () => {
   const gameCountdownRef = useRef<NodeJS.Timeout | null>(null);
   const wordSearchIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const freezeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const freezeCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const transitionRef = useRef<{
+    startTime: number;
+    startColor: { r: number; g: number; b: number };
+    endColor: { r: number; g: number; b: number };
+    duration: number;
+  } | null>(null);
+
+  // Theme colors derived from background (transition with background)
+  const t = 1 - backgroundRgb.r / 255;
+  const foregroundRgb = {
+    r: 255 - backgroundRgb.r,
+    g: 255 - backgroundRgb.g,
+    b: 255 - backgroundRgb.b,
+  };
+  const cellBgRgb = lerpRgb(CELL_BG_EASY, CELL_BG_HARD, t);
+  const cellBorderRgb = lerpRgb(CELL_BORDER_EASY, CELL_BORDER_HARD, t);
+  const theme = {
+    bg: `rgb(${backgroundRgb.r},${backgroundRgb.g},${backgroundRgb.b})`,
+    fg: `rgb(${foregroundRgb.r},${foregroundRgb.g},${foregroundRgb.b})`,
+    cellBg: `rgb(${cellBgRgb.r},${cellBgRgb.g},${cellBgRgb.b})`,
+    cellBorder: `rgb(${cellBorderRgb.r},${cellBorderRgb.g},${cellBorderRgb.b})`,
+  };
+
+  // Smooth background transition when difficulty changes
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    const targetRgb = difficulty === "easy" ? WHITE_RGB : BLACK_RGB;
+
+    const startTransition = () => {
+      const now = performance.now();
+      let startColor: { r: number; g: number; b: number };
+      let duration: number;
+
+      const current = transitionRef.current;
+      if (current && current.duration > 0) {
+        const elapsed = Math.min(current.duration, now - current.startTime);
+        const t = elapsed / current.duration;
+        startColor = lerpRgb(current.startColor, current.endColor, t);
+        duration = elapsed;
+      } else {
+        startColor = backgroundRgb;
+        duration = TRANSITION_DURATION_MS;
+      }
+
+      transitionRef.current = {
+        startTime: now,
+        startColor,
+        endColor: targetRgb,
+        duration,
+      };
+
+      const tick = () => {
+        const tr = transitionRef.current;
+        if (!tr) return;
+        const elapsed = performance.now() - tr.startTime;
+        const t = tr.duration === 0 ? 1 : Math.min(1, elapsed / tr.duration);
+        const next = lerpRgb(tr.startColor, tr.endColor, t);
+        setBackgroundRgb(next);
+        if (t < 1) {
+          rafRef.current = requestAnimationFrame(tick);
+        } else {
+          transitionRef.current = null;
+        }
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    startTransition();
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, [difficulty]);
 
   // Get random word from array
   const getRandomWord = useCallback((words: string[]): string => {
@@ -419,14 +529,24 @@ const SwitchSearch = () => {
       setFoundWords(newFoundWords);
       setTotalFoundWords((prev) => prev + 1);
 
-      // Check if all words found
+      // Check if all words found: switch word search, reset word search timer, freeze game timer for full bonus duration
       if (newFoundWords.length === currentWords.length) {
-        const additionalTime = difficulty === "easy" ? 2 : 6;
-        setTimeLeft((prev) => Math.min(prev + additionalTime, gameTimeLimit));
-
-        setTimeout(() => {
-          generateWordSearch();
-        }, 300);
+        setIsTimeFrozen(true);
+        generateWordSearch(); // switch puzzle and reset word search timer
+        const freezeMs = bonusFreezeDuration * 1000;
+        const freezeEndTime = Date.now() + freezeMs;
+        if (freezeTimeoutRef.current) clearTimeout(freezeTimeoutRef.current);
+        freezeTimeoutRef.current = null;
+        if (freezeCheckIntervalRef.current) clearInterval(freezeCheckIntervalRef.current);
+        freezeCheckIntervalRef.current = setInterval(() => {
+          if (Date.now() >= freezeEndTime) {
+            if (freezeCheckIntervalRef.current) {
+              clearInterval(freezeCheckIntervalRef.current);
+              freezeCheckIntervalRef.current = null;
+            }
+            setIsTimeFrozen(false);
+          }
+        }, 50);
       }
     } else {
       // Clear highlights
@@ -449,7 +569,7 @@ const SwitchSearch = () => {
     gameTime,
     getColorAndTextColorByTime,
     difficulty,
-    gameTimeLimit,
+    bonusFreezeDuration,
     generateWordSearch,
   ]);
 
@@ -539,6 +659,15 @@ const SwitchSearch = () => {
 
   // Start game
   const startGame = useCallback(() => {
+    if (freezeTimeoutRef.current) {
+      clearTimeout(freezeTimeoutRef.current);
+      freezeTimeoutRef.current = null;
+    }
+    if (freezeCheckIntervalRef.current) {
+      clearInterval(freezeCheckIntervalRef.current);
+      freezeCheckIntervalRef.current = null;
+    }
+    setIsTimeFrozen(false);
     setView("game");
     setTimeLeft(gameTimeLimit);
     setCountdownTime(gameDuration);
@@ -551,6 +680,15 @@ const SwitchSearch = () => {
 
   // Restart game
   const restartGame = useCallback(() => {
+    if (freezeTimeoutRef.current) {
+      clearTimeout(freezeTimeoutRef.current);
+      freezeTimeoutRef.current = null;
+    }
+    if (freezeCheckIntervalRef.current) {
+      clearInterval(freezeCheckIntervalRef.current);
+      freezeCheckIntervalRef.current = null;
+    }
+    setIsTimeFrozen(false);
     setView("game");
     setTimeLeft(gameTimeLimit);
     setCountdownTime(gameDuration);
@@ -590,9 +728,9 @@ const SwitchSearch = () => {
     });
   }, [wordPositions]);
 
-  // Game timer
+  // Game timer (elapsed seconds; paused during time freeze)
   useEffect(() => {
-    if (view === "game") {
+    if (view === "game" && !isTimeFrozen) {
       gameTimerRef.current = setInterval(() => {
         setGameTime((prev) => prev + 1);
       }, 1000);
@@ -603,11 +741,11 @@ const SwitchSearch = () => {
         }
       };
     }
-  }, [view]);
+  }, [view, isTimeFrozen]);
 
-  // Game countdown timer
+  // Game countdown timer (paused during time freeze)
   useEffect(() => {
-    if (view === "game" && timeLeft > 0) {
+    if (view === "game" && timeLeft > 0 && !isTimeFrozen) {
       gameCountdownRef.current = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
@@ -624,9 +762,9 @@ const SwitchSearch = () => {
         }
       };
     }
-  }, [view, timeLeft]);
+  }, [view, timeLeft, isTimeFrozen]);
 
-  // Word search countdown timer
+  // Word search countdown timer (keeps running during time freeze)
   useEffect(() => {
     if (view === "game" && countdownTime > 0) {
       countdownTimerRef.current = setInterval(() => {
@@ -709,6 +847,12 @@ const SwitchSearch = () => {
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
       if (gameCountdownRef.current) clearInterval(gameCountdownRef.current);
       if (wordSearchIntervalRef.current) clearInterval(wordSearchIntervalRef.current);
+      if (freezeTimeoutRef.current) {
+        clearTimeout(freezeTimeoutRef.current);
+      }
+      if (freezeCheckIntervalRef.current) {
+        clearInterval(freezeCheckIntervalRef.current);
+      }
     };
   }, []);
 
@@ -716,9 +860,9 @@ const SwitchSearch = () => {
   // Render homescreen
   if (view === "homescreen") {
     return (
-      <div className="flex flex-col bg-background px-4 overflow-hidden min-h-0" style={{ height: 'calc(100vh - 4rem - 4rem)' }}>
+      <div className="flex flex-col px-4 overflow-hidden min-h-0" style={{ height: 'calc(100vh - 4rem - 4rem)', backgroundColor: theme.bg }}>
         <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mx-auto text-center gap-3 md:gap-6 min-h-0">
-          <h1 className="text-4xl md:text-6xl font-bold text-foreground">Switch Search</h1>
+          <h1 className="text-4xl md:text-6xl font-bold" style={{ color: theme.fg }}>Switch Search</h1>
 
           <div className="flex justify-center gap-4 md:gap-6">
             <label className="flex cursor-pointer items-center gap-2">
@@ -730,7 +874,7 @@ const SwitchSearch = () => {
                 onChange={(e) => setDifficulty(e.target.value as Difficulty)}
                 className="h-4 w-4"
               />
-              <span className="text-lg md:text-xl text-foreground">Easy</span>
+              <span className="text-lg md:text-xl" style={{ color: theme.fg }}>Easy</span>
             </label>
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -741,12 +885,17 @@ const SwitchSearch = () => {
                 onChange={(e) => setDifficulty(e.target.value as Difficulty)}
                 className="h-4 w-4"
               />
-              <span className="text-lg md:text-xl text-foreground">Hard</span>
+              <span className="text-lg md:text-xl" style={{ color: theme.fg }}>Hard</span>
             </label>
           </div>
 
           <div className="flex flex-col gap-2 md:gap-4 w-full">
-            <Button onClick={startGame} size="lg" className="w-full text-base md:text-lg">
+            <Button
+              onClick={startGame}
+              size="lg"
+              className="w-full text-base md:text-lg border-0"
+              style={{ backgroundColor: theme.fg, color: theme.bg }}
+            >
               Start Game
             </Button>
             <Button
@@ -754,13 +903,14 @@ const SwitchSearch = () => {
               variant="outline"
               size="lg"
               className="w-full text-base md:text-lg"
+              style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}
             >
               Exit
             </Button>
           </div>
         </div>
 
-        <p className="text-xs md:text-sm text-muted-foreground text-center py-1 md:py-4 flex-shrink-0">
+        <p className="text-xs md:text-sm text-center py-1 md:py-4 flex-shrink-0" style={{ color: theme.fg }}>
           Developed by: Isaac Edwards
         </p>
       </div>
@@ -771,13 +921,18 @@ const SwitchSearch = () => {
   if (view === "end") {
     const wordCountMessage = totalFoundWords === 1 ? "word" : "words";
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+      <div className="flex min-h-screen flex-col items-center justify-center px-4" style={{ backgroundColor: theme.bg }}>
         <div className="w-full max-w-2xl text-center">
-          <h1 className="mb-6 text-3xl font-bold text-foreground">
+          <h1 className="mb-6 text-3xl font-bold" style={{ color: theme.fg }}>
             Time is up! You found {totalFoundWords} {wordCountMessage}.
           </h1>
           <div className="flex flex-col gap-4">
-            <Button onClick={restartGame} size="lg" className="w-full">
+            <Button
+              onClick={restartGame}
+              size="lg"
+              className="w-full border-0"
+              style={{ backgroundColor: theme.fg, color: theme.bg }}
+            >
               Restart
             </Button>
             <Button
@@ -785,6 +940,7 @@ const SwitchSearch = () => {
               variant="outline"
               size="lg"
               className="w-full"
+              style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}
             >
               Exit
             </Button>
@@ -817,15 +973,25 @@ const SwitchSearch = () => {
           margin-left: 12px;
           display: inline-block;
         }
+        .word-search-frost {
+          box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.5),
+                      0 0 20px rgba(34, 211, 238, 0.25),
+                      inset 0 0 30px rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(34, 211, 238, 0.4);
+          transition: box-shadow 0.4s ease, border-color 0.4s ease;
+        }
       `}</style>
-      <div className="flex h-[calc(100vh-4rem)] md:h-[calc(100vh-4rem)] flex-col items-center justify-center bg-background px-4 py-1 md:py-8 overflow-hidden">
-      <div className="w-full max-w-4xl flex flex-col items-center justify-center flex-1 min-h-0 gap-0.5 md:gap-2">
-        <div className="mb-1 md:mb-4 text-center text-xl md:text-2xl font-bold text-foreground">
+      <div
+        className="flex h-[calc(100vh-4rem)] flex-col items-center px-4 py-1 md:py-4 overflow-y-auto overflow-x-hidden"
+        style={{ backgroundColor: theme.bg }}
+      >
+      <div className="w-full max-w-4xl flex flex-col items-center flex-shrink-0 gap-0.5 md:gap-2 py-2 md:py-4">
+        <div className="mb-1 md:mb-2 text-center text-xl md:text-2xl font-bold flex-shrink-0" style={{ color: theme.fg }}>
           Switch Search
         </div>
 
-        {/* Game Timer Progress Bar */}
-        <div className="mb-1 md:mb-2 h-1.5 md:h-2.5 w-full max-w-[300px] mx-auto relative bg-muted rounded">
+        {/* Game Timer Progress Bar - always visible, never collapsed */}
+        <div className="flex-shrink-0 mb-1 md:mb-2 w-full max-w-[300px] mx-auto relative bg-muted rounded overflow-hidden min-h-[8px] h-2 md:min-h-[10px] md:h-3">
           <div
             className="absolute top-0 left-0 h-full bg-blue-600 transition-all duration-1000 rounded"
             style={{ width: `${gameTimeProgress}%` }}
@@ -837,13 +1003,14 @@ const SwitchSearch = () => {
           <div
             ref={gridRef}
             className={cn(
-              "mx-auto my-1 md:my-4 grid gap-0.5 md:gap-1",
+              "mx-auto my-1 md:my-2 grid gap-0.5 md:gap-1 rounded-lg flex-shrink-0",
               difficulty === "easy" ? "grid-cols-7" : "grid-cols-8",
-              "aspect-square flex-shrink-0"
+              "aspect-square",
+              isTimeFrozen && "word-search-frost"
             )}
             style={{
-              width: "min(75vw, 45vh)",
-              height: "min(75vw, 45vh)",
+              width: "min(75vw, min(45vh, calc(100vh - 4rem - 280px)))",
+              height: "min(75vw, min(45vh, calc(100vh - 4rem - 280px)))",
             }}
           >
             {grid.map((row) =>
@@ -852,17 +1019,11 @@ const SwitchSearch = () => {
                 key={`${cell.row}-${cell.col}`}
                 data-row={cell.row}
                 data-col={cell.col}
-                className={cn(
-                  "flex items-center justify-center rounded-[10%] border cursor-pointer select-none text-center font-bold transition-colors",
-                  difficulty === "hard"
-                    ? "bg-gray-600 text-white border-gray-500"
-                    : "bg-gray-200 text-black border-gray-300",
-                  cell.highlighted && "bg-cyan-400/64 text-white",
-                  cell.unfoundHighlight && "bg-gray-400 text-white"
-                )}
+                className="flex items-center justify-center rounded-[10%] border cursor-pointer select-none text-center font-bold transition-colors"
                 style={{
-                  backgroundColor: cell.backgroundColor || undefined,
-                  color: cell.color || undefined,
+                  backgroundColor: cell.backgroundColor ?? (cell.highlighted ? "rgba(34, 211, 238, 0.64)" : cell.unfoundHighlight ? "rgb(163, 163, 163)" : theme.cellBg),
+                  color: cell.color ?? (cell.highlighted || cell.unfoundHighlight ? "white" : theme.fg),
+                  borderColor: theme.cellBorder,
                   fontSize: `clamp(12px, calc(17.5vw / ${gridSize}), 24px)`,
                 }}
                 onMouseDown={(e) => {
@@ -918,8 +1079,8 @@ const SwitchSearch = () => {
           </div>
         )}
 
-        {/* Word Search Timer Progress Bar */}
-        <div className="mb-1 md:mb-2 h-1.5 md:h-2.5 w-full max-w-[300px] mx-auto relative bg-muted rounded">
+        {/* Word Search Timer Progress Bar - always visible, never collapsed */}
+        <div className="flex-shrink-0 mb-1 md:mb-2 w-full max-w-[300px] mx-auto relative bg-muted rounded overflow-hidden min-h-[8px] h-2 md:min-h-[10px] md:h-3">
           <div
             className="absolute top-0 left-0 h-full bg-red-600 transition-all duration-1000 rounded"
             style={{ width: `${countdownProgress}%` }}
@@ -928,24 +1089,25 @@ const SwitchSearch = () => {
 
         {/* Word Hints */}
         <div
-          className="mb-1 md:mb-4 text-center text-sm md:text-base text-foreground"
+          className="mb-1 md:mb-4 text-center text-sm md:text-base"
+          style={{ color: theme.fg }}
           dangerouslySetInnerHTML={{ __html: wordHints }}
         />
 
         {/* Found Words Counter */}
-        <div className="mb-1 md:mb-4 text-center text-sm md:text-lg text-foreground">
+        <div className="mb-1 md:mb-4 text-center text-sm md:text-lg" style={{ color: theme.fg }}>
           Words found: {totalFoundWords}
         </div>
 
         {/* Control Buttons */}
         <div className="flex justify-center gap-2 md:gap-4">
-          <Button onClick={skipWordSearch} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2">
+          <Button onClick={skipWordSearch} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2" style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}>
             Skip
           </Button>
-          <Button onClick={restartGame} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2">
+          <Button onClick={restartGame} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2" style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}>
             Restart
           </Button>
-          <Button onClick={exitToHomescreen} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2">
+          <Button onClick={exitToHomescreen} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2" style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}>
             Exit
           </Button>
         </div>

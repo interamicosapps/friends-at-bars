@@ -11,8 +11,8 @@ This guide covers building and deploying the iOS app using Codemagic CI/CD from 
 
 ## Current Setup
 
-- **App ID**: `com.ohiostate.nightlifemap`
-- **App Name**: Ohio State Nightlife Map
+- **App ID**: `com.barfest.app`
+- **App Name**: Bar Fest
 - **Platform**: Capacitor 8.0.0 with React + TypeScript
 - **Build System**: Codemagic CI/CD (cloud-based macOS)
 
@@ -20,7 +20,7 @@ This guide covers building and deploying the iOS app using Codemagic CI/CD from 
 
 1. Enroll in Apple Developer Program at [developer.apple.com](https://developer.apple.com)
 2. Pay the $99 annual fee
-3. Create an App ID matching your Bundle ID: `com.ohiostate.nightlifemap`
+3. Create an App ID matching your Bundle ID: `com.barfest.app`
 4. Generate code signing certificates:
    - Distribution Certificate (for App Store)
    - Development Certificate (for testing, optional)
@@ -112,8 +112,8 @@ Update `Contents.json` in the AppIcon.appiconset folder to reference all icon fi
 1. Log in to [App Store Connect](https://appstoreconnect.apple.com)
 2. Create a new app:
    - Platform: iOS
-   - Bundle ID: `com.ohiostate.nightlifemap`
-   - App Name: Ohio State Nightlife Map
+   - Bundle ID: `com.barfest.app`
+   - App Name: Bar Fest
 3. Complete app information:
    - Description
    - Keywords

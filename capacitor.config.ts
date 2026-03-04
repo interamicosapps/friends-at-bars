@@ -1,8 +1,8 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.ohiostate.nightlifemap',
-  appName: 'Ohio State Nightlife Map',
+  appId: 'com.barfest.app',
+  appName: 'Bar Fest',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

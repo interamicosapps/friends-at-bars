@@ -11,12 +11,13 @@
 Run this SQL in your Supabase SQL Editor:
 
 ```sql
--- Create checkins table
+-- Create checkins table (include date for app compatibility)
 CREATE TABLE checkins (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   venue TEXT NOT NULL,
   start_time TIMESTAMPTZ NOT NULL,
   end_time TIMESTAMPTZ NOT NULL,
+  date TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -31,8 +32,18 @@ CREATE POLICY "Allow public read access" ON checkins
 CREATE POLICY "Allow public insert access" ON checkins
   FOR INSERT WITH CHECK (true);
 
+-- Create policy to allow update/delete (used when resolving conflicts)
+CREATE POLICY "Allow public update access" ON checkins FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete access" ON checkins FOR DELETE USING (true);
+
 -- Enable real-time for the table
 ALTER PUBLICATION supabase_realtime ADD TABLE checkins;
+```
+
+**If you already created the table without the `date` column**, run this in the SQL Editor to fix it:
+
+```sql
+ALTER TABLE checkins ADD COLUMN IF NOT EXISTS date TEXT;
 ```
 
 ## 3. Environment Variables

@@ -1,4 +1,4 @@
-package com.ohiostate.nightlifemap;
+package com.barfest.app;
 
 import com.getcapacitor.BridgeActivity;
 

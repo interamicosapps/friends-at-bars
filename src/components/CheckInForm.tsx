@@ -160,9 +160,17 @@ export default function CheckInForm({ onSubmit, resetTrigger }: CheckInFormProps
         setEndTime("");
         setIsCalendarOpen(false);
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message: string }).message)
+          : "Unknown error";
       console.error("Error saving check-in:", error);
-      setSubmitError("Failed to save check-in. Please try again.");
+      setSubmitError(
+        message.includes("date")
+          ? "Database missing 'date' column. See SUPABASE_SETUP.md to add it."
+          : `Failed to save check-in: ${message}`
+      );
     } finally {
       setIsSubmitting(false);
     }
