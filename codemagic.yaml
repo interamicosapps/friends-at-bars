@@ -4,14 +4,12 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m1
     environment:
-      groups:
-        # Add your Codemagic group name here after setting up certificates
-        # - app_store_credentials
+      groups: []
       vars:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.barfest.app"
-        APP_ID: "" # Will be set in App Store Connect
+        APP_ID: "6759994494"
       node: 20.18.0
       xcode: latest
       cocoapods: default
