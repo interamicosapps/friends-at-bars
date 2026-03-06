@@ -51,5 +51,7 @@
 	<string>We need your location to show which bars you're currently at and display live user counts at venues.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>We need your location to show which bars you're currently at and display live user counts at venues, even when the app is in the background.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
