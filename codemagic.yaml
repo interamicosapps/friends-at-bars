@@ -4,7 +4,8 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m1
     environment:
-      groups: []
+      groups:
+        - bar_fest_distribution
       vars:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
