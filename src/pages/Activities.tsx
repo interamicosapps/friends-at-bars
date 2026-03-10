@@ -32,7 +32,10 @@ export default function Activities() {
   const [mapSelectedTime, setMapSelectedTime] = useState<string>(
     dynamicStartTime
   );
-  const [listOverlayOpen, setListOverlayOpen] = useState(true);
+  const [listOverlayOpen, setListOverlayOpen] = useState(() => {
+    if (typeof sessionStorage === "undefined") return true;
+    return sessionStorage.getItem("activities_overlay_collapsed") !== "1";
+  });
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [isLocationEnabled, setIsLocationEnabled] = useState(false);
   const [hasPromptedForLocation, setHasPromptedForLocation] = useState(() => {
@@ -200,7 +203,10 @@ export default function Activities() {
         {/* Floating pill to open list overlay */}
         <button
           type="button"
-          onClick={() => setListOverlayOpen(true)}
+          onClick={() => {
+            sessionStorage.removeItem("activities_overlay_collapsed");
+            setListOverlayOpen(true);
+          }}
           className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
         >
           <CalendarIcon className="h-4 w-4 text-gray-500" />
@@ -243,7 +249,10 @@ export default function Activities() {
       )}
       <ActivitiesListOverlay
         isOpen={listOverlayOpen}
-        onClose={() => setListOverlayOpen(false)}
+        onClose={() => {
+          sessionStorage.setItem("activities_overlay_collapsed", "1");
+          setListOverlayOpen(false);
+        }}
         checkIns={checkIns}
         selectedDate={mapSelectedDate}
         selectedTime={mapSelectedTime}

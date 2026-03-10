@@ -9,6 +9,7 @@ const config: CapacitorConfig = {
     iosScheme: 'https'
   },
   android: {
+    useLegacyBridge: true,
     buildOptions: {
       keystorePath: undefined,
       keystoreAlias: undefined,

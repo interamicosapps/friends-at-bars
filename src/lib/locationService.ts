@@ -76,6 +76,31 @@ function findNearestVenue(
   return closestMatch;
 }
 
+const LOCATION_TRACKING_ENABLED_KEY = "location_tracking_enabled";
+const BACKGROUND_LOCATION_PREFERRED_KEY = "background_location_preferred";
+
+/** Persist user's choice so tracking stays on across navigation and app restarts. */
+export function getLocationTrackingEnabled(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(LOCATION_TRACKING_ENABLED_KEY) === "true";
+}
+
+export function setLocationTrackingEnabled(enabled: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(LOCATION_TRACKING_ENABLED_KEY, String(enabled));
+}
+
+/** User prefers "Always" / background location (native only). */
+export function getBackgroundLocationPreferred(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(BACKGROUND_LOCATION_PREFERRED_KEY) === "true";
+}
+
+export function setBackgroundLocationPreferred(preferred: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(BACKGROUND_LOCATION_PREFERRED_KEY, String(preferred));
+}
+
 // Generate anonymous user ID (store in localStorage)
 function getUserId(): string {
   let userId = localStorage.getItem("location_user_id");
@@ -216,6 +241,11 @@ const webGeolocation = {
 
 // Platform detection and geolocation adapter
 const isNative = Capacitor.isNativePlatform();
+export { isNative as isNativePlatform };
+
+// Throttle backend updates from background watcher (same 60s idea)
+let lastBackgroundBackendUpdate = 0;
+const BACKGROUND_BACKEND_INTERVAL_MS = 60000;
 
 export const locationService = {
   // Request location permissions
@@ -365,6 +395,66 @@ export const locationService = {
       await CapacitorGeolocation.clearWatch({ id: watchId });
     } else {
       await webGeolocation.clearWatch(watchId);
+    }
+  },
+
+  /**
+   * Start background location watcher (native only). Use when user prefers "Always" and tracking is on.
+   * Returns watcher id to pass to stopBackgroundWatcher, or null if not native or plugin unavailable.
+   */
+  async startBackgroundWatcher(skipSupabase: boolean): Promise<string | null> {
+    if (!isNative) return null;
+    try {
+      const { registerPlugin } = await import("@capacitor/core");
+      const BackgroundGeolocation = registerPlugin<{
+        addWatcher: (options: {
+          backgroundMessage?: string;
+          backgroundTitle?: string;
+          requestPermissions?: boolean;
+          stale?: boolean;
+          distanceFilter?: number;
+        }, callback: (location: { latitude: number; longitude: number; accuracy?: number } | null, error?: { code: string }) => void) => Promise<string>;
+        removeWatcher: (options: { id: string }) => Promise<void>;
+      }>("BackgroundGeolocation");
+      const watcherId = await BackgroundGeolocation.addWatcher(
+        {
+          backgroundMessage: "Bar Fest uses your location to update bar counts when you're nearby.",
+          backgroundTitle: "Bar Fest",
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 50,
+        },
+        (location, error) => {
+          if (error?.code === "NOT_AUTHORIZED") return;
+          if (!location) return;
+          const now = Date.now();
+          if (now - lastBackgroundBackendUpdate < BACKGROUND_BACKEND_INTERVAL_MS) return;
+          const isAtVenue = findNearestVenue(location.latitude, location.longitude);
+          if (isAtVenue && !skipSupabase) {
+            lastBackgroundBackendUpdate = now;
+            locationService.updateLiveLocation({
+              latitude: location.latitude,
+              longitude: location.longitude,
+              accuracy: location.accuracy ?? 0,
+            }).catch((err) => console.error("Background location update failed:", err));
+          }
+        }
+      );
+      return watcherId;
+    } catch (e) {
+      console.warn("Background geolocation not available:", e);
+      return null;
+    }
+  },
+
+  async stopBackgroundWatcher(watcherId: string | null): Promise<void> {
+    if (!watcherId || !isNative) return;
+    try {
+      const { registerPlugin } = await import("@capacitor/core");
+      const BackgroundGeolocation = registerPlugin<{ removeWatcher: (options: { id: string }) => Promise<void> }>("BackgroundGeolocation");
+      await BackgroundGeolocation.removeWatcher({ id: watcherId });
+    } catch (e) {
+      console.warn("Stop background watcher failed:", e);
     }
   },
 

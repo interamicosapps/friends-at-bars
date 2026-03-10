@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { MapPin, MapPinOff } from "lucide-react";
-import { locationService } from "@/lib/locationService";
+import {
+  locationService,
+  getLocationTrackingEnabled,
+  setLocationTrackingEnabled,
+  getBackgroundLocationPreferred,
+  setBackgroundLocationPreferred,
+  isNativePlatform,
+} from "@/lib/locationService";
 import { Button } from "@/components/ui/Button";
 
 export interface LocationToggleRef {
@@ -20,13 +27,18 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
   { onLocationUpdate, skipSupabase = false, variant = "default", onEnabledChange },
   ref
 ) {
-  const [isEnabled, setIsEnabled] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(() => getLocationTrackingEnabled());
   const [hasPermission, setHasPermission] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const watchIdRef = useRef<string | null>(null);
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const backgroundWatcherIdRef = useRef<string | null>(null);
   const isEnabledRef = useRef(isEnabled);
+  const hasRestoredRef = useRef(false);
+  const [backgroundPreferred, setBackgroundPreferred] = useState(() =>
+    getBackgroundLocationPreferred()
+  );
 
   // Keep ref in sync with state and notify parent
   useEffect(() => {
@@ -34,26 +46,33 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     onEnabledChange?.(isEnabled);
   }, [isEnabled, onEnabledChange]);
 
+  // On mount: restore tracking if user had it on (persists across navigation and app restart)
+  useEffect(() => {
+    if (hasRestoredRef.current) return;
+    hasRestoredRef.current = true;
+    if (getLocationTrackingEnabled()) {
+      startTracking();
+    }
+  }, []);
+
   useEffect(() => {
     // Check permissions on mount
     checkPermissions();
-    
+
     // Re-check permissions when window regains focus (for web - handles browser permission changes)
     const handleFocus = () => {
-      console.log("Window focused, re-checking permissions...");
       checkPermissions();
     };
-    
+
     // Re-check permissions periodically (every 30 seconds) to catch external permission changes
     const permissionCheckInterval = setInterval(() => {
       if (!isEnabledRef.current) {
-        // Only check if tracking is not enabled to avoid interrupting active tracking
         checkPermissions();
       }
     }, 30000);
-    
+
     window.addEventListener("focus", handleFocus);
-    
+
     // Cleanup on unmount only (not when isEnabled changes)
     return () => {
       window.removeEventListener("focus", handleFocus);
@@ -65,7 +84,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         clearInterval(updateIntervalRef.current);
       }
     };
-  }, []); // Empty dependency array - only run on mount/unmount
+  }, []);
 
   const checkPermissions = async () => {
     const granted = await locationService.checkPermissions();
@@ -134,6 +153,12 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
 
       watchIdRef.current = watchId;
 
+      // If user prefers background ("Always") location, start background watcher (native only)
+      if (backgroundPreferred && isNativePlatform) {
+        const bgId = await locationService.startBackgroundWatcher(skipSupabase);
+        backgroundWatcherIdRef.current = bgId;
+      }
+
       // Backend update interval - check venue proximity every 60 seconds
       updateIntervalRef.current = setInterval(async () => {
         try {
@@ -158,6 +183,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       }, 60000);
 
       setIsEnabled(true);
+      setLocationTrackingEnabled(true);
       console.log("Location tracking started successfully");
     } catch (err) {
       console.error("Error starting location tracking:", err);
@@ -165,7 +191,8 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         ? `Failed to start location tracking: ${err.message}`
         : "Failed to start location tracking. Please try again.";
       setError(errorMessage);
-      // Re-check permissions in case they changed
+      setIsEnabled(false);
+      setLocationTrackingEnabled(false);
       await checkPermissions();
     } finally {
       setIsLoading(false);
@@ -184,6 +211,11 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         updateIntervalRef.current = null;
       }
 
+      if (backgroundWatcherIdRef.current) {
+        await locationService.stopBackgroundWatcher(backgroundWatcherIdRef.current);
+        backgroundWatcherIdRef.current = null;
+      }
+
       // Deactivate user's location in database (only if Supabase updates are enabled)
       if (!skipSupabase) {
         try {
@@ -195,6 +227,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
 
       // Clear current location
       onLocationUpdate?.(null);
+      setLocationTrackingEnabled(false);
     } catch (err) {
       console.error("Error stopping location tracking:", err);
     } finally {
@@ -220,9 +253,32 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     },
   }), [isEnabled, isLoading]);
 
+  const handleBackgroundPreferredChange = async (value: boolean) => {
+    setBackgroundPreferred(value);
+    setBackgroundLocationPreferred(value);
+    if (value && isEnabled && isNativePlatform) {
+      const bgId = await locationService.startBackgroundWatcher(skipSupabase);
+      backgroundWatcherIdRef.current = bgId;
+    } else if (!value && backgroundWatcherIdRef.current) {
+      await locationService.stopBackgroundWatcher(backgroundWatcherIdRef.current);
+      backgroundWatcherIdRef.current = null;
+    }
+  };
+
   if (variant === "compact") {
     return (
       <div className="flex flex-col items-end gap-1">
+        {isNativePlatform && (
+          <label className="flex items-center gap-2 text-right text-xs text-gray-600">
+            <input
+              type="checkbox"
+              checked={backgroundPreferred}
+              onChange={(e) => handleBackgroundPreferredChange(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-gray-300"
+            />
+            <span>Track when app is in background</span>
+          </label>
+        )}
         <button
           type="button"
           onClick={handleToggle}
@@ -284,6 +340,17 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       </Button>
       {error && (
         <p className="text-sm text-red-600">{error}</p>
+      )}
+      {isNativePlatform && (
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={backgroundPreferred}
+            onChange={(e) => handleBackgroundPreferredChange(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300"
+          />
+          <span>Allow location when app is in background (Always)</span>
+        </label>
       )}
       {!hasPermission && !error && !isLoading && (
         <p className="text-xs text-gray-500">
