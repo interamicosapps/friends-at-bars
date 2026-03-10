@@ -34,16 +34,16 @@ export default function Navbar() {
                 isActive("/") ? "text-primary" : "text-muted-foreground"
               )}
             >
-              Home
+              Activities
             </Link>
             <Link
-              to="/test"
+              to="/check-in"
               className={cn(
                 "flex items-center justify-center text-sm font-medium transition-colors hover:text-primary",
-                isActive("/test") ? "text-primary" : "text-muted-foreground"
+                isActive("/check-in") ? "text-primary" : "text-muted-foreground"
               )}
             >
-              Test
+              Check-In
             </Link>
             <Link
               to="/about"

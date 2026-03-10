@@ -1,29 +1,17 @@
-import { useEffect, useMemo, useState, useRef, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Map, { Marker, Popup } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { format } from "date-fns";
-import {
-  Calendar as CalendarIcon,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
-
-import { Calendar } from "@/components/ui/Calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/Popover";
+import { Calendar as CalendarIcon } from "lucide-react";
 import { CheckIn, VenueCounts } from "@/types/checkin";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import {
-  formatDateDisplay,
-  formatTimeDisplay,
   generateStartTimeOptions,
   isCheckInActiveAt,
 } from "@/lib/timeUtils";
 import { locationService } from "@/lib/locationService";
+import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 
 interface MapViewProps {
   checkIns: CheckIn[];
@@ -34,6 +22,14 @@ interface MapViewProps {
   heatMapMode?: boolean;
   timeOptions?: string[]; // Custom time options (for nightlife hours)
   userLocation?: { latitude: number; longitude: number } | null;
+  /** When false, only the map is rendered (no date/time list panel). Default true. */
+  showListPanel?: boolean;
+  /** When showListPanel is true, optional start time to reset to when date changes. */
+  dynamicStartTime?: string;
+  /** Optional class for the map container (e.g. h-full for full-height map). */
+  className?: string;
+  /** Called once when the user first interacts with the map (e.g. pan/zoom). */
+  onFirstInteraction?: () => void;
 }
 
 interface PopupInfo {
@@ -45,8 +41,6 @@ interface PopupInfo {
   checkIns: CheckIn[];
 }
 
-const formatDateValue = (date: Date) => format(date, "yyyy-MM-dd");
-
 export default function MapView({
   checkIns,
   selectedDate,
@@ -56,13 +50,16 @@ export default function MapView({
   heatMapMode = false,
   timeOptions,
   userLocation,
+  showListPanel = true,
+  dynamicStartTime,
+  className,
+  onFirstInteraction,
 }: MapViewProps) {
   const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
   const [zoom, setZoom] = useState<number>(14);
   const [liveCounts, setLiveCounts] = useState<VenueCounts>({});
+  const hasFiredFirstInteraction = useRef(false);
   const [viewState, setViewState] = useState({
     longitude: -83.0067,
     latitude: 39.9917,
@@ -70,16 +67,10 @@ export default function MapView({
   });
   const previousSelectedDate = useRef<string | null>(null);
   const previousSelectedTime = useRef<string | null>(null);
-  const topSliderRef = useRef<HTMLDivElement>(null);
-  const dateFieldRef = useRef<HTMLButtonElement>(null);
 
   const sliderOptions = useMemo(
     () => timeOptions ?? generateStartTimeOptions(),
     [timeOptions]
-  );
-  const sliderIndex = Math.max(
-    0,
-    sliderOptions.findIndex((time) => time === selectedTime)
   );
 
   const activeCheckIns = useMemo(
@@ -175,11 +166,8 @@ export default function MapView({
   }, [activeCheckIns, liveCounts]);
 
   useEffect(() => {
-    if (isCalendarOpen && previousSelectedDate.current !== selectedDate) {
-      setIsCalendarOpen(false);
-    }
     previousSelectedDate.current = selectedDate;
-  }, [selectedDate, isCalendarOpen]);
+  }, [selectedDate]);
 
   const createMarkerElement = (activityCount: number, liveCount: number = 0) => {
     const totalCount = activityCount + liveCount;
@@ -232,20 +220,6 @@ export default function MapView({
       venue,
       checkIns: venueActivity,
     });
-  };
-
-  const handleCalendarSelect = (day?: Date) => {
-    if (!day) return;
-    const value = formatDateValue(day);
-    onSelectDate(value);
-    setIsCalendarOpen(false);
-    setIsCollapsed(false);
-  };
-
-  const handleSliderChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const index = Number(event.target.value);
-    const time = sliderOptions[index] ?? sliderOptions[0];
-    onSelectTime(time);
   };
 
   // Show all venues, not just those with check-ins
@@ -335,39 +309,6 @@ export default function MapView({
     return maxFalloff - (maxFalloff - minFalloff) * normalizedZoom;
   };
 
-  const rawSliderPercentage =
-    sliderOptions.length > 1
-      ? (sliderIndex / (sliderOptions.length - 1)) * 100
-      : 0;
-  const sliderPercentage = Math.min(100, Math.max(0, rawSliderPercentage));
-
-  // Calculate clamped tooltip position to prevent overflow on both left and right edges
-  // Tooltip is centered with translateX(-50%), so we need to account for half its width
-  const calculateClampedTooltipPosition = (
-    percentage: number,
-    containerRef: React.RefObject<HTMLDivElement>,
-    estimatedTooltipWidth: number = 70, // Estimated width in pixels for "11:00 PM"
-    minLeftOffset: number = 0 // Minimum left offset in pixels (for date field overlap)
-  ): number => {
-    if (!containerRef.current) return percentage;
-
-    const containerWidth = containerRef.current.offsetWidth;
-    const tooltipHalfWidth = estimatedTooltipWidth / 2;
-
-    // Calculate min percentage where tooltip won't overflow left edge
-    // Formula: (minLeftOffset + tooltipHalfWidth) / containerWidth * 100
-    const minPercentage =
-      ((minLeftOffset + tooltipHalfWidth) / containerWidth) * 100;
-
-    // Calculate max percentage where tooltip won't overflow right edge
-    // Formula: (containerWidth - tooltipHalfWidth) / containerWidth * 100
-    const maxPercentage =
-      ((containerWidth - tooltipHalfWidth) / containerWidth) * 100;
-
-    // Clamp to prevent overflow on both edges
-    return Math.min(Math.max(percentage, minPercentage), maxPercentage);
-  };
-
   // Format compact date/time, handling times >= 24:00 (next day)
   const [hours, minutes] = selectedTime.split(":").map(Number);
   let compactDate = selectedDate;
@@ -385,211 +326,44 @@ export default function MapView({
     "M/d h:mm a"
   );
 
+  const handlePanelDateChange = (date: string) => {
+    onSelectDate(date);
+    if (dynamicStartTime) onSelectTime(dynamicStartTime);
+  };
+
   return (
-    <div className="relative h-96 w-full overflow-hidden rounded-xl border border-gray-200 shadow-lg">
-      {isCollapsed ? (
-        <button
-          type="button"
-          onClick={() => setIsCollapsed(false)}
-          className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
-        >
-          <CalendarIcon className="h-4 w-4 text-gray-500" />
-          {compactDateTime}
-        </button>
-      ) : (
-        <div className="pointer-events-none absolute left-4 right-4 top-4 z-10">
-          <div className="pointer-events-auto flex flex-col gap-3 rounded-xl border border-white/60 bg-white/90 px-3 py-3 shadow-lg backdrop-blur max-w-md max-h-[360px] overflow-hidden">
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsCollapsed(true)}
-                className="flex h-11 w-11 min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-[3px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-white"
-                aria-label="Collapse map filters"
-              >
-                <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
-                <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
-                <span className="block h-[1.5px] w-5 rounded bg-gray-400" />
-              </button>
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Date
-                </span>
-                <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      ref={dateFieldRef}
-                      type="button"
-                      onClick={() => setIsCalendarOpen((prev) => !prev)}
-                      className="flex items-center gap-2 rounded-md border border-gray-200 bg-white/80 px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-white"
-                    >
-                      <CalendarIcon className="h-4 w-4 text-gray-500" />
-                      {formatDateDisplay(selectedDate)}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={
-                        selectedDate
-                          ? new Date(`${selectedDate}T00:00:00`)
-                          : undefined
-                      }
-                      onSelect={handleCalendarSelect}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div className="relative flex flex-1 flex-col gap-2">
-                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-gray-500">
-                  <span>Time</span>
-                </div>
-                <div ref={topSliderRef} className="relative flex items-center">
-                  <input
-                    type="range"
-                    min={0}
-                    max={sliderOptions.length - 1}
-                    step={1}
-                    value={sliderIndex}
-                    onChange={handleSliderChange}
-                    className="flex-1 accent-[#007AFF]"
-                  />
-                  <span
-                    className="pointer-events-none absolute -top-7 whitespace-nowrap rounded-full bg-white px-2 py-1 text-xs font-semibold text-gray-700 shadow-sm"
-                    style={{
-                      left: `${calculateClampedTooltipPosition(
-                        sliderPercentage,
-                        topSliderRef,
-                        70,
-                        0 // Allow tooltip to extend to left edge of slider container
-                      )}%`,
-                      transform: "translateX(-50%)",
-                    }}
-                  >
-                    {formatTimeDisplay(selectedTime)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Check-ins list */}
-            <div className="border-t border-gray-200 pt-3 flex-1 min-h-0 flex flex-col overflow-hidden">
-              <h2 className="mb-3 text-sm font-bold text-gray-900 flex-shrink-0">
-                Active Check-ins
-              </h2>
-              <div className="overflow-y-auto flex-1 min-h-0">
-                {activeCheckIns.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-gray-500">
-                    No check-ins during this time
-                  </p>
-                ) : (
-                  (() => {
-                    // Group venues by area and count check-ins
-                    type AreaData = {
-                      venues: Record<string, number>;
-                      total: number;
-                    };
-                    const areaMap: Record<string, AreaData> = {};
-
-                    OHIO_STATE_VENUES.forEach((venue) => {
-                      const venueCheckIns = getVenueActivity(venue.name);
-                      if (venueCheckIns.length > 0 && venue.area) {
-                        if (!areaMap[venue.area]) {
-                          areaMap[venue.area] = {
-                            venues: {},
-                            total: 0,
-                          };
-                        }
-                        const areaData = areaMap[venue.area];
-                        areaData.venues[venue.name] = venueCheckIns.length;
-                        areaData.total += venueCheckIns.length;
-                      }
-                    });
-
-                    const toggleArea = (area: string) => {
-                      setExpandedAreas((prev) => {
-                        const next = new Set<string>(prev);
-                        if (next.has(area)) {
-                          next.delete(area);
-                        } else {
-                          next.add(area);
-                        }
-                        return next;
-                      });
-                    };
-
-                    const areaEntries = Object.entries(areaMap);
-                    areaEntries.sort((a, b) => b[1].total - a[1].total);
-
-                    return (
-                      <div className="space-y-2">
-                        {areaEntries.map(([area, areaData]) => {
-                          const isExpanded = expandedAreas.has(area);
-                          const venueEntries = Object.entries(
-                            areaData.venues
-                          );
-                          venueEntries.sort((a, b) => b[1] - a[1]);
-
-                          return (
-                            <div
-                              key={area}
-                              className="rounded-lg border border-gray-200 bg-gray-50"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => toggleArea(area)}
-                                className="flex w-full items-center justify-between p-3 text-left transition hover:bg-gray-100"
-                              >
-                                <div className="flex items-center gap-2">
-                                  {isExpanded ? (
-                                    <ChevronDown className="h-4 w-4 text-gray-500" />
-                                  ) : (
-                                    <ChevronRight className="h-4 w-4 text-gray-500" />
-                                  )}
-                                  <span className="font-semibold text-gray-900">
-                                    {area}
-                                  </span>
-                                </div>
-                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-                                  {areaData.total}
-                                </span>
-                              </button>
-                              {isExpanded && (
-                                <div className="border-t border-gray-200 bg-white">
-                                  <div className="space-y-1 p-2">
-                                    {venueEntries.map(
-                                      ([venueName, count]) => (
-                                        <div
-                                          key={venueName}
-                                          className="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50"
-                                        >
-                                          <span className="text-sm font-medium text-gray-700">
-                                            {venueName}
-                                          </span>
-                                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
-                                            {count}
-                                          </span>
-                                        </div>
-                                      )
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()
-                )}
-              </div>
+    <div
+      className={`relative w-full overflow-hidden rounded-xl border border-gray-200 shadow-lg ${className ?? "h-96"}`}
+    >
+      {showListPanel &&
+        (isCollapsed ? (
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(false)}
+            className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
+          >
+            <CalendarIcon className="h-4 w-4 text-gray-500" />
+            {compactDateTime}
+          </button>
+        ) : (
+          <div className="pointer-events-none absolute left-4 right-4 top-4 z-10">
+            <div className="pointer-events-auto flex flex-col gap-3 rounded-xl border border-white/60 bg-white/90 px-3 py-3 shadow-lg backdrop-blur max-w-md max-h-[360px] overflow-hidden">
+              <ActiveCheckInsPanel
+                checkIns={checkIns}
+                selectedDate={selectedDate}
+                selectedTime={selectedTime}
+                onSelectDate={handlePanelDateChange}
+                onSelectTime={onSelectTime}
+                timeOptions={sliderOptions}
+                onClose={() => setIsCollapsed(true)}
+                showCloseButton
+                dynamicStartTime={dynamicStartTime}
+              />
             </div>
           </div>
-        </div>
-      )}
+        ))}
 
-      {activeCheckIns.length === 0 && isCollapsed && (
+      {showListPanel && activeCheckIns.length === 0 && isCollapsed && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 text-center">
           <span className="rounded-full bg-white/90 px-4 py-2 text-sm font-medium text-gray-600 shadow">
             No check-ins during this time
@@ -601,6 +375,10 @@ export default function MapView({
         mapLib={maplibregl}
         {...viewState}
         onMove={(evt) => {
+          if (!hasFiredFirstInteraction.current && onFirstInteraction) {
+            hasFiredFirstInteraction.current = true;
+            onFirstInteraction();
+          }
           setZoom(evt.viewState.zoom);
           setViewState(evt.viewState);
         }}

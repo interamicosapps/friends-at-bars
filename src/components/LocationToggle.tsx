@@ -1,14 +1,25 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { MapPin, MapPinOff } from "lucide-react";
 import { locationService } from "@/lib/locationService";
 import { Button } from "@/components/ui/Button";
 
+export interface LocationToggleRef {
+  requestEnable: () => Promise<void>;
+}
+
 interface LocationToggleProps {
   onLocationUpdate?: (location: { latitude: number; longitude: number } | null) => void;
   skipSupabase?: boolean; // If true, skip Supabase updates (for local-only testing)
+  /** When "compact", renders a small square (icon only, three dots when loading). */
+  variant?: "default" | "compact";
+  /** Called when enabled state changes (for parent to show/hide location dialog). */
+  onEnabledChange?: (enabled: boolean) => void;
 }
 
-export default function LocationToggle({ onLocationUpdate, skipSupabase = false }: LocationToggleProps) {
+const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(function LocationToggle(
+  { onLocationUpdate, skipSupabase = false, variant = "default", onEnabledChange },
+  ref
+) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -17,10 +28,11 @@ export default function LocationToggle({ onLocationUpdate, skipSupabase = false 
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isEnabledRef = useRef(isEnabled);
 
-  // Keep ref in sync with state
+  // Keep ref in sync with state and notify parent
   useEffect(() => {
     isEnabledRef.current = isEnabled;
-  }, [isEnabled]);
+    onEnabledChange?.(isEnabled);
+  }, [isEnabled, onEnabledChange]);
 
   useEffect(() => {
     // Check permissions on mount
@@ -194,12 +206,58 @@ export default function LocationToggle({ onLocationUpdate, skipSupabase = false 
     if (isEnabled) {
       stopTracking();
     } else {
-      // Re-check permissions before starting to ensure state is current
-      // This is especially important if user granted permission externally
       await checkPermissions();
       startTracking();
     }
   };
+
+  useImperativeHandle(ref, () => ({
+    requestEnable: async () => {
+      if (!isEnabled && !isLoading) {
+        await checkPermissions();
+        startTracking();
+      }
+    },
+  }), [isEnabled, isLoading]);
+
+  if (variant === "compact") {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <button
+          type="button"
+          onClick={handleToggle}
+          disabled={isLoading}
+          title={isEnabled ? "Live location on" : "Turn on location"}
+          className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-white/80 shadow-md transition hover:opacity-90 ${
+            isEnabled
+              ? "bg-green-500 text-white"
+              : "bg-gray-400 text-gray-100"
+          }`}
+        >
+          {isLoading ? (
+            <span className="flex items-center gap-0.5" aria-label="Loading location">
+              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60 [animation:dotPulse_1.4s_ease-in-out_infinite]" style={{ animationDelay: "0ms" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60 [animation:dotPulse_1.4s_ease-in-out_infinite]" style={{ animationDelay: "200ms" }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60 [animation:dotPulse_1.4s_ease-in-out_infinite]" style={{ animationDelay: "400ms" }} />
+            </span>
+          ) : isEnabled ? (
+            <MapPin className="h-5 w-5" />
+          ) : (
+            <MapPinOff className="h-5 w-5" />
+          )}
+        </button>
+        {error && variant === "compact" && (
+          <p className="max-w-[140px] text-right text-[10px] text-red-600">{error}</p>
+        )}
+        <style>{`
+          @keyframes dotPulse {
+            0%, 60%, 100% { opacity: 0.4; transform: scale(0.9); }
+            30% { opacity: 1; transform: scale(1.1); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -239,4 +297,6 @@ export default function LocationToggle({ onLocationUpdate, skipSupabase = false 
       )}
     </div>
   );
-}
+});
+
+export default LocationToggle;

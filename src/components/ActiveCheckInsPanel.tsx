@@ -1,0 +1,279 @@
+import { useMemo, useState, useRef, type ChangeEvent } from "react";
+import { format } from "date-fns";
+import { Calendar as CalendarIcon, ChevronDown, ChevronRight } from "lucide-react";
+import { Calendar } from "@/components/ui/Calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/Popover";
+import { CheckIn } from "@/types/checkin";
+import { OHIO_STATE_VENUES } from "@/data/venues";
+import {
+  formatDateDisplay,
+  formatTimeDisplay,
+  generateStartTimeOptions,
+  isCheckInActiveAt,
+} from "@/lib/timeUtils";
+
+interface ActiveCheckInsPanelProps {
+  checkIns: CheckIn[];
+  selectedDate: string;
+  selectedTime: string;
+  onSelectDate: (date: string) => void;
+  onSelectTime: (time: string) => void;
+  timeOptions?: string[];
+  onClose?: () => void;
+  /** If true, show a close button (e.g. for overlay). Default false. */
+  showCloseButton?: boolean;
+  /** Optional dynamic start time to reset to when date changes */
+  dynamicStartTime?: string;
+}
+
+const formatDateValue = (date: Date) => format(date, "yyyy-MM-dd");
+
+export default function ActiveCheckInsPanel({
+  checkIns,
+  selectedDate,
+  selectedTime,
+  onSelectDate,
+  onSelectTime,
+  timeOptions: timeOptionsProp,
+  onClose,
+  showCloseButton = false,
+  dynamicStartTime,
+}: ActiveCheckInsPanelProps) {
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
+  const topSliderRef = useRef<HTMLDivElement>(null);
+
+  const sliderOptions = useMemo(
+    () => timeOptionsProp ?? generateStartTimeOptions(),
+    [timeOptionsProp]
+  );
+  const sliderIndex = Math.max(
+    0,
+    sliderOptions.findIndex((time) => time === selectedTime)
+  );
+
+  const activeCheckIns = useMemo(
+    () =>
+      checkIns.filter((checkIn) =>
+        isCheckInActiveAt(checkIn, selectedDate, selectedTime)
+      ),
+    [checkIns, selectedDate, selectedTime]
+  );
+
+  const getVenueActivity = (venueName: string) =>
+    activeCheckIns.filter((checkIn) => checkIn.venue === venueName);
+
+  const handleCalendarSelect = (day?: Date) => {
+    if (!day) return;
+    const value = formatDateValue(day);
+    onSelectDate(value);
+    if (dynamicStartTime) {
+      onSelectTime(dynamicStartTime);
+    }
+    setIsCalendarOpen(false);
+  };
+
+  const handleSliderChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const index = Number(event.target.value);
+    const time = sliderOptions[index] ?? sliderOptions[0];
+    onSelectTime(time);
+  };
+
+  const rawSliderPercentage =
+    sliderOptions.length > 1
+      ? (sliderIndex / (sliderOptions.length - 1)) * 100
+      : 0;
+  const sliderPercentage = Math.min(100, Math.max(0, rawSliderPercentage));
+
+  const calculateClampedTooltipPosition = (
+    percentage: number,
+    containerRef: React.RefObject<HTMLDivElement>,
+    estimatedTooltipWidth: number = 70,
+    minLeftOffset: number = 0
+  ): number => {
+    if (!containerRef.current) return percentage;
+    const containerWidth = containerRef.current.offsetWidth;
+    const tooltipHalfWidth = estimatedTooltipWidth / 2;
+    const minPercentage =
+      ((minLeftOffset + tooltipHalfWidth) / containerWidth) * 100;
+    const maxPercentage =
+      ((containerWidth - tooltipHalfWidth) / containerWidth) * 100;
+    return Math.min(Math.max(percentage, minPercentage), maxPercentage);
+  };
+
+  type AreaData = { venues: Record<string, number>; total: number };
+  const areaMap: Record<string, AreaData> = {};
+  OHIO_STATE_VENUES.forEach((venue) => {
+    const venueCheckIns = getVenueActivity(venue.name);
+    if (venueCheckIns.length > 0 && venue.area) {
+      if (!areaMap[venue.area]) {
+        areaMap[venue.area] = { venues: {}, total: 0 };
+      }
+      const areaData = areaMap[venue.area];
+      areaData.venues[venue.name] = venueCheckIns.length;
+      areaData.total += venueCheckIns.length;
+    }
+  });
+  const areaEntries = Object.entries(areaMap).sort(
+    (a, b) => b[1].total - a[1].total
+  );
+
+  const toggleArea = (area: string) => {
+    setExpandedAreas((prev) => {
+      const next = new Set<string>(prev);
+      if (next.has(area)) next.delete(area);
+      else next.add(area);
+      return next;
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-2 overflow-hidden">
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {showCloseButton && onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 min-h-[36px] min-w-[36px] flex-col items-center justify-center gap-[2px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-gray-100"
+            aria-label="Close list"
+          >
+            <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
+            <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
+            <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
+          </button>
+        )}
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            Date
+          </span>
+          <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setIsCalendarOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-white"
+              >
+                <CalendarIcon className="h-3.5 w-3.5 text-gray-500" />
+                {formatDateDisplay(selectedDate)}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={
+                  selectedDate
+                    ? new Date(`${selectedDate}T00:00:00`)
+                    : undefined
+                }
+                onSelect={handleCalendarSelect}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <div className="relative flex flex-1 flex-col gap-1">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-gray-500">
+            <span>Time</span>
+          </div>
+          <div ref={topSliderRef} className="relative flex items-center">
+            <input
+              type="range"
+              min={0}
+              max={sliderOptions.length - 1}
+              step={1}
+              value={sliderIndex}
+              onChange={handleSliderChange}
+              className="flex-1 accent-[#007AFF]"
+            />
+            <span
+              className="pointer-events-none absolute -top-5 whitespace-nowrap rounded-full bg-white px-1.5 py-0.5 text-[11px] font-semibold text-gray-700 shadow-sm"
+              style={{
+                left: `${calculateClampedTooltipPosition(
+                  sliderPercentage,
+                  topSliderRef,
+                  70,
+                  0
+                )}%`,
+                transform: "translateX(-50%)",
+              }}
+            >
+              {formatTimeDisplay(selectedTime)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-gray-200 pt-2 flex-1 min-h-0 flex flex-col overflow-hidden">
+        <h2 className="mb-2 text-xs font-bold text-gray-900 flex-shrink-0">
+          Active Check-ins
+        </h2>
+        <div className="overflow-y-auto flex-1 min-h-0">
+          {activeCheckIns.length === 0 ? (
+            <p className="py-4 text-center text-sm text-gray-500">
+              No check-ins during this time
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {areaEntries.map(([area, areaData]) => {
+                const isExpanded = expandedAreas.has(area);
+                const venueEntries = Object.entries(areaData.venues).sort(
+                  (a, b) => b[1] - a[1]
+                );
+                return (
+                  <div
+                    key={area}
+                    className="rounded-lg border border-gray-200 bg-gray-50"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleArea(area)}
+                      className="flex w-full items-center justify-between p-3 text-left transition hover:bg-gray-100"
+                    >
+                      <div className="flex items-center gap-2">
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4 text-gray-500" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-gray-500" />
+                        )}
+                        <span className="font-semibold text-gray-900">
+                          {area}
+                        </span>
+                      </div>
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                        {areaData.total}
+                      </span>
+                    </button>
+                    {isExpanded && (
+                      <div className="border-t border-gray-200 bg-white">
+                        <div className="space-y-1 p-2">
+                          {venueEntries.map(([venueName, count]) => (
+                            <div
+                              key={venueName}
+                              className="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50"
+                            >
+                              <span className="text-sm font-medium text-gray-700">
+                                {venueName}
+                              </span>
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                                {count}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

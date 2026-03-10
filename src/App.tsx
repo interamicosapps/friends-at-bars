@@ -1,9 +1,10 @@
 import { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
+import CheckIn from "./pages/CheckIn";
 
-// Lazy load route components
-const Home = lazy(() => import("./pages/Home"));
+// Lazy load route components (CheckIn loaded eagerly to avoid dynamic import 500)
+const Activities = lazy(() => import("./pages/Activities"));
 const Test = lazy(() => import("./pages/Test"));
 const About = lazy(() => import("./pages/About"));
 const Games = lazy(() => import("./pages/Games"));
@@ -29,10 +30,11 @@ function App() {
             index
             element={
               <Suspense fallback={<LoadingFallback />}>
-                <Home />
+                <Activities />
               </Suspense>
             }
           />
+          <Route path="check-in" element={<CheckIn />} />
           <Route
             path="test"
             element={
