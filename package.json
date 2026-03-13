@@ -21,10 +21,10 @@
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",
-    "@capacitor/cli": "^8.0.0",
-    "@capacitor/core": "^8.0.0",
-    "@capacitor/geolocation": "^8.0.0",
-    "@capacitor/status-bar": "^8.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/geolocation": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0",
     "@radix-ui/react-popover": "^1.1.15",
     "@supabase/supabase-js": "^2.76.1",
     "@types/react-router-dom": "^5.3.3",
@@ -42,8 +42,8 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.0.0",
-    "@capacitor/ios": "^8.0.0",
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@typescript-eslint/eslint-plugin": "^6.10.0",
