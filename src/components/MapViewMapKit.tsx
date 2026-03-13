@@ -139,12 +139,15 @@ export default function MapViewMapKit({
             venue.coordinates[0],
             venue.coordinates[1]
           );
-          const m = new mapkit.MarkerAnnotation(c, {
-            title: "",
-            subtitle: "",
-            color: "#3B82F6", // blue venue markers
-            glyphText: "",
-          });
+          const m = new mapkit.MarkerAnnotation(
+            c,
+            {
+              title: "",
+              subtitle: "",
+              color: "#3B82F6", // blue venue markers
+              glyphText: "",
+            } as any
+          );
           (m as unknown as { data?: { venueName?: string } }).data = {
             venueName: venue.name,
           };
@@ -192,7 +195,7 @@ export default function MapViewMapKit({
       const map = mapRef.current;
       if (map && typeof sessionStorage !== "undefined") {
         try {
-          const r = map.region;
+          const r = map.region as any;
           if (r && r.center && r.span) {
             const center = r.center as { latitude: number; longitude: number };
             const span = r.span as { latitudeDelta: number; longitudeDelta: number };
@@ -266,12 +269,15 @@ export default function MapViewMapKit({
         userLocation.latitude,
         userLocation.longitude
       );
-      const marker = new mapkit.MarkerAnnotation(coord, {
-        title: "",
-        subtitle: "",
-        color: "#10B981",
-        glyphColor: "#ffffff",
-      });
+      const marker = new mapkit.MarkerAnnotation(
+        coord,
+        {
+          title: "",
+          subtitle: "",
+          color: "#10B981",
+          glyphColor: "#ffffff",
+        } as any
+      );
       map.addAnnotation(marker);
       userLocationAnnotationRef.current = marker;
     }
