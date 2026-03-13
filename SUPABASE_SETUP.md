@@ -57,6 +57,8 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here
 
 Replace with your actual Supabase project URL and anon key.
 
+**If you see requests to a different project URL in the console** (e.g. `net::ERR_NAME_NOT_RESOLVED` for another project ID): your app is still using an old URL. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` or `.env.local` to match your current Supabase project, then **restart the dev server** (`npm run dev`) so Vite picks up the new values.
+
 ## 4. Features Implemented
 
 ✅ **Database Integration**

@@ -400,7 +400,6 @@ export default function Home() {
             selectedTime={mapSelectedTime}
             onSelectDate={handleMapDateChange}
             onSelectTime={handleMapTimeChange}
-            heatMapMode={true}
             timeOptions={nightlifeTimeOptions}
             userLocation={userLocation}
           />

@@ -403,7 +403,6 @@ export default function Test() {
             selectedTime={mapSelectedTime}
             onSelectDate={handleMapDateChange}
             onSelectTime={handleMapTimeChange}
-            heatMapMode={true}
             timeOptions={nightlifeTimeOptions}
             userLocation={userLocation}
           />

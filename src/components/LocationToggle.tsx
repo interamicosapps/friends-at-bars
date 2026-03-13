@@ -134,13 +134,20 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         const loc = { latitude: initialLocation.latitude, longitude: initialLocation.longitude };
         onLocationUpdate?.(loc);
       } else {
-        console.warn("Failed to get initial location");
-        setError("Unable to get your current location. Please check your device settings.");
+        console.warn(
+          "[BarFest location] Failed to get initial location after retries — search console for",
+          '"[BarFest location]"',
+          "for code (1=denied, 2=unavailable, 3=timeout) and hints."
+        );
+        setError(
+          "Unable to get your current location. Check browser console for [BarFest location] logs (error code 3 = timeout — try again or allow cached position). Also confirm site location permission and HTTPS."
+        );
         setIsLoading(false);
         return;
       }
 
       // Start watching position - real-time local updates only (for green dot)
+      // Low accuracy + longer timeout reduces failures on desktop (Wi‑Fi only).
       const watchId = await locationService.watchPosition(
         async (location) => {
           // Real-time local update (green dot moves immediately)
@@ -148,7 +155,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           onLocationUpdate?.(loc);
           // NO backend update here - backend updates happen separately every 60 seconds
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: false, timeout: 15000 }
       );
 
       watchIdRef.current = watchId;

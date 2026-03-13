@@ -1,6 +1,11 @@
 import { Capacitor } from "@capacitor/core";
 import { Geolocation as CapacitorGeolocation } from "@capacitor/geolocation";
-import { supabase } from "./supabaseClient";
+import {
+  supabase,
+  logSupabaseNetworkOnce,
+  isSupabaseNetworkError,
+  wasSupabaseNetworkError,
+} from "./supabaseClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
 
@@ -27,6 +32,34 @@ interface GeolocationPosition {
 interface GeolocationPositionError {
   code: number;
   message: string;
+}
+
+/** Browser GeolocationPositionError codes (mdn) */
+const GEO_ERR = {
+  1: "PERMISSION_DENIED",
+  2: "POSITION_UNAVAILABLE",
+  3: "TIMEOUT",
+} as const;
+
+const LOG_PREFIX = "[BarFest location]";
+
+function logGeoError(
+  step: string,
+  err: unknown,
+  extra?: Record<string, unknown>
+): void {
+  if (err && typeof err === "object" && "code" in err && "message" in err) {
+    const e = err as GeolocationPositionError;
+    const name = GEO_ERR[e.code as keyof typeof GEO_ERR] ?? `UNKNOWN(${e.code})`;
+    console.warn(LOG_PREFIX, step, {
+      code: e.code,
+      name,
+      message: e.message,
+      ...extra,
+    });
+  } else {
+    console.warn(LOG_PREFIX, step, err, extra);
+  }
 }
 
 // Calculate distance between two coordinates using Haversine formula (in meters)
@@ -203,33 +236,59 @@ const webGeolocation = {
   async getCurrentPosition(options?: {
     enableHighAccuracy?: boolean;
     timeout?: number;
+    maximumAge?: number;
   }): Promise<GeolocationPosition> {
+    const opts = {
+      enableHighAccuracy: options?.enableHighAccuracy ?? true,
+      timeout: options?.timeout ?? 10000,
+      maximumAge: options?.maximumAge ?? 0,
+    };
+    console.log(LOG_PREFIX, "getCurrentPosition attempt", opts);
     return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        console.error(LOG_PREFIX, "navigator.geolocation is not available");
+        reject(new Error("Geolocation not supported"));
+        return;
+      }
       navigator.geolocation.getCurrentPosition(
-        (position: GeolocationPosition) => resolve(position),
-        (error: GeolocationPositionError) => reject(error),
-        {
-          enableHighAccuracy: options?.enableHighAccuracy ?? true,
-          timeout: options?.timeout ?? 10000,
-        }
+        (position: GeolocationPosition) => {
+          console.log(LOG_PREFIX, "getCurrentPosition success", {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          });
+          resolve(position);
+        },
+        (error: GeolocationPositionError) => {
+          logGeoError("getCurrentPosition error", error, opts);
+          reject(error);
+        },
+        opts
       );
     });
   },
 
   async watchPosition(
-    options: { enableHighAccuracy?: boolean; timeout?: number },
+    options: {
+      enableHighAccuracy?: boolean;
+      timeout?: number;
+      maximumAge?: number;
+    },
     callback: (
       position: GeolocationPosition | null,
       error?: GeolocationPositionError
     ) => void
   ): Promise<number> {
+    const watchOpts = {
+      enableHighAccuracy: options.enableHighAccuracy ?? true,
+      timeout: options.timeout ?? 10000,
+      maximumAge: options.maximumAge ?? 0,
+    };
+    console.log(LOG_PREFIX, "watchPosition start", watchOpts);
     const watchId = navigator.geolocation.watchPosition(
       (position: GeolocationPosition) => callback(position),
       (error: GeolocationPositionError) => callback(null, error),
-      {
-        enableHighAccuracy: options.enableHighAccuracy ?? true,
-        timeout: options.timeout ?? 10000,
-      }
+      watchOpts
     );
     return watchId;
   },
@@ -295,34 +354,79 @@ export const locationService = {
   // Get current location (one-time)
   async getCurrentLocation(): Promise<LocationData | null> {
     try {
-      let position: GeolocationPosition;
-
       if (isNative) {
-        const capPosition = await CapacitorGeolocation.getCurrentPosition({
-          enableHighAccuracy: true,
-          timeout: 10000,
-        });
-        position = {
-          coords: {
+        try {
+          const capPosition = await CapacitorGeolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            timeout: 10000,
+          });
+          console.log(LOG_PREFIX, "native getCurrentPosition success", {
+            lat: capPosition.coords.latitude,
+            lon: capPosition.coords.longitude,
+          });
+          return {
             latitude: capPosition.coords.latitude,
             longitude: capPosition.coords.longitude,
-            accuracy: capPosition.coords.accuracy ?? null,
-          },
-        };
-      } else {
-        position = await webGeolocation.getCurrentPosition({
-          enableHighAccuracy: true,
-          timeout: 10000,
-        });
+            accuracy: capPosition.coords.accuracy || 0,
+          };
+        } catch (e) {
+          console.warn(LOG_PREFIX, "native getCurrentPosition failed", e);
+          try {
+            const capPosition = await CapacitorGeolocation.getCurrentPosition({
+              enableHighAccuracy: false,
+              timeout: 15000,
+            });
+            console.log(LOG_PREFIX, "native getCurrentPosition retry (low accuracy) success");
+            return {
+              latitude: capPosition.coords.latitude,
+              longitude: capPosition.coords.longitude,
+              accuracy: capPosition.coords.accuracy || 0,
+            };
+          } catch (e2) {
+            console.warn(LOG_PREFIX, "native getCurrentPosition retry failed", e2);
+            return null;
+          }
+        }
       }
 
-      return {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy || 0,
-      };
+      // Web: high accuracy often times out on desktop — retry with low accuracy + cached position
+      try {
+        const position = await webGeolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+        return {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy || 0,
+        };
+      } catch (firstErr) {
+        logGeoError(
+          "getCurrentLocation web first attempt failed; retrying with low accuracy + maxAge",
+          firstErr
+        );
+        try {
+          const position = await webGeolocation.getCurrentPosition({
+            enableHighAccuracy: false,
+            timeout: 20000,
+            maximumAge: 300000, // 5 min cache acceptable for initial fix
+          });
+          console.log(LOG_PREFIX, "web getCurrentPosition retry success");
+          return {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy || 0,
+          };
+        } catch (secondErr) {
+          logGeoError("getCurrentLocation web retry also failed", secondErr, {
+            hint: "Check browser site permissions, HTTPS, and system location services.",
+          });
+          return null;
+        }
+      }
     } catch (error) {
-      console.error("Error getting location:", error);
+      console.error(LOG_PREFIX, "getCurrentLocation unexpected error", error);
       return null;
     }
   },
@@ -363,15 +467,16 @@ export const locationService = {
       // Web implementation using browser API
       const watchId = await webGeolocation.watchPosition(
         {
-          enableHighAccuracy: options?.enableHighAccuracy ?? true,
-          timeout: options?.timeout ?? 10000,
+          // Match getCurrentLocation fallback: low accuracy reduces watch errors on desktop
+          enableHighAccuracy: options?.enableHighAccuracy ?? false,
+          timeout: options?.timeout ?? 15000,
         },
         (
           position: GeolocationPosition | null,
           err?: GeolocationPositionError
         ) => {
           if (err) {
-            console.error("Location watch error:", err);
+            logGeoError("watchPosition callback error", err);
             return;
           }
 
@@ -485,6 +590,10 @@ export const locationService = {
       });
 
     if (error) {
+      if (isSupabaseNetworkError(error)) {
+        logSupabaseNetworkOnce(error);
+        return;
+      }
       console.error("Error updating live location:", error);
     }
   },
@@ -500,9 +609,15 @@ export const locationService = {
       })
       .eq("user_id", userId);
 
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 means no rows matched, which is fine
-      console.error("Error deactivating live location:", error);
+    if (error) {
+      if (isSupabaseNetworkError(error)) {
+        logSupabaseNetworkOnce(error);
+        return;
+      }
+      if (error.code !== "PGRST116") {
+        // PGRST116 means no rows matched, which is fine
+        console.error("Error deactivating live location:", error);
+      }
     }
   },
 
@@ -520,6 +635,10 @@ export const locationService = {
       .eq("is_active", true);
 
     if (error) {
+      if (isSupabaseNetworkError(error)) {
+        logSupabaseNetworkOnce(error);
+        return {};
+      }
       console.error("Error fetching venue counts:", error);
       return {};
     }
@@ -548,19 +667,27 @@ export const locationService = {
           table: "live_locations",
         },
         async () => {
-          // Refetch counts when changes occur
           const counts = await locationService.getVenueCounts();
           callback(counts);
         }
-      )
-      .subscribe();
+      );
 
-    // Also fetch initial counts
-    locationService.getVenueCounts().then(callback);
+    const subRef: { current: { unsubscribe: () => void } | null } = {
+      current: null,
+    };
+
+    // Fetch initial counts first; only subscribe to Realtime if backend is reachable
+    locationService.getVenueCounts().then((counts) => {
+      callback(counts);
+      if (!wasSupabaseNetworkError()) {
+        channel.subscribe();
+        subRef.current = channel;
+      }
+    });
 
     return {
       unsubscribe: () => {
-        channel.unsubscribe();
+        subRef.current?.unsubscribe();
       },
     };
   },

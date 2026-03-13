@@ -16,6 +16,9 @@ workflows:
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.barfest.app"
         APP_ID: "6759994494"
+        # MapKit JS: npm run build inlines VITE_* at build time. Set VITE_MAPKIT_TOKEN in
+        # Codemagic → Environment variables (mark sensitive). Use a token allowlisted for
+        # your app origin (e.g. production domain or test token). Do not commit real tokens here.
       node: 22.18.0
       xcode: latest
       cocoapods: default
@@ -25,6 +28,8 @@ workflows:
           npm ci
       - name: Build web app
         script: |
+          # VITE_MAPKIT_TOKEN must be set in Codemagic env so MapKit JS authorizes in the built bundle.
+          if [ -z "$VITE_MAPKIT_TOKEN" ]; then echo "Warning: VITE_MAPKIT_TOKEN is not set — MapKit will fail at runtime on iOS/web branch."; fi
           npm run build
       - name: Sync Capacitor iOS
         script: |

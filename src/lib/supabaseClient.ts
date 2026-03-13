@@ -17,6 +17,35 @@ const supabaseAnonKey =
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+let supabaseNetworkErrorLogged = false;
+
+function isNetworkError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const msg = String((err as { message?: string }).message ?? "");
+  const details = String((err as { details?: string }).details ?? "");
+  return (
+    /Failed to fetch|network|ERR_NAME_NOT_RESOLVED|load failed/i.test(msg) ||
+    /Failed to fetch|network|ERR_NAME_NOT_RESOLVED|load failed/i.test(details)
+  );
+}
+
+export function logSupabaseNetworkOnce(err: unknown): void {
+  if (supabaseNetworkErrorLogged) return;
+  supabaseNetworkErrorLogged = true;
+  console.warn(
+    "[BarFest backend] Supabase unreachable (network/DNS). Check VITE_SUPABASE_URL and network. Details:",
+    err
+  );
+}
+
+export function isSupabaseNetworkError(err: unknown): boolean {
+  return isNetworkError(err);
+}
+
+export function wasSupabaseNetworkError(): boolean {
+  return supabaseNetworkErrorLogged;
+}
+
 // Database functions
 export const checkInService = {
   // Insert a new check-in
@@ -33,13 +62,21 @@ export const checkInService = {
 
   // Fetch all check-ins
   async fetchCheckIns() {
-    const { data, error } = await supabase
-      .from("checkins")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from("checkins")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-    if (error) throw error;
-    return data as SupabaseCheckIn[];
+      if (error) throw error;
+      return data as SupabaseCheckIn[];
+    } catch (err) {
+      if (isNetworkError(err)) {
+        logSupabaseNetworkOnce(err);
+        return [];
+      }
+      throw err;
+    }
   },
 
   // Subscribe to real-time updates

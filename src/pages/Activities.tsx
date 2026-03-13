@@ -19,6 +19,21 @@ import { OHIO_STATE_VENUES } from "@/data/venues";
 
 const MapView = lazy(() => import("@/components/MapView"));
 
+const OVERLAY_STATE_KEY = "activities_overlay_open";
+
+function getInitialOverlayState(): boolean {
+  if (typeof sessionStorage === "undefined") return false;
+  const s = sessionStorage.getItem(OVERLAY_STATE_KEY);
+  if (s === "true") return true;
+  if (s === "false") return false;
+  return false;
+}
+
+function getInitialOverlayReady(): boolean {
+  if (typeof sessionStorage === "undefined") return false;
+  return sessionStorage.getItem(OVERLAY_STATE_KEY) !== null;
+}
+
 export default function Activities() {
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [mapSelectedDate, setMapSelectedDate] = useState<string>(() =>
@@ -32,17 +47,21 @@ export default function Activities() {
   const [mapSelectedTime, setMapSelectedTime] = useState<string>(
     dynamicStartTime
   );
-  const [listOverlayOpen, setListOverlayOpen] = useState(() => {
-    if (typeof sessionStorage === "undefined") return true;
-    return sessionStorage.getItem("activities_overlay_collapsed") !== "1";
-  });
+  const [listOverlayOpen, setListOverlayOpenState] = useState(getInitialOverlayState);
+  const [overlayReady, setOverlayReady] = useState(getInitialOverlayReady);
+  const [mapReady, setMapReady] = useState(false);
+  const hasRestoredOverlayState = useRef(getInitialOverlayReady());
+
+  const setListOverlayOpen = (open: boolean) => {
+    setListOverlayOpenState(open);
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(OVERLAY_STATE_KEY, String(open));
+    }
+  };
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [isLocationEnabled, setIsLocationEnabled] = useState(false);
-  const [hasPromptedForLocation, setHasPromptedForLocation] = useState(() => {
-    if (typeof sessionStorage === "undefined") return false;
-    return sessionStorage.getItem("activities_location_prompted") === "1";
-  });
   const locationToggleRef = useRef<LocationToggleRef>(null);
+  const overlayOpenedRef = useRef(false);
   const allNightlifeOptions = generateNightlifeTimeOptions();
   const nightlifeTimeOptions = allNightlifeOptions.filter((time) => {
     const [hours, minutes] = time.split(":").map(Number);
@@ -135,22 +154,77 @@ export default function Activities() {
     loadCheckIns();
   }, []);
 
+  // When map reports ready, wait 500ms then slide overlay in — only on first visit (no persisted overlay state).
+  const OVERLAY_DELAY_MS = 500;
+  const OVERLAY_FALLBACK_MS = 8000;
+  useEffect(() => {
+    if (!mapReady) return;
+    if (hasRestoredOverlayState.current) return;
+    const t = window.setTimeout(() => {
+      overlayOpenedRef.current = true;
+      setListOverlayOpen(true);
+      setOverlayReady(true);
+    }, OVERLAY_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [mapReady]);
+
+  // If map never becomes ready (token error, etc.), still open overlay after fallback — only when not restored.
+  useEffect(() => {
+    if (hasRestoredOverlayState.current) return;
+    const t = window.setTimeout(() => {
+      if (overlayOpenedRef.current) return;
+      overlayOpenedRef.current = true;
+      setListOverlayOpen(true);
+      setOverlayReady(true);
+    }, OVERLAY_FALLBACK_MS);
+    return () => window.clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (listOverlayOpen) overlayOpenedRef.current = true;
+  }, [listOverlayOpen]);
+
+  // Persist overlay state on unmount (e.g. user had overlay closed and navigated away)
+  useEffect(() => {
+    return () => {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(OVERLAY_STATE_KEY, String(listOverlayOpen));
+      }
+    };
+  }, [listOverlayOpen]);
+
+  // When overlay first comes into view, prompt for location once (if not already enabled).
+  const locationPromptShownRef = useRef(false);
+  useEffect(() => {
+    if (!overlayReady || !listOverlayOpen || locationPromptShownRef.current) return;
+    locationPromptShownRef.current = true;
+    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("activities_location_prompted") === "1") {
+      return;
+    }
+    const t = window.setTimeout(() => {
+      if (isLocationEnabled) {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem("activities_location_prompted", "1");
+        }
+        return;
+      }
+      setShowLocationDialog(true);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [overlayReady, listOverlayOpen, isLocationEnabled]);
+
   const handleMapDateChange = (date: string) => {
     setMapSelectedDate(date);
     setMapSelectedTime(dynamicStartTime);
   };
 
-  const handleFirstMapInteraction = () => {
-    if (isLocationEnabled || hasPromptedForLocation) return;
-    setHasPromptedForLocation(true);
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.setItem("activities_location_prompted", "1");
-    }
-    setShowLocationDialog(true);
-  };
+  // Location prompt is tied to overlay first appearance, not map pan/zoom.
+  const handleFirstMapInteraction = () => {};
 
   const handleEnableLocation = async () => {
     setShowLocationDialog(false);
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("activities_location_prompted", "1");
+    }
     await locationToggleRef.current?.requestEnable();
   };
 
@@ -192,21 +266,18 @@ export default function Activities() {
             selectedTime={mapSelectedTime}
             onSelectDate={handleMapDateChange}
             onSelectTime={setMapSelectedTime}
-            heatMapMode={true}
             timeOptions={nightlifeTimeOptions}
             userLocation={userLocation}
             showListPanel={false}
             className="h-full min-h-[400px]"
             onFirstInteraction={handleFirstMapInteraction}
+            onMapReady={() => setMapReady(true)}
           />
         </Suspense>
         {/* Floating pill to open list overlay */}
         <button
           type="button"
-          onClick={() => {
-            sessionStorage.removeItem("activities_overlay_collapsed");
-            setListOverlayOpen(true);
-          }}
+          onClick={() => setListOverlayOpen(true)}
           className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
         >
           <CalendarIcon className="h-4 w-4 text-gray-500" />
@@ -233,7 +304,12 @@ export default function Activities() {
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => setShowLocationDialog(false)}
+                onClick={() => {
+                  setShowLocationDialog(false);
+                  if (typeof sessionStorage !== "undefined") {
+                    sessionStorage.setItem("activities_location_prompted", "1");
+                  }
+                }}
               >
                 Not now
               </Button>
@@ -249,10 +325,8 @@ export default function Activities() {
       )}
       <ActivitiesListOverlay
         isOpen={listOverlayOpen}
-        onClose={() => {
-          sessionStorage.setItem("activities_overlay_collapsed", "1");
-          setListOverlayOpen(false);
-        }}
+        animateIn={overlayReady}
+        onClose={() => setListOverlayOpen(false)}
         checkIns={checkIns}
         selectedDate={mapSelectedDate}
         selectedTime={mapSelectedTime}

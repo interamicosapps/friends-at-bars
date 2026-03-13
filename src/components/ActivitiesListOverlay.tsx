@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon, Menu } from "lucide-react";
 import { CheckIn } from "@/types/checkin";
@@ -5,6 +6,8 @@ import ActiveCheckInsPanel from "./ActiveCheckInsPanel";
 
 interface ActivitiesListOverlayProps {
   isOpen: boolean;
+  /** When true, panel animates in from the left edge (after map ready + delay on Activities). */
+  animateIn?: boolean;
   onClose: () => void;
   checkIns: CheckIn[];
   selectedDate: string;
@@ -17,6 +20,7 @@ interface ActivitiesListOverlayProps {
 
 export default function ActivitiesListOverlay({
   isOpen,
+  animateIn = false,
   onClose,
   checkIns,
   selectedDate,
@@ -26,6 +30,18 @@ export default function ActivitiesListOverlay({
   timeOptions,
   dynamicStartTime,
 }: ActivitiesListOverlayProps) {
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    if (!isOpen || !animateIn) {
+      setEntered(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setEntered(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isOpen, animateIn]);
+
   if (!isOpen) return null;
 
   const [hours, minutes] = selectedTime.split(":").map(Number);
@@ -54,7 +70,9 @@ export default function ActivitiesListOverlay({
       />
       {/* Overlay with rim: below navbar (h-16 = 4rem) + 12px gap */}
       <div
-        className="fixed z-40 overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-2xl"
+        className={`fixed z-40 overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-2xl transition-[transform,opacity] duration-300 ease-out ${
+          animateIn && !entered ? "-translate-x-full opacity-95" : "translate-x-0 opacity-100"
+        }`}
         style={{
           top: "calc(4rem + var(--safe-area-inset-top, 0px) + 12px)",
           left: 12,
