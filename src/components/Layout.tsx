@@ -5,6 +5,7 @@ import Footer from "./Footer";
 export default function Layout() {
   const location = useLocation();
   const isActivities = location.pathname === "/";
+  const isSwitchSearch = location.pathname.includes("switch-search");
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -13,14 +14,16 @@ export default function Layout() {
         className={
           isActivities
             ? "flex-1 min-h-0 w-full overflow-hidden"
-            : "container mx-auto flex-1 px-4 py-8"
+            : isSwitchSearch
+              ? "flex-1 min-h-0 w-full overflow-hidden"
+              : "container mx-auto flex-1 px-4 py-8"
         }
       >
-        <div className={isActivities ? "h-full min-h-0" : ""}>
+        <div className={isActivities || isSwitchSearch ? "h-full min-h-0" : ""}>
           <Outlet />
         </div>
       </main>
-      {!isActivities && <Footer />}
+      {!isActivities && !isSwitchSearch && <Footer />}
     </div>
   );
 }

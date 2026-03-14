@@ -67,7 +67,11 @@ const SwitchSearch = () => {
   const [startCell, setStartCell] = useState<Cell | null>(null);
   const [endCell, setEndCell] = useState<Cell | null>(null);
   const [selectionType, setSelectionType] = useState<SelectionType>("none");
-  const [backgroundRgb, setBackgroundRgb] = useState<{ r: number; g: number; b: number }>(WHITE_RGB);
+  const [backgroundRgb, setBackgroundRgb] = useState<{
+    r: number;
+    g: number;
+    b: number;
+  }>(WHITE_RGB);
   const [isTimeFrozen, setIsTimeFrozen] = useState(false);
 
   const gameTimeLimit = difficulty === "easy" ? 42 : 56;
@@ -82,7 +86,9 @@ const SwitchSearch = () => {
   const gridRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const freezeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const freezeCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const freezeCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
   const transitionRef = useRef<{
     startTime: number;
     startColor: { r: number; g: number; b: number };
@@ -188,7 +194,8 @@ const SwitchSearch = () => {
         if (attempts > wordLibrary.fourLetter.length) {
           newUsedWords.splice(
             0,
-            newUsedWords.filter((w) => wordLibrary.fourLetter.includes(w)).length
+            newUsedWords.filter((w) => wordLibrary.fourLetter.includes(w))
+              .length
           );
         }
       } while (newUsedWords.includes(word));
@@ -196,10 +203,9 @@ const SwitchSearch = () => {
       newCurrentWords.push(word);
 
       // Second word from fiveLetter or sixLetter
-      const secondWordList =
-        wordLibrary[
-          Math.random() > 0.5 ? "fiveLetter" : "sixLetter"
-        ] as string[];
+      const secondWordList = wordLibrary[
+        Math.random() > 0.5 ? "fiveLetter" : "sixLetter"
+      ] as string[];
       attempts = 0;
       do {
         word = getRandomWord(secondWordList);
@@ -254,9 +260,11 @@ const SwitchSearch = () => {
     ): boolean => {
       for (let i = 0; i < word.length; i++) {
         const row =
-          startRow + (direction === "vertical" || direction === "diagonal" ? i : 0);
+          startRow +
+          (direction === "vertical" || direction === "diagonal" ? i : 0);
         const col =
-          startCol + (direction === "horizontal" || direction === "diagonal" ? i : 0);
+          startCol +
+          (direction === "horizontal" || direction === "diagonal" ? i : 0);
 
         if (row >= gridSize || col >= gridSize || grid[row][col] !== null) {
           return false;
@@ -349,10 +357,11 @@ const SwitchSearch = () => {
           shownIndices.add(Math.floor(Math.random() * hintArray.length));
         }
         return `<span class='hard-hint-word'>${hintArray
-          .map((char, index) =>
-            `<span class='hard-hint-character'>${
-              shownIndices.has(index) ? char : "_"
-            }</span>`
+          .map(
+            (char, index) =>
+              `<span class='hard-hint-character'>${
+                shownIndices.has(index) ? char : "_"
+              }</span>`
           )
           .join("")}</span>`;
       }
@@ -397,16 +406,19 @@ const SwitchSearch = () => {
     (start: Cell, end: Cell) => {
       setGrid((prevGrid) => {
         if (prevGrid.length === 0) return prevGrid;
-        
+
         const newGrid = prevGrid.map((row) =>
           row.map((cell) => ({ ...cell, highlighted: false }))
         );
 
         const rowDifference = end.row - start.row;
         const colDifference = end.col - start.col;
-        const steps = Math.max(Math.abs(rowDifference), Math.abs(colDifference));
+        const steps = Math.max(
+          Math.abs(rowDifference),
+          Math.abs(colDifference)
+        );
         if (steps === 0) return newGrid;
-        
+
         const rowStep = rowDifference / steps;
         const colStep = colDifference / steps;
 
@@ -435,143 +447,151 @@ const SwitchSearch = () => {
   );
 
   // Check selection
-  const checkSelection = useCallback((overrideEndCell?: Cell | null) => {
-    const cellToUse = overrideEndCell !== undefined ? overrideEndCell : endCell;
-    if (!startCell || !cellToUse || grid.length === 0) {
-      return;
-    }
-
-    let selectedWord = "";
-    let row = startCell.row;
-    let col = startCell.col;
-    const rowIncrement =
-      cellToUse.row !== startCell.row
-        ? (cellToUse.row - startCell.row) /
-          Math.abs(cellToUse.row - startCell.row)
-        : 0;
-    const colIncrement =
-      cellToUse.col !== startCell.col
-        ? (cellToUse.col - startCell.col) /
-          Math.abs(cellToUse.col - startCell.col)
-        : 0;
-
-    const steps = Math.max(
-      Math.abs(cellToUse.row - startCell.row),
-      Math.abs(cellToUse.col - startCell.col)
-    );
-
-    for (let i = 0; i <= steps; i++) {
-      if (
-        row >= 0 &&
-        row < gridSize &&
-        col >= 0 &&
-        col < gridSize &&
-        grid[row] &&
-        grid[row][col]
-      ) {
-        selectedWord += grid[row][col].letter;
+  const checkSelection = useCallback(
+    (overrideEndCell?: Cell | null) => {
+      const cellToUse =
+        overrideEndCell !== undefined ? overrideEndCell : endCell;
+      if (!startCell || !cellToUse || grid.length === 0) {
+        return;
       }
-      row += rowIncrement;
-      col += colIncrement;
-    }
 
-    selectedWord = selectedWord.toLowerCase();
+      let selectedWord = "";
+      let row = startCell.row;
+      let col = startCell.col;
+      const rowIncrement =
+        cellToUse.row !== startCell.row
+          ? (cellToUse.row - startCell.row) /
+            Math.abs(cellToUse.row - startCell.row)
+          : 0;
+      const colIncrement =
+        cellToUse.col !== startCell.col
+          ? (cellToUse.col - startCell.col) /
+            Math.abs(cellToUse.col - startCell.col)
+          : 0;
 
-    if (
-      currentWords.includes(selectedWord) &&
-      !foundWords.includes(selectedWord)
-    ) {
-      // Highlight found word
-      setGrid((prevGrid) => {
-        if (prevGrid.length === 0) return prevGrid;
-        const newGrid = prevGrid.map((row) => row.map((cell) => ({ ...cell })));
-        const { backgroundColor, textColor } = getColorAndTextColorByTime(gameTime);
+      const steps = Math.max(
+        Math.abs(cellToUse.row - startCell.row),
+        Math.abs(cellToUse.col - startCell.col)
+      );
 
-        let row = startCell.row;
-        let col = startCell.col;
-        const rowIncrement =
-          cellToUse.row !== startCell.row
-            ? (cellToUse.row - startCell.row) /
-              Math.abs(cellToUse.row - startCell.row)
-            : 0;
-        const colIncrement =
-          cellToUse.col !== startCell.col
-            ? (cellToUse.col - startCell.col) /
-              Math.abs(cellToUse.col - startCell.col)
-            : 0;
-
-        const steps = Math.max(
-          Math.abs(cellToUse.row - startCell.row),
-          Math.abs(cellToUse.col - startCell.col)
-        );
-
-        for (let i = 0; i <= steps; i++) {
-          if (
-            row >= 0 &&
-            row < gridSize &&
-            col >= 0 &&
-            col < gridSize &&
-            newGrid[row] &&
-            newGrid[row][col]
-          ) {
-            newGrid[row][col].found = true;
-            newGrid[row][col].backgroundColor = backgroundColor;
-            newGrid[row][col].color = textColor;
-          }
-          row += rowIncrement;
-          col += colIncrement;
+      for (let i = 0; i <= steps; i++) {
+        if (
+          row >= 0 &&
+          row < gridSize &&
+          col >= 0 &&
+          col < gridSize &&
+          grid[row] &&
+          grid[row][col]
+        ) {
+          selectedWord += grid[row][col].letter;
         }
-
-        return newGrid;
-      });
-
-      const newFoundWords = [...foundWords, selectedWord];
-      setFoundWords(newFoundWords);
-      setTotalFoundWords((prev) => prev + 1);
-
-      // Check if all words found: switch word search, reset word search timer, freeze game timer for full bonus duration
-      if (newFoundWords.length === currentWords.length) {
-        setIsTimeFrozen(true);
-        generateWordSearch(); // switch puzzle and reset word search timer
-        const freezeMs = bonusFreezeDuration * 1000;
-        const freezeEndTime = Date.now() + freezeMs;
-        if (freezeTimeoutRef.current) clearTimeout(freezeTimeoutRef.current);
-        freezeTimeoutRef.current = null;
-        if (freezeCheckIntervalRef.current) clearInterval(freezeCheckIntervalRef.current);
-        freezeCheckIntervalRef.current = setInterval(() => {
-          if (Date.now() >= freezeEndTime) {
-            if (freezeCheckIntervalRef.current) {
-              clearInterval(freezeCheckIntervalRef.current);
-              freezeCheckIntervalRef.current = null;
-            }
-            setIsTimeFrozen(false);
-          }
-        }, 50);
+        row += rowIncrement;
+        col += colIncrement;
       }
-    } else {
-      // Clear highlights
-      setGrid((prevGrid) => {
-        if (prevGrid.length === 0) return prevGrid;
-        return prevGrid.map((row) =>
-          row.map((cell) => ({ ...cell, highlighted: false }))
-        );
-      });
-    }
 
-    resetSelection();
-  }, [
-    startCell,
-    endCell,
-    grid,
-    gridSize,
-    currentWords,
-    foundWords,
-    gameTime,
-    getColorAndTextColorByTime,
-    difficulty,
-    bonusFreezeDuration,
-    generateWordSearch,
-  ]);
+      selectedWord = selectedWord.toLowerCase();
+
+      if (
+        currentWords.includes(selectedWord) &&
+        !foundWords.includes(selectedWord)
+      ) {
+        // Highlight found word
+        setGrid((prevGrid) => {
+          if (prevGrid.length === 0) return prevGrid;
+          const newGrid = prevGrid.map((row) =>
+            row.map((cell) => ({ ...cell }))
+          );
+          const { backgroundColor, textColor } =
+            getColorAndTextColorByTime(gameTime);
+
+          let row = startCell.row;
+          let col = startCell.col;
+          const rowIncrement =
+            cellToUse.row !== startCell.row
+              ? (cellToUse.row - startCell.row) /
+                Math.abs(cellToUse.row - startCell.row)
+              : 0;
+          const colIncrement =
+            cellToUse.col !== startCell.col
+              ? (cellToUse.col - startCell.col) /
+                Math.abs(cellToUse.col - startCell.col)
+              : 0;
+
+          const steps = Math.max(
+            Math.abs(cellToUse.row - startCell.row),
+            Math.abs(cellToUse.col - startCell.col)
+          );
+
+          for (let i = 0; i <= steps; i++) {
+            if (
+              row >= 0 &&
+              row < gridSize &&
+              col >= 0 &&
+              col < gridSize &&
+              newGrid[row] &&
+              newGrid[row][col]
+            ) {
+              newGrid[row][col].found = true;
+              newGrid[row][col].backgroundColor = backgroundColor;
+              newGrid[row][col].color = textColor;
+            }
+            row += rowIncrement;
+            col += colIncrement;
+          }
+
+          return newGrid;
+        });
+
+        const newFoundWords = [...foundWords, selectedWord];
+        setFoundWords(newFoundWords);
+        setTotalFoundWords((prev) => prev + 1);
+
+        // Check if all words found: switch word search, reset word search timer, freeze game timer for full bonus duration
+        if (newFoundWords.length === currentWords.length) {
+          setIsTimeFrozen(true);
+          generateWordSearch(); // switch puzzle and reset word search timer
+          const freezeMs = bonusFreezeDuration * 1000;
+          const freezeEndTime = Date.now() + freezeMs;
+          if (freezeTimeoutRef.current) clearTimeout(freezeTimeoutRef.current);
+          freezeTimeoutRef.current = null;
+          if (freezeCheckIntervalRef.current)
+            clearInterval(freezeCheckIntervalRef.current);
+          freezeCheckIntervalRef.current = setInterval(() => {
+            if (Date.now() >= freezeEndTime) {
+              if (freezeCheckIntervalRef.current) {
+                clearInterval(freezeCheckIntervalRef.current);
+                freezeCheckIntervalRef.current = null;
+              }
+              setIsTimeFrozen(false);
+            }
+          }, 50);
+        }
+      } else {
+        // Clear highlights
+        setGrid((prevGrid) => {
+          if (prevGrid.length === 0) return prevGrid;
+          return prevGrid.map((row) =>
+            row.map((cell) => ({ ...cell, highlighted: false }))
+          );
+        });
+      }
+
+      resetSelection();
+    },
+    [
+      startCell,
+      endCell,
+      grid,
+      gridSize,
+      currentWords,
+      foundWords,
+      gameTime,
+      getColorAndTextColorByTime,
+      difficulty,
+      bonusFreezeDuration,
+      generateWordSearch,
+    ]
+  );
 
   // Reset selection
   const resetSelection = useCallback(() => {
@@ -600,13 +620,18 @@ const SwitchSearch = () => {
         setSelectionType("none");
         setGrid((prevGrid) => {
           if (prevGrid.length === 0) return prevGrid;
-          const newGrid = prevGrid.map((row) => row.map((cell) => ({ ...cell })));
+          const newGrid = prevGrid.map((row) =>
+            row.map((cell) => ({ ...cell }))
+          );
           if (newGrid[row] && newGrid[row][col]) {
             newGrid[row][col].highlighted = true;
           }
           return newGrid;
         });
-      } else if (isSelecting && (selectionType === "point-to-point" || selectionType === "none")) {
+      } else if (
+        isSelecting &&
+        (selectionType === "point-to-point" || selectionType === "none")
+      ) {
         const endCellValue = { row, col };
         setEndCell(endCellValue);
         if (startCell) {
@@ -624,7 +649,14 @@ const SwitchSearch = () => {
         }
       }
     },
-    [isSelecting, selectionType, startCell, highlightSelection, checkSelection, resetSelection]
+    [
+      isSelecting,
+      selectionType,
+      startCell,
+      highlightSelection,
+      checkSelection,
+      resetSelection,
+    ]
   );
 
   // Continue selection (drag)
@@ -647,9 +679,19 @@ const SwitchSearch = () => {
   const endSelection = useCallback(() => {
     if (isSelecting && selectionType === "drag" && startCell && endCell) {
       checkSelection();
-    } else if (isSelecting && selectionType === "none" && startCell && endCell) {
+    } else if (
+      isSelecting &&
+      selectionType === "none" &&
+      startCell &&
+      endCell
+    ) {
       checkSelection();
-    } else if (isSelecting && selectionType === "none" && startCell && !endCell) {
+    } else if (
+      isSelecting &&
+      selectionType === "none" &&
+      startCell &&
+      !endCell
+    ) {
       // First click released without dragging - switch to point-to-point mode
       // Keep isSelecting true so the second click can be detected
       setSelectionType("point-to-point");
@@ -786,14 +828,22 @@ const SwitchSearch = () => {
         }
       };
     }
-  }, [view, countdownTime, gameDuration, highlightUnfoundPositions, generateWordSearch]);
+  }, [
+    view,
+    countdownTime,
+    gameDuration,
+    highlightUnfoundPositions,
+    generateWordSearch,
+  ]);
 
   // Attach touch event listeners with non-passive option
   useEffect(() => {
     if (!gridRef.current || grid.length === 0) return;
 
     const gridElement = gridRef.current;
-    const cells = gridElement.querySelectorAll<HTMLElement>('[data-row][data-col]');
+    const cells = gridElement.querySelectorAll<HTMLElement>(
+      "[data-row][data-col]"
+    );
 
     const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
@@ -807,7 +857,7 @@ const SwitchSearch = () => {
       e.preventDefault();
       const touch = e.touches[0];
       if (!touch || !gridElement) return;
-      
+
       const gridRect = gridElement.getBoundingClientRect();
       const row = Math.floor(
         ((touch.clientY - gridRect.top) / gridRect.height) * gridSize
@@ -846,7 +896,8 @@ const SwitchSearch = () => {
       if (gameTimerRef.current) clearInterval(gameTimerRef.current);
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
       if (gameCountdownRef.current) clearInterval(gameCountdownRef.current);
-      if (wordSearchIntervalRef.current) clearInterval(wordSearchIntervalRef.current);
+      if (wordSearchIntervalRef.current)
+        clearInterval(wordSearchIntervalRef.current);
       if (freezeTimeoutRef.current) {
         clearTimeout(freezeTimeoutRef.current);
       }
@@ -856,13 +907,23 @@ const SwitchSearch = () => {
     };
   }, []);
 
-
-  // Render homescreen
+  // Render homescreen - fits one screen, no scroll
   if (view === "homescreen") {
     return (
-      <div className="flex flex-col px-4 overflow-hidden min-h-0" style={{ height: 'calc(100vh - 4rem - 4rem)', backgroundColor: theme.bg }}>
-        <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mx-auto text-center gap-3 md:gap-6 min-h-0">
-          <h1 className="text-4xl md:text-6xl font-bold" style={{ color: theme.fg }}>Switch Search</h1>
+      <div
+        className="flex h-full flex-col overflow-hidden px-4"
+        style={{
+          height: "calc(100vh - 4rem)",
+          backgroundColor: theme.bg,
+        }}
+      >
+        <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-center gap-2 text-center md:gap-4">
+          <h1
+            className="text-4xl font-bold md:text-6xl"
+            style={{ color: theme.fg }}
+          >
+            Switch Search
+          </h1>
 
           <div className="flex justify-center gap-4 md:gap-6">
             <label className="flex cursor-pointer items-center gap-2">
@@ -874,7 +935,9 @@ const SwitchSearch = () => {
                 onChange={(e) => setDifficulty(e.target.value as Difficulty)}
                 className="h-4 w-4"
               />
-              <span className="text-lg md:text-xl" style={{ color: theme.fg }}>Easy</span>
+              <span className="text-lg md:text-xl" style={{ color: theme.fg }}>
+                Easy
+              </span>
             </label>
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -885,15 +948,17 @@ const SwitchSearch = () => {
                 onChange={(e) => setDifficulty(e.target.value as Difficulty)}
                 className="h-4 w-4"
               />
-              <span className="text-lg md:text-xl" style={{ color: theme.fg }}>Hard</span>
+              <span className="text-lg md:text-xl" style={{ color: theme.fg }}>
+                Hard
+              </span>
             </label>
           </div>
 
-          <div className="flex flex-col gap-2 md:gap-4 w-full">
+          <div className="flex w-full flex-col gap-2 md:gap-4">
             <Button
               onClick={startGame}
               size="lg"
-              className="w-full text-base md:text-lg border-0"
+              className="w-full border-0 text-base md:text-lg"
               style={{ backgroundColor: theme.fg, color: theme.bg }}
             >
               Start Game
@@ -903,49 +968,71 @@ const SwitchSearch = () => {
               variant="outline"
               size="lg"
               className="w-full text-base md:text-lg"
-              style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}
+              style={{
+                borderColor: theme.fg,
+                color: theme.fg,
+                backgroundColor: "transparent",
+              }}
             >
               Exit
             </Button>
           </div>
         </div>
 
-        <p className="text-xs md:text-sm text-center py-1 md:py-4 flex-shrink-0" style={{ color: theme.fg }}>
-          Developed by: Isaac Edwards
+        <p
+          className="flex-shrink-0 py-2 text-center text-xs md:text-sm"
+          style={{ color: theme.fg }}
+        >
+          © 2026 Inter Amicos
         </p>
       </div>
     );
   }
 
-  // Render end screen
+  // Render end screen - fits one screen, no scroll
   if (view === "end") {
     const wordCountMessage = totalFoundWords === 1 ? "word" : "words";
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center px-4" style={{ backgroundColor: theme.bg }}>
-        <div className="w-full max-w-2xl text-center">
-          <h1 className="mb-6 text-3xl font-bold" style={{ color: theme.fg }}>
-            Time is up! You found {totalFoundWords} {wordCountMessage}.
-          </h1>
-          <div className="flex flex-col gap-4">
-            <Button
-              onClick={restartGame}
-              size="lg"
-              className="w-full border-0"
-              style={{ backgroundColor: theme.fg, color: theme.bg }}
-            >
-              Restart
-            </Button>
-            <Button
-              onClick={exitToHomescreen}
-              variant="outline"
-              size="lg"
-              className="w-full"
-              style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}
-            >
-              Exit
-            </Button>
+      <div
+        className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden px-4"
+        style={{ backgroundColor: theme.bg }}
+      >
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <div className="w-full max-w-2xl text-center">
+            <h1 className="mb-4 text-2xl font-bold md:mb-6 md:text-3xl" style={{ color: theme.fg }}>
+              Time is up! You found {totalFoundWords} {wordCountMessage}.
+            </h1>
+            <div className="flex flex-col gap-3 md:gap-4">
+              <Button
+                onClick={restartGame}
+                size="lg"
+                className="w-full border-0"
+                style={{ backgroundColor: theme.fg, color: theme.bg }}
+              >
+                Restart
+              </Button>
+              <Button
+                onClick={exitToHomescreen}
+                variant="outline"
+                size="lg"
+                className="w-full"
+                style={{
+                  borderColor: theme.fg,
+                  color: theme.fg,
+                  backgroundColor: "transparent",
+                }}
+              >
+                Exit
+              </Button>
+            </div>
           </div>
         </div>
+        <p
+          className="flex-shrink-0 py-2 text-center text-xs md:text-sm"
+          style={{ color: theme.fg }}
+        >
+          © 2026 Inter Amicos
+        </p>
       </div>
     );
   }
@@ -982,136 +1069,201 @@ const SwitchSearch = () => {
         }
       `}</style>
       <div
-        className="flex h-[calc(100vh-4rem)] flex-col items-center px-4 py-1 md:py-4 overflow-y-auto overflow-x-hidden"
+        className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden px-4 py-1 md:py-2"
         style={{ backgroundColor: theme.bg }}
       >
-      <div className="w-full max-w-4xl flex flex-col items-center flex-shrink-0 gap-0.5 md:gap-2 py-2 md:py-4">
-        <div className="mb-1 md:mb-2 text-center text-xl md:text-2xl font-bold flex-shrink-0" style={{ color: theme.fg }}>
-          Switch Search
-        </div>
-
-        {/* Game Timer Progress Bar - always visible, never collapsed */}
-        <div className="flex-shrink-0 mb-1 md:mb-2 w-full max-w-[300px] mx-auto relative bg-muted rounded overflow-hidden min-h-[8px] h-2 md:min-h-[10px] md:h-3">
+        <div className="flex min-h-0 w-full max-w-4xl flex-1 flex-col items-center gap-0.5 overflow-hidden py-1 md:gap-1 md:py-2">
           <div
-            className="absolute top-0 left-0 h-full bg-blue-600 transition-all duration-1000 rounded"
-            style={{ width: `${gameTimeProgress}%` }}
-          />
-        </div>
-
-        {/* Word Search Grid */}
-        {grid.length > 0 && (
-          <div
-            ref={gridRef}
-            className={cn(
-              "mx-auto my-1 md:my-2 grid gap-0.5 md:gap-1 rounded-lg flex-shrink-0",
-              difficulty === "easy" ? "grid-cols-7" : "grid-cols-8",
-              "aspect-square",
-              isTimeFrozen && "word-search-frost"
-            )}
-            style={{
-              width: "min(75vw, min(45vh, calc(100vh - 4rem - 280px)))",
-              height: "min(75vw, min(45vh, calc(100vh - 4rem - 280px)))",
-            }}
+            className="mb-1 flex-shrink-0 text-center text-xl font-bold md:mb-2 md:text-2xl"
+            style={{ color: theme.fg }}
           >
-            {grid.map((row) =>
-              row.map((cell) => (
+            Switch Search
+          </div>
+
+          {/* Game Timer Progress Bar - always visible, never collapsed */}
+          <div className="relative mx-auto mb-1 h-2 min-h-[8px] w-full max-w-[300px] flex-shrink-0 overflow-hidden rounded bg-muted md:mb-2 md:h-3 md:min-h-[10px]">
+            <div
+              className="absolute left-0 top-0 h-full rounded bg-blue-600 transition-all duration-1000"
+              style={{ width: `${gameTimeProgress}%` }}
+            />
+          </div>
+
+          {/* Word Search Grid - as large as possible between bars, stays square (viewport-based to avoid layout collapse) */}
+          {grid.length > 0 && (
+            <div className="flex min-h-0 flex-1 items-center justify-center">
               <div
-                key={`${cell.row}-${cell.col}`}
-                data-row={cell.row}
-                data-col={cell.col}
-                className="flex items-center justify-center rounded-[10%] border cursor-pointer select-none text-center font-bold transition-colors"
+                ref={gridRef}
+                className={cn(
+                  "my-1 grid aspect-square shrink-0 gap-0.5 rounded-lg md:my-2 md:gap-1",
+                  difficulty === "easy" ? "grid-cols-7" : "grid-cols-8",
+                  isTimeFrozen && "word-search-frost"
+                )}
                 style={{
-                  backgroundColor: cell.backgroundColor ?? (cell.highlighted ? "rgba(34, 211, 238, 0.64)" : cell.unfoundHighlight ? "rgb(163, 163, 163)" : theme.cellBg),
-                  color: cell.color ?? (cell.highlighted || cell.unfoundHighlight ? "white" : theme.fg),
-                  borderColor: theme.cellBorder,
-                  fontSize: `clamp(12px, calc(17.5vw / ${gridSize}), 24px)`,
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  // If we're in point-to-point mode and clicking a different cell, handle as second click
-                  if (isSelecting && selectionType === "point-to-point" && startCell) {
-                    if (cell.row !== startCell.row || cell.col !== startCell.col) {
-                      const endCellValue = { row: cell.row, col: cell.col };
-                      setEndCell(endCellValue);
-                      highlightSelection(startCell, endCellValue);
-                      setTimeout(() => {
-                        checkSelection(endCellValue);
-                        setTimeout(() => {
-                          resetSelection();
-                        }, 50);
-                      }, 50);
-                      return;
-                    }
-                  }
-                  startSelection(cell.row, cell.col);
-                }}
-                onMouseEnter={() => {
-                  if (isSelecting) {
-                    continueSelection(cell.row, cell.col);
-                  }
-                }}
-                onMouseUp={() => {
-                  endSelection();
-                }}
-                onClick={(e) => {
-                  // Handle point-to-point: if we're in point-to-point mode, treat click as second selection
-                  if (isSelecting && selectionType === "point-to-point" && startCell) {
-                    e.preventDefault();
-                    // Make sure we're not clicking the same cell
-                    if (cell.row !== startCell.row || cell.col !== startCell.col) {
-                      const endCellValue = { row: cell.row, col: cell.col };
-                      setEndCell(endCellValue);
-                      highlightSelection(startCell, endCellValue);
-                      setTimeout(() => {
-                        checkSelection(endCellValue);
-                        setTimeout(() => {
-                          resetSelection();
-                        }, 50);
-                      }, 50);
-                    }
-                  }
+                  width: "min(90vw, calc(100vh - 4rem - 220px))",
+                  height: "min(90vw, calc(100vh - 4rem - 220px))",
                 }}
               >
-                {cell.letter.toUpperCase()}
+              {grid.map((row) =>
+                row.map((cell) => (
+                  <div
+                    key={`${cell.row}-${cell.col}`}
+                    data-row={cell.row}
+                    data-col={cell.col}
+                    className="flex cursor-pointer select-none items-center justify-center rounded-[10%] border text-center font-bold transition-colors"
+                    style={{
+                      backgroundColor:
+                        cell.backgroundColor ??
+                        (cell.highlighted
+                          ? "rgba(34, 211, 238, 0.64)"
+                          : cell.unfoundHighlight
+                            ? "rgb(163, 163, 163)"
+                            : theme.cellBg),
+                      color:
+                        cell.color ??
+                        (cell.highlighted || cell.unfoundHighlight
+                          ? "white"
+                          : theme.fg),
+                      borderColor: theme.cellBorder,
+                      fontSize: `clamp(12px, calc(17.5vw / ${gridSize}), 24px)`,
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      // If we're in point-to-point mode and clicking a different cell, handle as second click
+                      if (
+                        isSelecting &&
+                        selectionType === "point-to-point" &&
+                        startCell
+                      ) {
+                        if (
+                          cell.row !== startCell.row ||
+                          cell.col !== startCell.col
+                        ) {
+                          const endCellValue = { row: cell.row, col: cell.col };
+                          setEndCell(endCellValue);
+                          highlightSelection(startCell, endCellValue);
+                          setTimeout(() => {
+                            checkSelection(endCellValue);
+                            setTimeout(() => {
+                              resetSelection();
+                            }, 50);
+                          }, 50);
+                          return;
+                        }
+                      }
+                      startSelection(cell.row, cell.col);
+                    }}
+                    onMouseEnter={() => {
+                      if (isSelecting) {
+                        continueSelection(cell.row, cell.col);
+                      }
+                    }}
+                    onMouseUp={() => {
+                      endSelection();
+                    }}
+                    onClick={(e) => {
+                      // Handle point-to-point: if we're in point-to-point mode, treat click as second selection
+                      if (
+                        isSelecting &&
+                        selectionType === "point-to-point" &&
+                        startCell
+                      ) {
+                        e.preventDefault();
+                        // Make sure we're not clicking the same cell
+                        if (
+                          cell.row !== startCell.row ||
+                          cell.col !== startCell.col
+                        ) {
+                          const endCellValue = { row: cell.row, col: cell.col };
+                          setEndCell(endCellValue);
+                          highlightSelection(startCell, endCellValue);
+                          setTimeout(() => {
+                            checkSelection(endCellValue);
+                            setTimeout(() => {
+                              resetSelection();
+                            }, 50);
+                          }, 50);
+                        }
+                      }
+                    }}
+                  >
+                    {cell.letter.toUpperCase()}
+                  </div>
+                ))
+              )}
               </div>
-              ))
-            )}
+            </div>
+          )}
+
+          {/* Word Search Timer Progress Bar - always visible, never collapsed */}
+          <div className="relative mx-auto mb-1 h-2 min-h-[8px] w-full max-w-[300px] flex-shrink-0 overflow-hidden rounded bg-muted md:mb-2 md:h-3 md:min-h-[10px]">
+            <div
+              className="absolute left-0 top-0 h-full rounded bg-red-600 transition-all duration-1000"
+              style={{ width: `${countdownProgress}%` }}
+            />
           </div>
-        )}
 
-        {/* Word Search Timer Progress Bar - always visible, never collapsed */}
-        <div className="flex-shrink-0 mb-1 md:mb-2 w-full max-w-[300px] mx-auto relative bg-muted rounded overflow-hidden min-h-[8px] h-2 md:min-h-[10px] md:h-3">
+          {/* Word Hints */}
           <div
-            className="absolute top-0 left-0 h-full bg-red-600 transition-all duration-1000 rounded"
-            style={{ width: `${countdownProgress}%` }}
+            className="mb-1 text-center text-sm md:mb-4 md:text-base"
+            style={{ color: theme.fg }}
+            dangerouslySetInnerHTML={{ __html: wordHints }}
           />
-        </div>
 
-        {/* Word Hints */}
-        <div
-          className="mb-1 md:mb-4 text-center text-sm md:text-base"
-          style={{ color: theme.fg }}
-          dangerouslySetInnerHTML={{ __html: wordHints }}
-        />
+          {/* Found Words Counter */}
+          <div
+            className="mb-1 text-center text-sm md:mb-4 md:text-lg"
+            style={{ color: theme.fg }}
+          >
+            Words found: {totalFoundWords}
+          </div>
 
-        {/* Found Words Counter */}
-        <div className="mb-1 md:mb-4 text-center text-sm md:text-lg" style={{ color: theme.fg }}>
-          Words found: {totalFoundWords}
-        </div>
+          {/* Control Buttons */}
+          <div className="flex justify-center gap-2 md:gap-4">
+            <Button
+              onClick={skipWordSearch}
+              variant="outline"
+              className="px-2 py-1.5 text-xs md:px-4 md:py-2 md:text-sm"
+              style={{
+                borderColor: theme.fg,
+                color: theme.fg,
+                backgroundColor: "transparent",
+              }}
+            >
+              Skip
+            </Button>
+            <Button
+              onClick={restartGame}
+              variant="outline"
+              className="px-2 py-1.5 text-xs md:px-4 md:py-2 md:text-sm"
+              style={{
+                borderColor: theme.fg,
+                color: theme.fg,
+                backgroundColor: "transparent",
+              }}
+            >
+              Restart
+            </Button>
+            <Button
+              onClick={exitToHomescreen}
+              variant="outline"
+              className="px-2 py-1.5 text-xs md:px-4 md:py-2 md:text-sm"
+              style={{
+                borderColor: theme.fg,
+                color: theme.fg,
+                backgroundColor: "transparent",
+              }}
+            >
+              Exit
+            </Button>
+          </div>
 
-        {/* Control Buttons */}
-        <div className="flex justify-center gap-2 md:gap-4">
-          <Button onClick={skipWordSearch} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2" style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}>
-            Skip
-          </Button>
-          <Button onClick={restartGame} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2" style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}>
-            Restart
-          </Button>
-          <Button onClick={exitToHomescreen} variant="outline" className="text-xs md:text-sm px-2 md:px-4 py-1.5 md:py-2" style={{ borderColor: theme.fg, color: theme.fg, backgroundColor: "transparent" }}>
-            Exit
-          </Button>
+          <p
+            className="flex-shrink-0 py-1 text-center text-xs md:text-sm"
+            style={{ color: theme.fg }}
+          >
+            © 2026 Inter Amicos
+          </p>
         </div>
-      </div>
       </div>
     </>
   );

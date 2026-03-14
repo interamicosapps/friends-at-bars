@@ -3,7 +3,7 @@ export default function Footer() {
     <footer className="mt-auto border-t border-border bg-card">
       <div className="container mx-auto px-4 py-6">
         <div className="text-center text-muted-foreground">
-          <p>© 2025 Bar Fest</p>
+          <p>© 2026 Inter Amicos</p>
         </div>
       </div>
     </footer>
