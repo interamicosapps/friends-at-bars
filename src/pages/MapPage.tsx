@@ -1,0 +1,278 @@
+import { useState, useEffect, useRef } from "react";
+import { format } from "date-fns";
+import { Calendar as CalendarIcon } from "lucide-react";
+import MapView from "@/components/MapView";
+import LocationToggle, { type LocationToggleRef } from "@/components/LocationToggle";
+import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
+import { CheckIn, SupabaseCheckIn } from "@/types/checkin";
+import {
+  extractTimeFromTimestamp,
+  DEFAULT_START_TIME,
+  normalizeDateTime,
+  generateNightlifeTimeOptions,
+  getDynamicStartTime,
+  calculateTimeDifference,
+  calculateEndDateTime,
+} from "@/lib/timeUtils";
+import { checkInService } from "@/lib/supabaseClient";
+import { OHIO_STATE_VENUES } from "@/data/venues";
+import { locationService, getLocationTrackingEnabled } from "@/lib/locationService";
+
+const MAP_LOCATION_PROMPT_DISMISSED = "map_location_prompt_dismissed";
+
+function loadCheckInsFromSupabase(): Promise<CheckIn[]> {
+  return checkInService.fetchCheckIns().then((supabaseData) => {
+    return supabaseData
+      .map((supabaseCheckIn: SupabaseCheckIn) => {
+        const startFallbackTime =
+          extractTimeFromTimestamp(
+            supabaseCheckIn.start_time ?? supabaseCheckIn.created_at
+          ) || DEFAULT_START_TIME;
+        const normalizedStart = normalizeDateTime({
+          raw: supabaseCheckIn.start_time,
+          date: supabaseCheckIn.date,
+          fallbackTime: startFallbackTime,
+        });
+        const normalizedEnd = normalizeDateTime({
+          raw: supabaseCheckIn.end_time,
+          date: normalizedStart.date,
+          fallbackTime: normalizedStart.time,
+        });
+        let startDateTime = normalizedStart.iso;
+        let startTime = normalizedStart.time;
+        let eventDate = normalizedStart.date;
+        let endDateTime = normalizedEnd.iso;
+        let endTime = normalizedEnd.time;
+        let durationMinutes = Math.round(
+          (new Date(endDateTime).getTime() -
+            new Date(startDateTime).getTime()) /
+            60000
+        );
+        if (
+          !supabaseCheckIn.end_time ||
+          !Number.isFinite(durationMinutes) ||
+          durationMinutes <= 0
+        ) {
+          const fallbackDuration = calculateTimeDifference(startTime, endTime);
+          const duration = fallbackDuration > 0 ? fallbackDuration : 60;
+          const computed = calculateEndDateTime(
+            eventDate,
+            startTime,
+            duration
+          );
+          endTime = computed.endTime;
+          endDateTime = computed.endDateTime;
+          durationMinutes = duration;
+        }
+        const venue = OHIO_STATE_VENUES.find(
+          (v) => v.name === supabaseCheckIn.venue
+        );
+        return {
+          id: supabaseCheckIn.id,
+          venue: supabaseCheckIn.venue,
+          venueArea: venue?.area,
+          date: eventDate,
+          startTime,
+          durationMinutes,
+          endTime,
+          startDateTime,
+          endDateTime,
+          timestamp: new Date(supabaseCheckIn.created_at),
+        };
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.startDateTime).getTime() -
+          new Date(b.startDateTime).getTime()
+      );
+  });
+}
+
+export default function MapPage() {
+  const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    format(new Date(), "yyyy-MM-dd")
+  );
+  const dynamicStartTime = getDynamicStartTime();
+  const [selectedTime, setSelectedTime] = useState<string>(dynamicStartTime);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [overlayExpanded, setOverlayExpanded] = useState(false);
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const locationToggleRef = useRef<LocationToggleRef>(null);
+
+  const allNightlifeOptions = generateNightlifeTimeOptions();
+  const nightlifeTimeOptions = allNightlifeOptions.filter((time) => {
+    const [hours, minutes] = time.split(":").map(Number);
+    const [startHours, startMinutes] = dynamicStartTime.split(":").map(Number);
+    const timeMinutes = hours * 60 + minutes;
+    const startMinutesTotal = startHours * 60 + startMinutes;
+    if (hours >= 24) return true;
+    return timeMinutes >= startMinutesTotal;
+  });
+
+  useEffect(() => {
+    loadCheckInsFromSupabase().then(setCheckIns);
+  }, []);
+
+  // Map-only location prompt: show when on map and location not enabled and not dismissed this session
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const enabled = getLocationTrackingEnabled();
+      if (enabled) {
+        if (!cancelled) setShowLocationModal(false);
+        return;
+      }
+      const granted = await locationService.checkPermissions();
+      if (granted || cancelled) {
+        if (!cancelled) setShowLocationModal(false);
+        return;
+      }
+      const dismissed =
+        typeof sessionStorage !== "undefined" &&
+        sessionStorage.getItem(MAP_LOCATION_PROMPT_DISMISSED) === "1";
+      if (!cancelled && !dismissed) setShowLocationModal(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleEnableLocation = async () => {
+    try {
+      await locationToggleRef.current?.requestEnable();
+      setShowLocationModal(false);
+    } catch {
+      // Keep modal open on error
+    }
+  };
+
+  const handleNotNow = () => {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(MAP_LOCATION_PROMPT_DISMISSED, "1");
+    }
+    setShowLocationModal(false);
+  };
+
+  const handleDateChange = (date: string) => {
+    setSelectedDate(date);
+    setSelectedTime(dynamicStartTime);
+  };
+
+  const [hours, minutes] = selectedTime.split(":").map(Number);
+  let compactDate = selectedDate;
+  let displayHours = hours;
+  if (hours >= 24) {
+    const date = new Date(selectedDate + "T00:00:00");
+    date.setDate(date.getDate() + 1);
+    compactDate = format(date, "yyyy-MM-dd");
+    displayHours = hours % 24;
+  }
+  const compactDateTime = format(
+    new Date(
+      `${compactDate}T${displayHours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:00`
+    ),
+    "M/d h:mm a"
+  );
+
+  const safeTop = "var(--safe-area-inset-top)";
+  // Align the collapsed/expanded overlay + location icon with the top logo row.
+  const pillTop = `calc(${safeTop} + 8px)`;
+
+  return (
+    <div className="relative h-full min-h-0 w-full overflow-hidden">
+      {/* Live location icon (Map only) */}
+      <div className="pointer-events-auto absolute right-3 z-[55]" style={{ top: pillTop }}>
+        <LocationToggle
+          ref={locationToggleRef}
+          variant="compact"
+          onLocationUpdate={setUserLocation}
+          onEnabledChange={(enabled) => {
+            if (enabled) setShowLocationModal(false);
+          }}
+        />
+      </div>
+
+      <MapView
+        checkIns={checkIns}
+        selectedDate={selectedDate}
+        selectedTime={selectedTime}
+        onSelectDate={handleDateChange}
+        onSelectTime={setSelectedTime}
+        timeOptions={nightlifeTimeOptions}
+        userLocation={userLocation}
+        showListPanel={false}
+        dynamicStartTime={dynamicStartTime}
+        fillContainer
+      />
+
+      {/* Minimal overlay: collapsed = pill, expanded = date + time only */}
+      {overlayExpanded ? (
+        <div
+          className="pointer-events-none absolute left-9 right-3 z-10"
+          style={{ top: pillTop }}
+        >
+          <div className="pointer-events-auto flex max-h-[200px] max-w-md flex-col gap-3 overflow-hidden rounded-xl border border-white/60 bg-white/90 px-3 py-3 shadow-lg backdrop-blur">
+            <ActiveCheckInsPanel
+              checkIns={checkIns}
+              selectedDate={selectedDate}
+              selectedTime={selectedTime}
+              onSelectDate={handleDateChange}
+              onSelectTime={setSelectedTime}
+              timeOptions={nightlifeTimeOptions}
+              onClose={() => setOverlayExpanded(false)}
+              showCloseButton
+              dynamicStartTime={dynamicStartTime}
+              hideCheckInsList
+            />
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOverlayExpanded(true)}
+          className="absolute left-9 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
+          style={{ top: pillTop }}
+        >
+          <CalendarIcon className="h-4 w-4 text-gray-500" />
+          {compactDateTime}
+        </button>
+      )}
+
+      {/* Map-only location prompt modal */}
+      {showLocationModal && (
+        <div
+          className="fixed inset-x-0 top-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          style={{
+            bottom: "calc(3.5rem + var(--safe-area-inset-bottom))",
+          }}
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">
+            <p className="mb-4 text-center text-sm text-gray-700">
+              In order to use the map, enable location.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleEnableLocation}
+                className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
+              >
+                Enable
+              </button>
+              <button
+                type="button"
+                onClick={handleNotNow}
+                className="w-full rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

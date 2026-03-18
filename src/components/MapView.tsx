@@ -2,6 +2,7 @@ import { useMemo, useState, useRef, useEffect, lazy, Suspense } from "react";
 import { Capacitor } from "@capacitor/core";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { CheckIn } from "@/types/checkin";
 import {
   generateStartTimeOptions,
@@ -28,6 +29,8 @@ export interface MapViewProps {
   onFirstInteraction?: () => void;
   /** Called once when the map instance has finished loading (tiles/sources ready). */
   onMapReady?: () => void;
+  /** Fill parent (e.g. map page): edge-to-edge, no card chrome. */
+  fillContainer?: boolean;
 }
 
 /**
@@ -48,6 +51,7 @@ export default function MapView({
   className,
   onFirstInteraction,
   onMapReady,
+  fillContainer = false,
 }: MapViewProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const previousSelectedDate = useRef<string | null>(null);
@@ -104,7 +108,14 @@ export default function MapView({
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-xl border border-gray-200 shadow-lg ${className ?? "h-96"}`}
+      className={cn(
+        "w-full overflow-hidden",
+        fillContainer
+          ? "absolute inset-0 h-full min-h-0 rounded-none border-0 shadow-none"
+          : "relative rounded-xl border border-gray-200 shadow-lg",
+        !fillContainer && (className ?? "h-96"),
+        fillContainer && className
+      )}
     >
       {showListPanel &&
         (isCollapsed ? (

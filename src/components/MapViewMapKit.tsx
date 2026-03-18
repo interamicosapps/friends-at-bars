@@ -298,11 +298,10 @@ export default function MapViewMapKit({
   }
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full min-h-[300px]">
       <div
         ref={containerRef}
-        className="h-full w-full"
-        style={{ minHeight: 240 }}
+        className="absolute inset-0 min-h-[300px]"
       />
       {/* HTML popup overlay — MapKit callouts are limited; mirror MapLibre popup content */}
       {popupInfo && (

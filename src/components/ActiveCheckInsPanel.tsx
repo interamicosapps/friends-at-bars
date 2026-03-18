@@ -28,6 +28,8 @@ interface ActiveCheckInsPanelProps {
   showCloseButton?: boolean;
   /** Optional dynamic start time to reset to when date changes */
   dynamicStartTime?: string;
+  /** If true, hide the active check-ins list (date + time only). Used on Map page overlay. */
+  hideCheckInsList?: boolean;
 }
 
 const formatDateValue = (date: Date) => format(date, "yyyy-MM-dd");
@@ -42,6 +44,7 @@ export default function ActiveCheckInsPanel({
   onClose,
   showCloseButton = false,
   dynamicStartTime,
+  hideCheckInsList = false,
 }: ActiveCheckInsPanelProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
@@ -208,72 +211,74 @@ export default function ActiveCheckInsPanel({
         </div>
       </div>
 
-      <div className="border-t border-gray-200 pt-2 flex-1 min-h-0 flex flex-col overflow-hidden">
-        <h2 className="mb-2 text-xs font-bold text-gray-900 flex-shrink-0">
-          Active Check-ins
-        </h2>
-        <div className="overflow-y-auto flex-1 min-h-0">
-          {activeCheckIns.length === 0 ? (
-            <p className="py-4 text-center text-sm text-gray-500">
-              No check-ins during this time
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {areaEntries.map(([area, areaData]) => {
-                const isExpanded = expandedAreas.has(area);
-                const venueEntries = Object.entries(areaData.venues).sort(
-                  (a, b) => b[1] - a[1]
-                );
-                return (
-                  <div
-                    key={area}
-                    className="rounded-lg border border-gray-200 bg-gray-50"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleArea(area)}
-                      className="flex w-full items-center justify-between p-3 text-left transition hover:bg-gray-100"
+      {!hideCheckInsList && (
+        <div className="border-t border-gray-200 pt-2 flex-1 min-h-0 flex flex-col overflow-hidden">
+          <h2 className="mb-2 text-xs font-bold text-gray-900 flex-shrink-0">
+            Active Check-ins
+          </h2>
+          <div className="overflow-y-auto flex-1 min-h-0">
+            {activeCheckIns.length === 0 ? (
+              <p className="py-4 text-center text-sm text-gray-500">
+                No check-ins during this time
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {areaEntries.map(([area, areaData]) => {
+                  const isExpanded = expandedAreas.has(area);
+                  const venueEntries = Object.entries(areaData.venues).sort(
+                    (a, b) => b[1] - a[1]
+                  );
+                  return (
+                    <div
+                      key={area}
+                      className="rounded-lg border border-gray-200 bg-gray-50"
                     >
-                      <div className="flex items-center gap-2">
-                        {isExpanded ? (
-                          <ChevronDown className="h-4 w-4 text-gray-500" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 text-gray-500" />
-                        )}
-                        <span className="font-semibold text-gray-900">
-                          {area}
-                        </span>
-                      </div>
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-                        {areaData.total}
-                      </span>
-                    </button>
-                    {isExpanded && (
-                      <div className="border-t border-gray-200 bg-white">
-                        <div className="space-y-1 p-2">
-                          {venueEntries.map(([venueName, count]) => (
-                            <div
-                              key={venueName}
-                              className="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50"
-                            >
-                              <span className="text-sm font-medium text-gray-700">
-                                {venueName}
-                              </span>
-                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
-                                {count}
-                              </span>
-                            </div>
-                          ))}
+                      <button
+                        type="button"
+                        onClick={() => toggleArea(area)}
+                        className="flex w-full items-center justify-between p-3 text-left transition hover:bg-gray-100"
+                      >
+                        <div className="flex items-center gap-2">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-gray-500" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-gray-500" />
+                          )}
+                          <span className="font-semibold text-gray-900">
+                            {area}
+                          </span>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                          {areaData.total}
+                        </span>
+                      </button>
+                      {isExpanded && (
+                        <div className="border-t border-gray-200 bg-white">
+                          <div className="space-y-1 p-2">
+                            {venueEntries.map(([venueName, count]) => (
+                              <div
+                                key={venueName}
+                                className="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50"
+                              >
+                                <span className="text-sm font-medium text-gray-700">
+                                  {venueName}
+                                </span>
+                                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                                  {count}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

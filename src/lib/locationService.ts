@@ -307,10 +307,15 @@ let lastBackgroundBackendUpdate = 0;
 const BACKGROUND_BACKEND_INTERVAL_MS = 60000;
 
 export const locationService = {
-  // Request location permissions
+  // Request location permissions. Does not call the system dialog if permission is already granted (avoids iOS re-prompt on every app open).
   async requestPermissions(): Promise<boolean> {
     try {
       if (isNative) {
+        const alreadyGranted = await this.checkPermissions();
+        if (alreadyGranted) {
+          console.log("Location permission already granted, skipping request");
+          return true;
+        }
         console.log("Requesting native location permissions...");
         const status = await CapacitorGeolocation.requestPermissions();
         const granted = status.location === "granted";
@@ -322,6 +327,8 @@ export const locationService = {
         );
         return granted;
       }
+      const alreadyGranted = await this.checkPermissions();
+      if (alreadyGranted) return true;
       console.log("Requesting web location permissions...");
       return await webGeolocation.requestPermissions();
     } catch (error) {

@@ -1,9 +1,9 @@
-import { useState, useEffect, Suspense, lazy, useRef } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon } from "lucide-react";
-import LocationToggle, { type LocationToggleRef } from "@/components/LocationToggle";
-import ActivitiesListOverlay from "@/components/ActivitiesListOverlay";
-import { Button } from "@/components/ui/Button";
+import { useSearchParams } from "react-router-dom";
+import { Calendar as CalendarIcon, Menu } from "lucide-react";
+import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
+import CheckInOverlayContent from "@/components/CheckInOverlayContent";
 import { CheckIn, SupabaseCheckIn } from "@/types/checkin";
 import {
   extractTimeFromTimestamp,
@@ -17,51 +17,39 @@ import {
 import { checkInService } from "@/lib/supabaseClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 
-const MapView = lazy(() => import("@/components/MapView"));
+const CHECKIN_OVERLAY_KEY = "activities_checkin_overlay_collapsed";
 
-const OVERLAY_STATE_KEY = "activities_overlay_open";
-
-function getInitialOverlayState(): boolean {
-  if (typeof sessionStorage === "undefined") return false;
-  const s = sessionStorage.getItem(OVERLAY_STATE_KEY);
-  if (s === "true") return true;
-  if (s === "false") return false;
-  return false;
+function getCheckInOverlayCollapsed(): boolean {
+  if (typeof sessionStorage === "undefined") return true;
+  return sessionStorage.getItem(CHECKIN_OVERLAY_KEY) === "1";
 }
 
-function getInitialOverlayReady(): boolean {
-  if (typeof sessionStorage === "undefined") return false;
-  return sessionStorage.getItem(OVERLAY_STATE_KEY) !== null;
+function setCheckInOverlayCollapsed(collapsed: boolean) {
+  if (typeof sessionStorage === "undefined") return;
+  sessionStorage.setItem(CHECKIN_OVERLAY_KEY, collapsed ? "1" : "0");
 }
 
 export default function Activities() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
-  const [mapSelectedDate, setMapSelectedDate] = useState<string>(() =>
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
     format(new Date(), "yyyy-MM-dd")
   );
-  const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
   const dynamicStartTime = getDynamicStartTime();
-  const [mapSelectedTime, setMapSelectedTime] = useState<string>(
-    dynamicStartTime
-  );
-  const [listOverlayOpen, setListOverlayOpenState] = useState(getInitialOverlayState);
-  const [overlayReady, setOverlayReady] = useState(getInitialOverlayReady);
-  const [mapReady, setMapReady] = useState(false);
-  const hasRestoredOverlayState = useRef(getInitialOverlayReady());
-
-  const setListOverlayOpen = (open: boolean) => {
-    setListOverlayOpenState(open);
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.setItem(OVERLAY_STATE_KEY, String(open));
+  const [selectedTime, setSelectedTime] = useState<string>(dynamicStartTime);
+  const [checkInOverlayOpen, setCheckInOverlayOpenState] = useState(() => {
+    const fromQuery = searchParams.get("open") === "checkin";
+    if (fromQuery) return true;
+    return !getCheckInOverlayCollapsed();
+  });
+  const setCheckInOverlayOpen = (open: boolean) => {
+    setCheckInOverlayOpenState(open);
+    setCheckInOverlayCollapsed(!open);
+    if (!open && searchParams.get("open") === "checkin") {
+      setSearchParams({}, { replace: true });
     }
   };
-  const [showLocationDialog, setShowLocationDialog] = useState(false);
-  const [isLocationEnabled, setIsLocationEnabled] = useState(false);
-  const locationToggleRef = useRef<LocationToggleRef>(null);
-  const overlayOpenedRef = useRef(false);
+
   const allNightlifeOptions = generateNightlifeTimeOptions();
   const nightlifeTimeOptions = allNightlifeOptions.filter((time) => {
     const [hours, minutes] = time.split(":").map(Number);
@@ -154,85 +142,24 @@ export default function Activities() {
     loadCheckIns();
   }, []);
 
-  // When map reports ready, wait 500ms then slide overlay in — only on first visit (no persisted overlay state).
-  const OVERLAY_DELAY_MS = 500;
-  const OVERLAY_FALLBACK_MS = 8000;
+  // Open Check-In overlay when navigating with ?open=checkin
   useEffect(() => {
-    if (!mapReady) return;
-    if (hasRestoredOverlayState.current) return;
-    const t = window.setTimeout(() => {
-      overlayOpenedRef.current = true;
-      setListOverlayOpen(true);
-      setOverlayReady(true);
-    }, OVERLAY_DELAY_MS);
-    return () => window.clearTimeout(t);
-  }, [mapReady]);
-
-  // If map never becomes ready (token error, etc.), still open overlay after fallback — only when not restored.
-  useEffect(() => {
-    if (hasRestoredOverlayState.current) return;
-    const t = window.setTimeout(() => {
-      if (overlayOpenedRef.current) return;
-      overlayOpenedRef.current = true;
-      setListOverlayOpen(true);
-      setOverlayReady(true);
-    }, OVERLAY_FALLBACK_MS);
-    return () => window.clearTimeout(t);
-  }, []);
-  useEffect(() => {
-    if (listOverlayOpen) overlayOpenedRef.current = true;
-  }, [listOverlayOpen]);
-
-  // Persist overlay state on unmount (e.g. user had overlay closed and navigated away)
-  useEffect(() => {
-    return () => {
-      if (typeof sessionStorage !== "undefined") {
-        sessionStorage.setItem(OVERLAY_STATE_KEY, String(listOverlayOpen));
-      }
-    };
-  }, [listOverlayOpen]);
-
-  // When overlay first comes into view, prompt for location once (if not already enabled).
-  const locationPromptShownRef = useRef(false);
-  useEffect(() => {
-    if (!overlayReady || !listOverlayOpen || locationPromptShownRef.current) return;
-    locationPromptShownRef.current = true;
-    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("activities_location_prompted") === "1") {
-      return;
+    if (searchParams.get("open") === "checkin") {
+      setCheckInOverlayOpenState(true);
+      setCheckInOverlayCollapsed(false);
     }
-    const t = window.setTimeout(() => {
-      if (isLocationEnabled) {
-        if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem("activities_location_prompted", "1");
-        }
-        return;
-      }
-      setShowLocationDialog(true);
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [overlayReady, listOverlayOpen, isLocationEnabled]);
+  }, [searchParams]);
 
-  const handleMapDateChange = (date: string) => {
-    setMapSelectedDate(date);
-    setMapSelectedTime(dynamicStartTime);
+  const handleDateChange = (date: string) => {
+    setSelectedDate(date);
+    setSelectedTime(dynamicStartTime);
   };
 
-  // Location prompt is tied to overlay first appearance, not map pan/zoom.
-  const handleFirstMapInteraction = () => {};
-
-  const handleEnableLocation = async () => {
-    setShowLocationDialog(false);
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.setItem("activities_location_prompted", "1");
-    }
-    await locationToggleRef.current?.requestEnable();
-  };
-
-  const [hours, minutes] = mapSelectedTime.split(":").map(Number);
-  let compactDate = mapSelectedDate;
+  const [hours, minutes] = selectedTime.split(":").map(Number);
+  let compactDate = selectedDate;
   let displayHours = hours;
   if (hours >= 24) {
-    const date = new Date(mapSelectedDate + "T00:00:00");
+    const date = new Date(selectedDate + "T00:00:00");
     date.setDate(date.getDate() + 1);
     compactDate = format(date, "yyyy-MM-dd");
     displayHours = hours % 24;
@@ -246,95 +173,67 @@ export default function Activities() {
 
   return (
     <div
-      className="relative w-full bg-background"
-      style={{ height: "calc(100vh - var(--navbar-height, 4rem))" }}
+      className="relative flex h-full w-full flex-col bg-background"
+      style={{ height: "calc(100vh - var(--navbar-height, 4rem) - 3.5rem)" }}
     >
-      <div className="relative h-full min-h-[400px] w-full">
-        <Suspense
-          fallback={
-            <div className="flex h-full min-h-[400px] items-center justify-center rounded-xl border border-gray-200 bg-gray-50">
-              <div className="text-center">
-                <div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
-                <p className="text-sm text-gray-600">Loading map...</p>
-              </div>
-            </div>
-          }
-        >
-          <MapView
+      {/* Main content: list view (date header + ActiveCheckInsPanel) */}
+      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
+            <CalendarIcon className="h-4 w-4 text-gray-500" />
+            {compactDateTime}
+          </div>
+          <div />
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+          <ActiveCheckInsPanel
             checkIns={checkIns}
-            selectedDate={mapSelectedDate}
-            selectedTime={mapSelectedTime}
-            onSelectDate={handleMapDateChange}
-            onSelectTime={setMapSelectedTime}
+            selectedDate={selectedDate}
+            selectedTime={selectedTime}
+            onSelectDate={handleDateChange}
+            onSelectTime={setSelectedTime}
             timeOptions={nightlifeTimeOptions}
-            userLocation={userLocation}
-            showListPanel={false}
-            className="h-full min-h-[400px]"
-            onFirstInteraction={handleFirstMapInteraction}
-            onMapReady={() => setMapReady(true)}
-          />
-        </Suspense>
-        {/* Floating pill to open list overlay */}
-        <button
-          type="button"
-          onClick={() => setListOverlayOpen(true)}
-          className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
-        >
-          <CalendarIcon className="h-4 w-4 text-gray-500" />
-          {compactDateTime}
-        </button>
-        {/* Compact location indicator - top right */}
-        <div className="absolute right-4 top-4 z-20">
-          <LocationToggle
-            ref={locationToggleRef}
-            variant="compact"
-            onLocationUpdate={setUserLocation}
-            onEnabledChange={setIsLocationEnabled}
+            dynamicStartTime={dynamicStartTime}
           />
         </div>
       </div>
-      {/* First-interaction location prompt */}
-      {showLocationDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
-            <p className="mb-4 text-center text-sm font-medium text-gray-800">
-              See yourself on the map — turn on location?
-            </p>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  setShowLocationDialog(false);
-                  if (typeof sessionStorage !== "undefined") {
-                    sessionStorage.setItem("activities_location_prompted", "1");
-                  }
-                }}
-              >
-                Not now
-              </Button>
-              <Button
-                className="flex-1"
-                onClick={handleEnableLocation}
-              >
-                Enable
-              </Button>
-            </div>
+
+      {/* Collapsible Check-In overlay */}
+      {checkInOverlayOpen ? (
+        <>
+          <div
+            className="fixed inset-0 z-30 bg-black/20"
+            style={{
+              top: "calc(4rem + var(--safe-area-inset-top))",
+              bottom: "calc(3.5rem + var(--safe-area-inset-bottom))",
+            }}
+            aria-hidden
+            onClick={() => setCheckInOverlayOpen(false)}
+          />
+          <div
+            className="fixed left-3 right-3 z-40 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+            style={{
+              top: "calc(4rem + var(--safe-area-inset-top) + 12px)",
+              bottom: "calc(3.5rem + var(--safe-area-inset-bottom) + 12px)",
+            }}
+          >
+            <CheckInOverlayContent
+              checkIns={checkIns}
+              onCheckInsUpdated={loadCheckIns}
+              onClose={() => setCheckInOverlayOpen(false)}
+            />
           </div>
-        </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setCheckInOverlayOpen(true)}
+          className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
+        >
+          <Menu className="h-4 w-4 text-gray-500" />
+          Check-In
+        </button>
       )}
-      <ActivitiesListOverlay
-        isOpen={listOverlayOpen}
-        animateIn={overlayReady}
-        onClose={() => setListOverlayOpen(false)}
-        checkIns={checkIns}
-        selectedDate={mapSelectedDate}
-        selectedTime={mapSelectedTime}
-        onSelectDate={handleMapDateChange}
-        onSelectTime={setMapSelectedTime}
-        timeOptions={nightlifeTimeOptions}
-        dynamicStartTime={dynamicStartTime}
-      />
     </div>
   );
 }

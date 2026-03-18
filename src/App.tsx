@@ -1,12 +1,10 @@
 import { Suspense, lazy } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
-import CheckIn from "./pages/CheckIn";
 
-// Lazy load route components (CheckIn loaded eagerly to avoid dynamic import 500)
 const Activities = lazy(() => import("./pages/Activities"));
+const MapPage = lazy(() => import("./pages/MapPage"));
 const Test = lazy(() => import("./pages/Test"));
-const About = lazy(() => import("./pages/About"));
 const Games = lazy(() => import("./pages/Games"));
 const SwitchSearch = lazy(() => import("./pages/SwitchSearch"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -34,20 +32,20 @@ function App() {
               </Suspense>
             }
           />
-          <Route path="check-in" element={<CheckIn />} />
+          <Route path="check-in" element={<Navigate to="/?open=checkin" replace />} />
+          <Route
+            path="map"
+            element={
+              <Suspense fallback={<LoadingFallback />}>
+                <MapPage />
+              </Suspense>
+            }
+          />
           <Route
             path="test"
             element={
               <Suspense fallback={<LoadingFallback />}>
                 <Test />
-              </Suspense>
-            }
-          />
-          <Route
-            path="about"
-            element={
-              <Suspense fallback={<LoadingFallback />}>
-                <About />
               </Suspense>
             }
           />

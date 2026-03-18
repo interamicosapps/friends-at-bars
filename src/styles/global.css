@@ -111,3 +111,8 @@
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
 }
+
+/* (legacy) Kept for backward compatibility; UI now uses a dedicated mark. */
+.logo-mark--ui {
+  filter: none;
+}
