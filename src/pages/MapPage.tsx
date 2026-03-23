@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 import MapView from "@/components/MapView";
+import MapFloatingLogo from "@/components/MapFloatingLogo";
 import LocationToggle, { type LocationToggleRef } from "@/components/LocationToggle";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 import { CheckIn, SupabaseCheckIn } from "@/types/checkin";
@@ -17,6 +18,7 @@ import {
 import { checkInService } from "@/lib/supabaseClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import { locationService, getLocationTrackingEnabled } from "@/lib/locationService";
+import { cn } from "@/lib/utils";
 
 const MAP_LOCATION_PROMPT_DISMISSED = "map_location_prompt_dismissed";
 
@@ -179,21 +181,60 @@ export default function MapPage() {
   );
 
   const safeTop = "var(--safe-area-inset-top)";
-  // Align the collapsed/expanded overlay + location icon with the top logo row.
+  // Collapsed logo + date pill share one row; align with the location icon.
   const pillTop = `calc(${safeTop} + 8px)`;
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden">
-      {/* Live location icon (Map only) */}
-      <div className="pointer-events-auto absolute right-3 z-[55]" style={{ top: pillTop }}>
-        <LocationToggle
-          ref={locationToggleRef}
-          variant="compact"
-          onLocationUpdate={setUserLocation}
-          onEnabledChange={(enabled) => {
-            if (enabled) setShowLocationModal(false);
-          }}
-        />
+      {/* Top chrome: logo + pill (collapsed) or expanded panel fills space between logo and location toggle */}
+      <div
+        className={cn(
+          "pointer-events-none absolute left-3 right-3 z-[55] flex gap-2",
+          overlayExpanded ? "items-start" : "items-center"
+        )}
+        style={{ top: pillTop }}
+      >
+        <div className="pointer-events-auto flex shrink-0 items-center gap-2">
+          <MapFloatingLogo />
+          {!overlayExpanded && (
+            <button
+              type="button"
+              onClick={() => setOverlayExpanded(true)}
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-white/90 px-3 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
+            >
+              <CalendarIcon className="h-4 w-4 shrink-0 text-gray-500" />
+              {compactDateTime}
+            </button>
+          )}
+        </div>
+        {overlayExpanded ? (
+          <div className="pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-white/60 bg-white/90 px-2 py-2 shadow-lg backdrop-blur sm:px-3 sm:py-3">
+            <ActiveCheckInsPanel
+              checkIns={checkIns}
+              selectedDate={selectedDate}
+              selectedTime={selectedTime}
+              onSelectDate={handleDateChange}
+              onSelectTime={setSelectedTime}
+              timeOptions={nightlifeTimeOptions}
+              onClose={() => setOverlayExpanded(false)}
+              showCloseButton
+              dynamicStartTime={dynamicStartTime}
+              hideCheckInsList
+            />
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1" aria-hidden />
+        )}
+        <div className="pointer-events-auto shrink-0">
+          <LocationToggle
+            ref={locationToggleRef}
+            variant="compact"
+            onLocationUpdate={setUserLocation}
+            onEnabledChange={(enabled) => {
+              if (enabled) setShowLocationModal(false);
+            }}
+          />
+        </div>
       </div>
 
       <MapView
@@ -208,39 +249,6 @@ export default function MapPage() {
         dynamicStartTime={dynamicStartTime}
         fillContainer
       />
-
-      {/* Minimal overlay: collapsed = pill, expanded = date + time only */}
-      {overlayExpanded ? (
-        <div
-          className="pointer-events-none absolute left-9 right-3 z-10"
-          style={{ top: pillTop }}
-        >
-          <div className="pointer-events-auto flex max-h-[200px] max-w-md flex-col gap-3 overflow-hidden rounded-xl border border-white/60 bg-white/90 px-3 py-3 shadow-lg backdrop-blur">
-            <ActiveCheckInsPanel
-              checkIns={checkIns}
-              selectedDate={selectedDate}
-              selectedTime={selectedTime}
-              onSelectDate={handleDateChange}
-              onSelectTime={setSelectedTime}
-              timeOptions={nightlifeTimeOptions}
-              onClose={() => setOverlayExpanded(false)}
-              showCloseButton
-              dynamicStartTime={dynamicStartTime}
-              hideCheckInsList
-            />
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setOverlayExpanded(true)}
-          className="absolute left-9 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
-          style={{ top: pillTop }}
-        >
-          <CalendarIcon className="h-4 w-4 text-gray-500" />
-          {compactDateTime}
-        </button>
-      )}
 
       {/* Map-only location prompt modal */}
       {showLocationModal && (

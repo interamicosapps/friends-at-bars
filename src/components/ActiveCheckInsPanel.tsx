@@ -1,4 +1,10 @@
-import { useMemo, useState, useRef, type ChangeEvent } from "react";
+import {
+  useMemo,
+  useState,
+  useRef,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon, ChevronDown, ChevronRight } from "lucide-react";
 import { Calendar } from "@/components/ui/Calendar";
@@ -30,6 +36,8 @@ interface ActiveCheckInsPanelProps {
   dynamicStartTime?: string;
   /** If true, hide the active check-ins list (date + time only). Used on Map page overlay. */
   hideCheckInsList?: boolean;
+  /** Renders to the right of the date/time row (e.g. Activities Check-In button). */
+  endSlot?: ReactNode;
 }
 
 const formatDateValue = (date: Date) => format(date, "yyyy-MM-dd");
@@ -45,6 +53,7 @@ export default function ActiveCheckInsPanel({
   showCloseButton = false,
   dynamicStartTime,
   hideCheckInsList = false,
+  endSlot,
 }: ActiveCheckInsPanelProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
@@ -134,82 +143,89 @@ export default function ActiveCheckInsPanel({
     });
   };
 
-  return (
-    <div className="flex flex-col gap-2 overflow-hidden">
-      <div className="flex items-center gap-2 flex-shrink-0">
-        {showCloseButton && onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 min-h-[36px] min-w-[36px] flex-col items-center justify-center gap-[2px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-gray-100"
-            aria-label="Close list"
-          >
-            <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
-            <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
-            <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
-          </button>
-        )}
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-            Date
-          </span>
-          <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setIsCalendarOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-white"
-              >
-                <CalendarIcon className="h-3.5 w-3.5 text-gray-500" />
-                {formatDateDisplay(selectedDate)}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={
-                  selectedDate
-                    ? new Date(`${selectedDate}T00:00:00`)
-                    : undefined
-                }
-                onSelect={handleCalendarSelect}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        <div className="relative flex flex-1 flex-col gap-1">
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-gray-500">
-            <span>Time</span>
-          </div>
-          <div ref={topSliderRef} className="relative flex items-center">
-            <input
-              type="range"
-              min={0}
-              max={sliderOptions.length - 1}
-              step={1}
-              value={sliderIndex}
-              onChange={handleSliderChange}
-              className="flex-1 accent-[#007AFF]"
-            />
-            <span
-              className="pointer-events-none absolute -top-5 whitespace-nowrap rounded-full bg-white px-1.5 py-0.5 text-[11px] font-semibold text-gray-700 shadow-sm"
-              style={{
-                left: `${calculateClampedTooltipPosition(
-                  sliderPercentage,
-                  topSliderRef,
-                  70,
-                  0
-                )}%`,
-                transform: "translateX(-50%)",
-              }}
+  const dateTimeRow = (
+    <div className="flex min-w-0 items-center gap-2 flex-shrink-0">
+      {showCloseButton && onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-9 w-9 min-h-[36px] min-w-[36px] flex-col items-center justify-center gap-[2px] rounded-md border border-transparent text-gray-500 transition hover:border-gray-200 hover:bg-gray-100"
+          aria-label="Close list"
+        >
+          <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
+          <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
+          <span className="block h-[1.5px] w-4 rounded bg-gray-400" />
+        </button>
+      )}
+      <div className="shrink-0">
+        <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setIsCalendarOpen((prev) => !prev)}
+              aria-label="Select date"
+              className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-white"
             >
-              {formatTimeDisplay(selectedTime)}
-            </span>
-          </div>
+              <CalendarIcon className="h-3.5 w-3.5 text-gray-500" />
+              {formatDateDisplay(selectedDate)}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={
+                selectedDate
+                  ? new Date(`${selectedDate}T00:00:00`)
+                  : undefined
+              }
+              onSelect={handleCalendarSelect}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      <div className="relative flex min-w-0 flex-1 flex-col justify-center">
+        <div ref={topSliderRef} className="relative flex items-center">
+          <input
+            type="range"
+            min={0}
+            max={sliderOptions.length - 1}
+            step={1}
+            value={sliderIndex}
+            onChange={handleSliderChange}
+            aria-label="Time"
+            className="flex-1 accent-[#007AFF]"
+          />
+          <span
+            className="pointer-events-none absolute -top-5 whitespace-nowrap rounded-full bg-white px-1.5 py-0.5 text-[11px] font-semibold text-gray-700 shadow-sm"
+            style={{
+              left: `${calculateClampedTooltipPosition(
+                sliderPercentage,
+                topSliderRef,
+                70,
+                0
+              )}%`,
+              transform: "translateX(-50%)",
+            }}
+          >
+            {formatTimeDisplay(selectedTime)}
+          </span>
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2 overflow-hidden">
+      {endSlot ? (
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="min-w-0 flex-1">{dateTimeRow}</div>
+          <div className="shrink-0">{endSlot}</div>
+        </div>
+      ) : (
+        dateTimeRow
+      )}
 
       {!hideCheckInsList && (
         <div className="border-t border-gray-200 pt-2 flex-1 min-h-0 flex flex-col overflow-hidden">

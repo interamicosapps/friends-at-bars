@@ -5,7 +5,6 @@ import {
   getLocationTrackingEnabled,
   setLocationTrackingEnabled,
   getBackgroundLocationPreferred,
-  setBackgroundLocationPreferred,
   isNativePlatform,
 } from "@/lib/locationService";
 import { Button } from "@/components/ui/Button";
@@ -260,32 +259,9 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     },
   }), [isEnabled, isLoading]);
 
-  const handleBackgroundPreferredChange = async (value: boolean) => {
-    setBackgroundPreferred(value);
-    setBackgroundLocationPreferred(value);
-    if (value && isEnabled && isNativePlatform) {
-      const bgId = await locationService.startBackgroundWatcher(skipSupabase);
-      backgroundWatcherIdRef.current = bgId;
-    } else if (!value && backgroundWatcherIdRef.current) {
-      await locationService.stopBackgroundWatcher(backgroundWatcherIdRef.current);
-      backgroundWatcherIdRef.current = null;
-    }
-  };
-
   if (variant === "compact") {
     return (
       <div className="flex flex-col items-end gap-1">
-        {isNativePlatform && (
-          <label className="flex items-center gap-2 text-right text-xs text-gray-600">
-            <input
-              type="checkbox"
-              checked={backgroundPreferred}
-              onChange={(e) => handleBackgroundPreferredChange(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-gray-300"
-            />
-            <span>Track when app is in background</span>
-          </label>
-        )}
         <button
           type="button"
           onClick={handleToggle}
@@ -347,17 +323,6 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       </Button>
       {error && (
         <p className="text-sm text-red-600">{error}</p>
-      )}
-      {isNativePlatform && (
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={backgroundPreferred}
-            onChange={(e) => handleBackgroundPreferredChange(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300"
-          />
-          <span>Allow location when app is in background (Always)</span>
-        </label>
       )}
       {!hasPermission && !error && !isLoading && (
         <p className="text-xs text-gray-500">

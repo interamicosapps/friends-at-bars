@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
-import { Calendar as CalendarIcon, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 import CheckInOverlayContent from "@/components/CheckInOverlayContent";
 import { CheckIn, SupabaseCheckIn } from "@/types/checkin";
@@ -155,22 +155,6 @@ export default function Activities() {
     setSelectedTime(dynamicStartTime);
   };
 
-  const [hours, minutes] = selectedTime.split(":").map(Number);
-  let compactDate = selectedDate;
-  let displayHours = hours;
-  if (hours >= 24) {
-    const date = new Date(selectedDate + "T00:00:00");
-    date.setDate(date.getDate() + 1);
-    compactDate = format(date, "yyyy-MM-dd");
-    displayHours = hours % 24;
-  }
-  const compactDateTime = format(
-    new Date(
-      `${compactDate}T${displayHours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:00`
-    ),
-    "M/d h:mm a"
-  );
-
   return (
     <div
       className="relative flex h-full w-full flex-col bg-background"
@@ -178,13 +162,6 @@ export default function Activities() {
     >
       {/* Main content: list view (date header + ActiveCheckInsPanel) */}
       <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-3 py-2">
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
-            <CalendarIcon className="h-4 w-4 text-gray-500" />
-            {compactDateTime}
-          </div>
-          <div />
-        </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
           <ActiveCheckInsPanel
             checkIns={checkIns}
@@ -194,12 +171,24 @@ export default function Activities() {
             onSelectTime={setSelectedTime}
             timeOptions={nightlifeTimeOptions}
             dynamicStartTime={dynamicStartTime}
+            endSlot={
+              checkInOverlayOpen ? undefined : (
+                <button
+                  type="button"
+                  onClick={() => setCheckInOverlayOpen(true)}
+                  className="flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
+                >
+                  <Menu className="h-4 w-4 text-gray-500" />
+                  Check-In
+                </button>
+              )
+            }
           />
         </div>
       </div>
 
       {/* Collapsible Check-In overlay */}
-      {checkInOverlayOpen ? (
+      {checkInOverlayOpen && (
         <>
           <div
             className="fixed inset-0 z-30 bg-black/20"
@@ -224,15 +213,6 @@ export default function Activities() {
             />
           </div>
         </>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setCheckInOverlayOpen(true)}
-          className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
-        >
-          <Menu className="h-4 w-4 text-gray-500" />
-          Check-In
-        </button>
       )}
     </div>
   );

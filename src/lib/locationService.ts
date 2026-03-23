@@ -123,10 +123,12 @@ export function setLocationTrackingEnabled(enabled: boolean): void {
   localStorage.setItem(LOCATION_TRACKING_ENABLED_KEY, String(enabled));
 }
 
-/** User prefers "Always" / background location (native only). */
+/** User prefers "Always" / background location (native only). Defaults to true when unset. */
 export function getBackgroundLocationPreferred(): boolean {
-  if (typeof localStorage === "undefined") return false;
-  return localStorage.getItem(BACKGROUND_LOCATION_PREFERRED_KEY) === "true";
+  if (typeof localStorage === "undefined") return true;
+  const raw = localStorage.getItem(BACKGROUND_LOCATION_PREFERRED_KEY);
+  if (raw === null) return true;
+  return raw === "true";
 }
 
 export function setBackgroundLocationPreferred(preferred: boolean): void {

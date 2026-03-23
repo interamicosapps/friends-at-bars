@@ -1,20 +1,25 @@
-import { Link } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
-/** Map screen only: logo over the map, no top banner. */
-export default function MapFloatingLogo() {
+export interface MapFloatingLogoProps {
+  /** Defaults to matching the map date pill height (`h-10`). */
+  className?: string;
+}
+
+/** Map page only: decorative logo mark — square; size with `className` to match the date pill row. */
+export default function MapFloatingLogo({ className }: MapFloatingLogoProps) {
   return (
-    <Link
-      to="/"
-      className="pointer-events-auto fixed left-3 z-[60] flex h-3.5 w-3.5 items-center justify-center rounded-md bg-primary shadow-sm"
-      style={{ top: "calc(var(--safe-area-inset-top) + 8px)" }}
-      aria-label="Bar Fest home"
+    <div
+      className={cn(
+        "pointer-events-none flex aspect-square h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary shadow-sm",
+        className
+      )}
     >
       <img
         src="/brand/logo-mark.png"
         alt="Bar Fest"
         draggable={false}
-        className="h-3.5 w-3.5 object-contain"
+        className="h-8 w-8 object-contain"
       />
-    </Link>
+    </div>
   );
 }

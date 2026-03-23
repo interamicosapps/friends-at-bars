@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import wordLibrary from "@/data/wordLibrary.json";
 import { cn } from "@/lib/utils";
+import { useGameImmersive } from "@/contexts/GameImmersiveContext";
+import {
+  shellHeightImmersive,
+  shellHeightWithBottomNav,
+} from "@/constants/layoutHeights";
 
 type View = "homescreen" | "game" | "end";
 type Difficulty = "easy" | "hard";
@@ -49,8 +54,12 @@ function lerpRgb(
   };
 }
 
+/** Reserve for title, both timer bars, hints, counter, buttons, copyright (px-ish). */
+const GAME_GRID_CHROME_RESERVE = "240px";
+
 const SwitchSearch = () => {
   const navigate = useNavigate();
+  const { setImmersive } = useGameImmersive();
   const [view, setView] = useState<View>("homescreen");
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
   const [currentWords, setCurrentWords] = useState<string[]>([]);
@@ -907,13 +916,23 @@ const SwitchSearch = () => {
     };
   }, []);
 
+  // Hide bottom nav during active game / end screen; restore on homescreen / unmount
+  useEffect(() => {
+    const immersive = view === "game" || view === "end";
+    setImmersive(immersive);
+    return () => setImmersive(false);
+  }, [view, setImmersive]);
+
+  const homescreenShellHeight = shellHeightWithBottomNav();
+  const immersiveShellHeight = shellHeightImmersive();
+
   // Render homescreen - fits one screen, no scroll
   if (view === "homescreen") {
     return (
       <div
         className="flex h-full flex-col overflow-hidden px-4"
         style={{
-          height: "calc(100vh - 4rem)",
+          height: homescreenShellHeight,
           backgroundColor: theme.bg,
         }}
       >
@@ -994,8 +1013,11 @@ const SwitchSearch = () => {
     const wordCountMessage = totalFoundWords === 1 ? "word" : "words";
     return (
       <div
-        className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden px-4"
-        style={{ backgroundColor: theme.bg }}
+        className="flex flex-col overflow-hidden px-4"
+        style={{
+          height: immersiveShellHeight,
+          backgroundColor: theme.bg,
+        }}
       >
         <div className="flex flex-1 flex-col items-center justify-center">
           <div className="w-full max-w-2xl text-center">
@@ -1069,8 +1091,11 @@ const SwitchSearch = () => {
         }
       `}</style>
       <div
-        className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden px-4 py-1 md:py-2"
-        style={{ backgroundColor: theme.bg }}
+        className="flex flex-col overflow-hidden px-4 py-1 md:py-2"
+        style={{
+          height: immersiveShellHeight,
+          backgroundColor: theme.bg,
+        }}
       >
         <div className="flex min-h-0 w-full max-w-4xl flex-1 flex-col items-center gap-0.5 overflow-hidden py-1 md:gap-1 md:py-2">
           <div
@@ -1099,8 +1124,8 @@ const SwitchSearch = () => {
                   isTimeFrozen && "word-search-frost"
                 )}
                 style={{
-                  width: "min(90vw, calc(100vh - 4rem - 220px))",
-                  height: "min(90vw, calc(100vh - 4rem - 220px))",
+                  width: `min(90vw, calc(100dvh - 4rem - ${GAME_GRID_CHROME_RESERVE}))`,
+                  height: `min(90vw, calc(100dvh - 4rem - ${GAME_GRID_CHROME_RESERVE}))`,
                 }}
               >
               {grid.map((row) =>
