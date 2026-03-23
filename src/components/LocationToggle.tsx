@@ -35,9 +35,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
   const backgroundWatcherIdRef = useRef<string | null>(null);
   const isEnabledRef = useRef(isEnabled);
   const hasRestoredRef = useRef(false);
-  const [backgroundPreferred, setBackgroundPreferred] = useState(() =>
-    getBackgroundLocationPreferred()
-  );
+  const [backgroundPreferred] = useState(() => getBackgroundLocationPreferred());
 
   // Keep ref in sync with state and notify parent
   useEffect(() => {
