@@ -12,6 +12,7 @@ import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 
 const MapViewMapLibre = lazy(() => import("@/components/MapViewMapLibre"));
 const MapViewMapKit = lazy(() => import("@/components/MapViewMapKit"));
+const MapViewNativeIOS = lazy(() => import("@/components/MapViewNativeIOS"));
 
 export interface MapViewProps {
   checkIns: CheckIn[];
@@ -34,7 +35,8 @@ export interface MapViewProps {
 }
 
 /**
- * Shell: panels + platform map — MapLibre on Android only; MapKit JS on iOS + web.
+ * Shell: panels + platform map — MapLibre on Android; native MKMapView on Capacitor iOS;
+ * MapKit JS on web and iOS Safari (non-native).
  * Heat map mode is deprecated and has no effect.
  */
 export default function MapView({
@@ -96,6 +98,8 @@ export default function MapView({
 
   const platform = Capacitor.getPlatform();
   const useMapLibre = platform === "android";
+  const useNativeIosMap =
+    platform === "ios" && Capacitor.isNativePlatform();
 
   const mapProps = {
     checkIns,
@@ -163,6 +167,8 @@ export default function MapView({
         >
           {useMapLibre ? (
             <MapViewMapLibre {...mapProps} />
+          ) : useNativeIosMap ? (
+            <MapViewNativeIOS {...mapProps} />
           ) : (
             <MapViewMapKit {...mapProps} />
           )}

@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Navbar from "./Navbar";
 import BottomNav from "./BottomNav";
 import { useGameImmersive } from "@/contexts/GameImmersiveContext";
+import { shellHeightImmersive } from "@/constants/layoutHeights";
 
 export default function Layout() {
   const location = useLocation();
@@ -17,7 +18,7 @@ export default function Layout() {
   const fullHeightMain = isActivities || isMap || isSwitchSearch;
 
   const bottomNavPad = "calc(3.5rem + var(--safe-area-inset-bottom))";
-  const navbarHeight = "4rem";
+  const immersiveShell = shellHeightImmersive();
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -50,8 +51,8 @@ export default function Layout() {
                 }
               : isSwitchSearch && immersive
                 ? {
-                    height: `calc(100dvh - ${navbarHeight})`,
-                    maxHeight: `calc(100dvh - ${navbarHeight})`,
+                    height: immersiveShell,
+                    maxHeight: immersiveShell,
                   }
                 : undefined
           }

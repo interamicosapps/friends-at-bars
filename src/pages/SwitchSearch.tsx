@@ -54,9 +54,6 @@ function lerpRgb(
   };
 }
 
-/** Reserve for title, both timer bars, hints, counter, buttons, copyright (px-ish). */
-const GAME_GRID_CHROME_RESERVE = "240px";
-
 const SwitchSearch = () => {
   const navigate = useNavigate();
   const { setImmersive } = useGameImmersive();
@@ -1113,20 +1110,16 @@ const SwitchSearch = () => {
             />
           </div>
 
-          {/* Word Search Grid - as large as possible between bars, stays square (viewport-based to avoid layout collapse) */}
+          {/* Word Search Grid: size from flex slot between bars (square); avoids iOS vw/dvh vs flex gap */}
           {grid.length > 0 && (
-            <div className="flex min-h-0 flex-1 items-center justify-center">
+            <div className="flex min-h-0 w-full min-w-0 flex-1 items-center justify-center [container-type:size]">
               <div
                 ref={gridRef}
                 className={cn(
-                  "my-1 grid aspect-square shrink-0 gap-0.5 rounded-lg md:my-2 md:gap-1",
+                  "grid aspect-square h-[min(100cqw,100cqh)] w-[min(100cqw,100cqh)] max-h-full max-w-full shrink-0 gap-0.5 rounded-lg md:gap-1",
                   difficulty === "easy" ? "grid-cols-7" : "grid-cols-8",
                   isTimeFrozen && "word-search-frost"
                 )}
-                style={{
-                  width: `min(90vw, calc(100dvh - 4rem - ${GAME_GRID_CHROME_RESERVE}))`,
-                  height: `min(90vw, calc(100dvh - 4rem - ${GAME_GRID_CHROME_RESERVE}))`,
-                }}
               >
               {grid.map((row) =>
                 row.map((cell) => (

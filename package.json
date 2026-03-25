@@ -39,7 +39,8 @@
     "react-map-gl": "^8.1.0",
     "react-router-dom": "^7.9.4",
     "tailwind-merge": "^2.0.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "bar-fest-native-map": "file:./plugins/bar-fest-native-map"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
