@@ -200,15 +200,15 @@ export default function MapPage() {
             <button
               type="button"
               onClick={() => setOverlayExpanded(true)}
-              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-white/90 px-3 text-sm font-semibold text-gray-700 shadow-md backdrop-blur transition hover:bg-white"
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-black px-3 text-sm font-semibold text-white shadow-md transition hover:bg-neutral-900"
             >
-              <CalendarIcon className="h-4 w-4 shrink-0 text-gray-500" />
+              <CalendarIcon className="h-4 w-4 shrink-0 text-gray-200" />
               {compactDateTime}
             </button>
           )}
         </div>
         {overlayExpanded ? (
-          <div className="pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-white/60 bg-white/90 px-2 py-2 shadow-lg backdrop-blur sm:px-3 sm:py-3">
+          <div className="pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-white/20 bg-black px-2 py-2 shadow-lg sm:px-3 sm:py-3">
             <ActiveCheckInsPanel
               checkIns={checkIns}
               selectedDate={selectedDate}

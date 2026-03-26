@@ -1,5 +1,5 @@
 import { WebPlugin } from "@capacitor/core";
-import type { BarFestNativeMapPlugin, RegionPayload, VenuePayload } from "./definitions";
+import type { BarFestNativeMapPlugin, FramePayload, RegionPayload, VenuePayload } from "./definitions";
 
 export class BarFestNativeMapWeb extends WebPlugin implements BarFestNativeMapPlugin {
   async initialize(_options: RegionPayload): Promise<void> {
@@ -11,5 +11,6 @@ export class BarFestNativeMapWeb extends WebPlugin implements BarFestNativeMapPl
     lat: number | null;
     lon: number | null;
   }): Promise<void> {}
+  async setFrame(_options: FramePayload): Promise<void> {}
   async destroy(): Promise<void> {}
 }

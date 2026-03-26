@@ -17,10 +17,12 @@ export default function MapViewNativeIOS({
   onFirstInteraction,
   onMapReady,
 }: MapViewMapKitProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const mapReadyFired = useRef(false);
   const hasFiredFirstInteraction = useRef(false);
   const restoredRegionRef = useRef(false);
   const listenersRef = useRef<{ remove: () => Promise<void> }[]>([]);
+  const isNativeInitializedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
 
   const onMapReadyRef = useRef(onMapReady);
@@ -115,6 +117,20 @@ export default function MapViewNativeIOS({
     void (async () => {
       await BarFestNativeMap.initialize(region);
       if (cancelled) return;
+
+      // Match the native map's frame to the React map container so it moves with scrolling/layout.
+      const el = containerRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        await BarFestNativeMap.setFrame({
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        });
+      }
+      isNativeInitializedRef.current = true;
+
       await BarFestNativeMap.setVenues({ venues: venuePayload });
       if (cancelled) return;
 
@@ -180,6 +196,7 @@ export default function MapViewNativeIOS({
 
     return () => {
       cancelled = true;
+      isNativeInitializedRef.current = false;
       void Promise.all(
         listenersRef.current.map((l) => l.remove())
       ).catch(() => {});
@@ -187,6 +204,41 @@ export default function MapViewNativeIOS({
       void BarFestNativeMap.destroy();
       setMapReady(false);
       mapReadyFired.current = false;
+    };
+  }, []);
+
+  // Keep the native map sized/positioned to the map container (document scroll + resize).
+  useEffect(() => {
+    let rafId: number | null = null;
+
+    const syncFrame = () => {
+      if (!isNativeInitializedRef.current) return;
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      void BarFestNativeMap.setFrame({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+
+    const onScrollOrResize = () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        syncFrame();
+      });
+    };
+
+    window.addEventListener("scroll", onScrollOrResize, { passive: true });
+    window.addEventListener("resize", onScrollOrResize);
+
+    return () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
+      window.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
     };
   }, []);
 
@@ -225,7 +277,10 @@ export default function MapViewNativeIOS({
   }, [userLocation, mapReady]);
 
   return (
-    <div className="pointer-events-none relative h-full w-full min-h-[300px]">
+    <div
+      ref={containerRef}
+      className="pointer-events-none relative h-full w-full min-h-[300px]"
+    >
       {popupInfo && (
         <div className="pointer-events-auto absolute left-1/2 top-4 z-20 w-[90%] max-w-sm -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
           <button

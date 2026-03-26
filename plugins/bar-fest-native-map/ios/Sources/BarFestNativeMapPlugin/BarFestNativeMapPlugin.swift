@@ -12,6 +12,7 @@ public class BarFestNativeMapPlugin: CAPPlugin, CAPBridgedPlugin, MKMapViewDeleg
         .init(name: "setRegion", returnType: CAPPluginReturnPromise),
         .init(name: "setVenues", returnType: CAPPluginReturnPromise),
         .init(name: "setUserCoordinate", returnType: CAPPluginReturnPromise),
+        .init(name: "setFrame", returnType: CAPPluginReturnPromise),
         .init(name: "destroy", returnType: CAPPluginReturnPromise)
     ]
 
@@ -33,8 +34,9 @@ public class BarFestNativeMapPlugin: CAPPlugin, CAPBridgedPlugin, MKMapViewDeleg
             let spanLon = call.getDouble("spanLon") ?? 0.06
 
             if self.mapView == nil {
-                let mv = MKMapView(frame: vc.view.bounds)
-                mv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                // Start with zero size; TS will call `setFrame` to match the React map container.
+                let mv = MKMapView(frame: .zero)
+                mv.autoresizingMask = []
                 mv.delegate = self
                 mv.mapType = .standard
                 mv.isRotateEnabled = true
@@ -130,6 +132,29 @@ public class BarFestNativeMapPlugin: CAPPlugin, CAPBridgedPlugin, MKMapViewDeleg
                 mv.addAnnotation(ann)
                 self.userAnnotation = ann
             }
+            call.resolve()
+        }
+    }
+
+    @objc func setFrame(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let mv = self.mapView else {
+                call.reject("Map not initialized")
+                return
+            }
+
+            let left = call.getDouble("left") ?? 0
+            let top = call.getDouble("top") ?? 0
+            let width = call.getDouble("width") ?? 0
+            let height = call.getDouble("height") ?? 0
+
+            // Avoid collapsing the map due to transient empty rects.
+            guard width > 0, height > 0 else {
+                call.resolve()
+                return
+            }
+
+            mv.frame = CGRect(x: left, y: top, width: width, height: height)
             call.resolve()
         }
     }

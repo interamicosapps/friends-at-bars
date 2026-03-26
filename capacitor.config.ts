@@ -21,10 +21,10 @@ const config: CapacitorConfig = {
   },
   plugins: {
     StatusBar: {
-      style: 'dark',
-      backgroundColor: '#ffffff',
-      androidBackgroundColor: '#ffffff',
-      iosStyle: 'dark',
+      style: 'light',
+      backgroundColor: '#000000',
+      androidBackgroundColor: '#000000',
+      iosStyle: 'light',
     },
   },
 };

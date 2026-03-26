@@ -11,11 +11,19 @@ export interface VenuePayload {
   lon: number;
 }
 
+export interface FramePayload {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface BarFestNativeMapPlugin {
   initialize(options: RegionPayload): Promise<void>;
   setRegion(options: RegionPayload): Promise<void>;
   setVenues(options: { venues: VenuePayload[] }): Promise<void>;
   setUserCoordinate(options: { lat: number | null; lon: number | null }): Promise<void>;
+  setFrame(options: FramePayload): Promise<void>;
   destroy(): Promise<void>;
   addListener(
     eventName: "venueTap" | "regionChanged",
