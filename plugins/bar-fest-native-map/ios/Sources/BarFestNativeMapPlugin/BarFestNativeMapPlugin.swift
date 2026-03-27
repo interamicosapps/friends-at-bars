@@ -13,6 +13,7 @@ public class BarFestNativeMapPlugin: CAPPlugin, CAPBridgedPlugin, MKMapViewDeleg
         .init(name: "setVenues", returnType: CAPPluginReturnPromise),
         .init(name: "setUserCoordinate", returnType: CAPPluginReturnPromise),
         .init(name: "setFrame", returnType: CAPPluginReturnPromise),
+        .init(name: "getDebugState", returnType: CAPPluginReturnPromise),
         .init(name: "destroy", returnType: CAPPluginReturnPromise)
     ]
 
@@ -156,6 +157,37 @@ public class BarFestNativeMapPlugin: CAPPlugin, CAPBridgedPlugin, MKMapViewDeleg
 
             mv.frame = CGRect(x: left, y: top, width: width, height: height)
             call.resolve()
+        }
+    }
+
+    @objc func getDebugState(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard let vc = self.bridge?.viewController else {
+                call.reject("No view controller")
+                return
+            }
+
+            let mapFrame = self.mapView?.frame ?? .zero
+            let webView = self.bridge?.webView
+            let webFrame = webView?.frame ?? .zero
+            let webOffset = webView?.scrollView.contentOffset ?? .zero
+            let rootBounds = vc.view.bounds
+
+            call.resolve([
+                "mapFrameX": mapFrame.origin.x,
+                "mapFrameY": mapFrame.origin.y,
+                "mapFrameWidth": mapFrame.size.width,
+                "mapFrameHeight": mapFrame.size.height,
+                "webViewFrameX": webFrame.origin.x,
+                "webViewFrameY": webFrame.origin.y,
+                "webViewFrameWidth": webFrame.size.width,
+                "webViewFrameHeight": webFrame.size.height,
+                "webViewOffsetX": webOffset.x,
+                "webViewOffsetY": webOffset.y,
+                "rootViewWidth": rootBounds.size.width,
+                "rootViewHeight": rootBounds.size.height
+            ])
         }
     }
 

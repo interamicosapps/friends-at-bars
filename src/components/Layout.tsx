@@ -1,4 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import Navbar from "./Navbar";
 import BottomNav from "./BottomNav";
 import { useGameImmersive } from "@/contexts/GameImmersiveContext";
@@ -12,6 +13,8 @@ export default function Layout() {
   const isMap = pathname === "/map";
   const isGames = pathname === "/games" || pathname.startsWith("/games/");
   const isSwitchSearch = pathname.includes("switch-search");
+  const isNativeIos =
+    Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
   /** Hide bottom bar during Switch Search gameplay / end screen (immersive). */
   const showBottomNav =
     isActivities || isMap || (isGames && !(isSwitchSearch && immersive));
@@ -22,6 +25,14 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      {/* Keep only the iOS status/safe-area strip dark; app header remains white. */}
+      {isNativeIos && (
+        <div
+          className="pointer-events-none fixed inset-x-0 top-0 z-[80] bg-black"
+          style={{ height: "var(--safe-area-inset-top)" }}
+          aria-hidden
+        />
+      )}
       {!isMap && <Navbar />}
       <main
         className={

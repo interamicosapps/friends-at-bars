@@ -17,13 +17,34 @@ export default function MapViewNativeIOS({
   onFirstInteraction,
   onMapReady,
 }: MapViewMapKitProps) {
+  const mapDebugEnabled =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("mapDebug") === "1";
   const containerRef = useRef<HTMLDivElement>(null);
   const mapReadyFired = useRef(false);
   const hasFiredFirstInteraction = useRef(false);
   const restoredRegionRef = useRef(false);
   const listenersRef = useRef<{ remove: () => Promise<void> }[]>([]);
   const isNativeInitializedRef = useRef(false);
+  const syncCountRef = useRef(0);
   const [mapReady, setMapReady] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{
+    syncCount: number;
+    scrollY: number;
+    containerRect: { left: number; top: number; width: number; height: number } | null;
+    sentFrame: { left: number; top: number; width: number; height: number } | null;
+    nativeState: Awaited<ReturnType<typeof BarFestNativeMap.getDebugState>> | null;
+    lastSyncMs: number | null;
+    lastError: string | null;
+  }>({
+    syncCount: 0,
+    scrollY: 0,
+    containerRect: null,
+    sentFrame: null,
+    nativeState: null,
+    lastSyncMs: null,
+    lastError: null,
+  });
 
   const onMapReadyRef = useRef(onMapReady);
   const onFirstInteractionRef = useRef(onFirstInteraction);
@@ -122,12 +143,24 @@ export default function MapViewNativeIOS({
       const el = containerRef.current;
       if (el) {
         const rect = el.getBoundingClientRect();
-        await BarFestNativeMap.setFrame({
+        const frame = {
           left: rect.left,
           top: rect.top,
           width: rect.width,
           height: rect.height,
-        });
+        };
+        await BarFestNativeMap.setFrame(frame);
+        if (mapDebugEnabled) {
+          syncCountRef.current += 1;
+          setDebugInfo((prev) => ({
+            ...prev,
+            syncCount: syncCountRef.current,
+            scrollY: window.scrollY,
+            containerRect: frame,
+            sentFrame: frame,
+            lastSyncMs: Date.now(),
+          }));
+        }
       }
       isNativeInitializedRef.current = true;
 
@@ -217,12 +250,33 @@ export default function MapViewNativeIOS({
       if (!el) return;
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      void BarFestNativeMap.setFrame({
+      const frame = {
         left: rect.left,
         top: rect.top,
         width: rect.width,
         height: rect.height,
-      });
+      };
+      void BarFestNativeMap.setFrame(frame)
+        .then(() => {
+          if (!mapDebugEnabled) return;
+          syncCountRef.current += 1;
+          setDebugInfo((prev) => ({
+            ...prev,
+            syncCount: syncCountRef.current,
+            scrollY: window.scrollY,
+            containerRect: frame,
+            sentFrame: frame,
+            lastSyncMs: Date.now(),
+            lastError: null,
+          }));
+        })
+        .catch((e) => {
+          if (!mapDebugEnabled) return;
+          setDebugInfo((prev) => ({
+            ...prev,
+            lastError: e instanceof Error ? e.message : "setFrame failed",
+          }));
+        });
     };
 
     const onScrollOrResize = () => {
@@ -241,6 +295,39 @@ export default function MapViewNativeIOS({
       window.removeEventListener("resize", onScrollOrResize);
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapDebugEnabled) return;
+    if (!isNativeInitializedRef.current) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const state = await BarFestNativeMap.getDebugState();
+        if (cancelled) return;
+        setDebugInfo((prev) => ({
+          ...prev,
+          nativeState: state,
+          lastError: null,
+        }));
+      } catch (e) {
+        if (cancelled) return;
+        setDebugInfo((prev) => ({
+          ...prev,
+          lastError: e instanceof Error ? e.message : "getDebugState failed",
+        }));
+      }
+    };
+
+    void poll();
+    const id = window.setInterval(() => {
+      void poll();
+    }, 700);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [mapDebugEnabled, mapReady]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -329,6 +416,14 @@ export default function MapViewNativeIOS({
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {mapDebugEnabled && (
+        <div className="pointer-events-auto absolute bottom-4 left-2 right-2 z-30 rounded-md bg-black/75 p-2 text-[10px] leading-tight text-white">
+          <pre className="whitespace-pre-wrap">
+            {JSON.stringify(debugInfo, null, 2)}
+          </pre>
         </div>
       )}
     </div>
