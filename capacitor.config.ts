@@ -5,6 +5,8 @@ const config: CapacitorConfig = {
   appName: 'Bar Fest',
   webDir: 'dist',
   server: {
+    /** Load WebView from Vercel so JS origin matches MapKit JS domain + OTA web updates. Comment out for offline/local-bundle testing. */
+    url: 'https://friends-at-bars-two.vercel.app',
     androidScheme: 'https',
     iosScheme: 'https'
   },
