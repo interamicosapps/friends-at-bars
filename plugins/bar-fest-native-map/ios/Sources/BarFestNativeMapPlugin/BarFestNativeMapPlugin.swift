@@ -155,7 +155,23 @@ public class BarFestNativeMapPlugin: CAPPlugin, CAPBridgedPlugin, MKMapViewDeleg
                 return
             }
 
-            mv.frame = CGRect(x: left, y: top, width: width, height: height)
+            // JS sends viewport-relative CSS/DOM rect (getBoundingClientRect). Map that into
+            // vc.view coordinates: viewport origin in scroll content space is contentOffset.
+            guard let wv = self.bridge?.webView, let vc = self.bridge?.viewController else {
+                mv.frame = CGRect(x: left, y: top, width: width, height: height)
+                call.resolve()
+                return
+            }
+            let sv = wv.scrollView
+            let offset = sv.contentOffset
+            let contentRect = CGRect(
+                x: offset.x + CGFloat(left),
+                y: offset.y + CGFloat(top),
+                width: CGFloat(width),
+                height: CGFloat(height)
+            )
+            let mapped = sv.convert(contentRect, to: vc.view)
+            mv.frame = mapped
             call.resolve()
         }
     }

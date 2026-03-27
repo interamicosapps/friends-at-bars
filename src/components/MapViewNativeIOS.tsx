@@ -240,9 +240,11 @@ export default function MapViewNativeIOS({
     };
   }, []);
 
-  // Keep the native map sized/positioned to the map container (document scroll + resize).
+  // Keep the native map sized/positioned to the map container (scroll, resize, layout, rotation).
   useEffect(() => {
     let rafId: number | null = null;
+    const stableTimers: number[] = [];
+    let cancelled = false;
 
     const syncFrame = () => {
       if (!isNativeInitializedRef.current) return;
@@ -286,15 +288,53 @@ export default function MapViewNativeIOS({
       });
     };
 
+    /** Re-sync after rotation / safe-area / layout settle (multiple passes). */
+    const onOrientationOrStable = () => {
+      onScrollOrResize();
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        onScrollOrResize();
+        const t1 = window.setTimeout(() => {
+          if (!cancelled) onScrollOrResize();
+        }, 100);
+        const t2 = window.setTimeout(() => {
+          if (!cancelled) onScrollOrResize();
+        }, 300);
+        stableTimers.push(t1, t2);
+      });
+    };
+
     window.addEventListener("scroll", onScrollOrResize, { passive: true });
     window.addEventListener("resize", onScrollOrResize);
+    window.addEventListener("orientationchange", onOrientationOrStable);
+
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (vv) {
+      vv.addEventListener("resize", onScrollOrResize);
+      vv.addEventListener("scroll", onScrollOrResize);
+    }
+
+    const el = containerRef.current;
+    let resizeObserver: ResizeObserver | null = null;
+    if (el && typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => onScrollOrResize());
+      resizeObserver.observe(el);
+    }
 
     return () => {
+      cancelled = true;
       if (rafId != null) cancelAnimationFrame(rafId);
+      stableTimers.forEach((id) => window.clearTimeout(id));
       window.removeEventListener("scroll", onScrollOrResize);
       window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("orientationchange", onOrientationOrStable);
+      if (vv) {
+        vv.removeEventListener("resize", onScrollOrResize);
+        vv.removeEventListener("scroll", onScrollOrResize);
+      }
+      resizeObserver?.disconnect();
     };
-  }, []);
+  }, [mapDebugEnabled]);
 
   useEffect(() => {
     if (!mapDebugEnabled) return;
