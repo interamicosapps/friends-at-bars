@@ -71,10 +71,18 @@ export const OHIO_STATE_VENUES: Venue[] = [
     area: "Short North",
     coordinates: [39.98065, -83.00397],
   }, // 39°58'50"N 83°00'14"W
+
+  // Test Locations
+  {
+    name: "Test Location 1",
+    area: "Test Locations",
+    coordinates: [39.98385, -83.006739], // 39°59'01.86"N 83°00'24.26"W (Google Earth)
+  },
 ];
 
 export const CAMPUS_AREAS = [
   "North Campus",
   "South Campus",
   "Short North",
+  "Test Locations",
 ] as const;

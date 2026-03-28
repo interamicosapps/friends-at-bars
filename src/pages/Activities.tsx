@@ -4,24 +4,21 @@ import { useSearchParams } from "react-router-dom";
 import { Menu } from "lucide-react";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 import CheckInOverlayContent from "@/components/CheckInOverlayContent";
-import { CheckIn, SupabaseCheckIn } from "@/types/checkin";
+import { CheckIn } from "@/types/checkin";
 import {
-  extractTimeFromTimestamp,
-  DEFAULT_START_TIME,
-  normalizeDateTime,
   generateNightlifeTimeOptions,
   getDynamicStartTime,
-  calculateTimeDifference,
-  calculateEndDateTime,
 } from "@/lib/timeUtils";
-import { checkInService } from "@/lib/supabaseClient";
-import { OHIO_STATE_VENUES } from "@/data/venues";
+import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
+import { useTestMode } from "@/contexts/TestModeContext";
 
 const CHECKIN_OVERLAY_KEY = "activities_checkin_overlay_collapsed";
 
 function getCheckInOverlayCollapsed(): boolean {
   if (typeof sessionStorage === "undefined") return true;
-  return sessionStorage.getItem(CHECKIN_OVERLAY_KEY) === "1";
+  const v = sessionStorage.getItem(CHECKIN_OVERLAY_KEY);
+  if (v === null) return true; // default: overlay closed on first visit
+  return v === "1";
 }
 
 function setCheckInOverlayCollapsed(collapsed: boolean) {
@@ -30,6 +27,7 @@ function setCheckInOverlayCollapsed(collapsed: boolean) {
 }
 
 export default function Activities() {
+  const { useMockCheckIns } = useTestMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(() =>
@@ -62,85 +60,16 @@ export default function Activities() {
 
   const loadCheckIns = async () => {
     try {
-      const supabaseData = await checkInService.fetchCheckIns();
-      const convertedCheckIns: CheckIn[] = supabaseData.map(
-        (supabaseCheckIn: SupabaseCheckIn) => {
-          const startFallbackTime =
-            extractTimeFromTimestamp(
-              supabaseCheckIn.start_time ?? supabaseCheckIn.created_at
-            ) || DEFAULT_START_TIME;
-          const normalizedStart = normalizeDateTime({
-            raw: supabaseCheckIn.start_time,
-            date: supabaseCheckIn.date,
-            fallbackTime: startFallbackTime,
-          });
-          const normalizedEnd = normalizeDateTime({
-            raw: supabaseCheckIn.end_time,
-            date: normalizedStart.date,
-            fallbackTime: normalizedStart.time,
-          });
-          let startDateTime = normalizedStart.iso;
-          let startTime = normalizedStart.time;
-          let eventDate = normalizedStart.date;
-          let endDateTime = normalizedEnd.iso;
-          let endTime = normalizedEnd.time;
-          let durationMinutes = Math.round(
-            (new Date(endDateTime).getTime() -
-              new Date(startDateTime).getTime()) /
-              60000
-          );
-          if (
-            !supabaseCheckIn.end_time ||
-            !Number.isFinite(durationMinutes) ||
-            durationMinutes <= 0
-          ) {
-            const fallbackDuration = calculateTimeDifference(
-              startTime,
-              endTime
-            );
-            const duration =
-              fallbackDuration > 0 ? fallbackDuration : 60;
-            const computed = calculateEndDateTime(
-              eventDate,
-              startTime,
-              duration
-            );
-            endTime = computed.endTime;
-            endDateTime = computed.endDateTime;
-            durationMinutes = duration;
-          }
-          const venue = OHIO_STATE_VENUES.find(
-            (v) => v.name === supabaseCheckIn.venue
-          );
-          return {
-            id: supabaseCheckIn.id,
-            venue: supabaseCheckIn.venue,
-            venueArea: venue?.area,
-            date: eventDate,
-            startTime,
-            durationMinutes,
-            endTime,
-            startDateTime,
-            endDateTime,
-            timestamp: new Date(supabaseCheckIn.created_at),
-          };
-        }
-      );
-      setCheckIns(
-        convertedCheckIns.sort(
-          (a, b) =>
-            new Date(a.startDateTime).getTime() -
-            new Date(b.startDateTime).getTime()
-        )
-      );
+      const convertedCheckIns = await fetchCheckInsForDisplay(useMockCheckIns);
+      setCheckIns(convertedCheckIns);
     } catch (error) {
-      console.error("Error loading check-ins from Supabase:", error);
+      console.error("Error loading check-ins:", error);
     }
   };
 
   useEffect(() => {
     loadCheckIns();
-  }, []);
+  }, [useMockCheckIns]);
 
   // Open Check-In overlay when navigating with ?open=checkin
   useEffect(() => {

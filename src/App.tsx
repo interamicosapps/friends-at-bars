@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import { GameImmersiveProvider } from "./contexts/GameImmersiveContext";
+import { TestModeProvider } from "./contexts/TestModeContext";
 
 const Activities = lazy(() => import("./pages/Activities"));
 const MapPage = lazy(() => import("./pages/MapPage"));
@@ -23,61 +24,64 @@ const LoadingFallback = () => (
 function App() {
   return (
     <GameImmersiveProvider>
-      <Router>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route
-              index
-              element={
-                <Suspense fallback={<LoadingFallback />}>
-                  <Activities />
-                </Suspense>
-              }
-            />
-            <Route path="check-in" element={<Navigate to="/?open=checkin" replace />} />
-            <Route
-              path="map"
-              element={
-                <Suspense fallback={<LoadingFallback />}>
-                  <MapPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="test"
-              element={
-                <Suspense fallback={<LoadingFallback />}>
-                  <Test />
-                </Suspense>
-              }
-            />
-            <Route
-              path="games"
-              element={
-                <Suspense fallback={<LoadingFallback />}>
-                  <Games />
-                </Suspense>
-              }
-            />
-            <Route
-              path="games/switch-search"
-              element={
-                <Suspense fallback={<LoadingFallback />}>
-                  <SwitchSearch />
-                </Suspense>
-              }
-            />
-            <Route
-              path="*"
-              element={
-                <Suspense fallback={<LoadingFallback />}>
-                  <NotFound />
-                </Suspense>
-              }
-            />
-          </Route>
-        </Routes>
-      </Router>
+      {/* Remove <TestModeProvider> wrapper to fully strip dev test mode from the tree. */}
+      <TestModeProvider>
+        <Router>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              <Route
+                index
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <Activities />
+                  </Suspense>
+                }
+              />
+              <Route path="check-in" element={<Navigate to="/?open=checkin" replace />} />
+              <Route
+                path="map"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <MapPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="test"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <Test />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="games"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <Games />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="games/switch-search"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <SwitchSearch />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="*"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <NotFound />
+                  </Suspense>
+                }
+              />
+            </Route>
+          </Routes>
+        </Router>
+      </TestModeProvider>
     </GameImmersiveProvider>
   );
 }

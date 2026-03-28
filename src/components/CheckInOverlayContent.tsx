@@ -15,6 +15,8 @@ import {
   adjustCheckInTimes,
 } from "@/lib/conflictUtils";
 import { checkInService } from "@/lib/supabaseClient";
+import { testDataService } from "@/lib/testDataService";
+import { useTestMode } from "@/contexts/TestModeContext";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import {
   addUserCheckInId,
@@ -33,6 +35,8 @@ export default function CheckInOverlayContent({
   onCheckInsUpdated,
   onClose,
 }: CheckInOverlayContentProps) {
+  const { useMockCheckIns } = useTestMode();
+  const checkInApi = useMockCheckIns ? testDataService : checkInService;
   const [userCheckIns, setUserCheckIns] = useState<CheckIn[]>([]);
   const [pendingCheckIn, setPendingCheckIn] = useState<CheckIn | null>(null);
   const [conflictingCheckIns, setConflictingCheckIns] = useState<CheckIn[]>([]);
@@ -79,7 +83,7 @@ export default function CheckInOverlayContent({
     checkIn: CheckIn,
     adjustedCheckIns: CheckIn[] = []
   ) => {
-    const result = await checkInService.insertCheckIn({
+    const result = await checkInApi.insertCheckIn({
       venue: checkIn.venue,
       start_time: checkIn.startDateTime,
       end_time: checkIn.endDateTime,
@@ -111,7 +115,7 @@ export default function CheckInOverlayContent({
 
     if (normalizedAdjusted.length > 0) {
       try {
-        await checkInService.updateMultipleCheckIns(
+        await checkInApi.updateMultipleCheckIns(
           normalizedAdjusted.map((item) => ({
             id: item.id,
             start_time: item.startDateTime,
@@ -199,7 +203,7 @@ export default function CheckInOverlayContent({
 
   const handleDeleteCheckIn = async (id: string) => {
     try {
-      await checkInService.deleteCheckIn(id);
+      await checkInApi.deleteCheckIn(id);
       removeUserCheckInId(id);
       onCheckInsUpdated();
     } catch (error) {

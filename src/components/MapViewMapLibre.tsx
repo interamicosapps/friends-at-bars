@@ -40,8 +40,6 @@ export default function MapViewMapLibre({
     latitude: 39.9917,
     zoom: 14,
   });
-  const previousSelectedDate = useRef<string | null>(null);
-  const previousSelectedTime = useRef<string | null>(null);
 
   const activeCheckIns = useMemo(
     () =>
@@ -61,52 +59,11 @@ export default function MapViewMapLibre({
     return () => subscription.unsubscribe();
   }, []);
 
-  const venueWithMostCheckIns = useMemo(() => {
-    if (activeCheckIns.length === 0) return null;
-    const venueCounts: Record<string, number> = {};
-    activeCheckIns.forEach((checkIn) => {
-      venueCounts[checkIn.venue] = (venueCounts[checkIn.venue] || 0) + 1;
-    });
-    const maxCount = Math.max(...Object.values(venueCounts));
-    const topVenues = OHIO_STATE_VENUES.filter(
-      (venue) => venueCounts[venue.name] === maxCount
-    );
-    if (topVenues.length > 0) {
-      const randomIndex = Math.floor(Math.random() * topVenues.length);
-      return topVenues[randomIndex];
-    }
-    return null;
-  }, [activeCheckIns]);
-
-  useEffect(() => {
-    const dateChanged = previousSelectedDate.current !== selectedDate;
-    const timeChanged = previousSelectedTime.current !== selectedTime;
-    if (dateChanged || timeChanged) {
-      if (venueWithMostCheckIns) {
-        setViewState({
-          longitude: venueWithMostCheckIns.coordinates[1],
-          latitude: venueWithMostCheckIns.coordinates[0],
-          zoom: 14,
-        });
-      } else {
-        setViewState({
-          longitude: -83.0067,
-          latitude: 39.9917,
-          zoom: 14,
-        });
-      }
-      previousSelectedDate.current = selectedDate;
-      previousSelectedTime.current = selectedTime;
-    }
-  }, [venueWithMostCheckIns, selectedDate, selectedTime]);
-
   useEffect(() => {
     if (!popupInfo) return;
     const updatedActivity = getVenueActivity(popupInfo.venue.name);
     setPopupInfo((prev) =>
-      prev
-        ? { ...prev, checkIns: updatedActivity }
-        : null
+      prev ? { ...prev, checkIns: updatedActivity } : null
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCheckIns, liveCounts]);
@@ -185,7 +142,7 @@ export default function MapViewMapLibre({
         const markerElement = createMarkerElement();
         return (
           <Marker
-            key={`${venue.name}-${selectedDate}-${selectedTime}`}
+            key={venue.name}
             longitude={venue.coordinates[1]}
             latitude={venue.coordinates[0]}
             onClick={() => handleMarkerClick(venue)}
@@ -225,7 +182,7 @@ export default function MapViewMapLibre({
           latitude={popupInfo.venue.coordinates[0]}
           onClose={() => setPopupInfo(null)}
           closeButton
-          closeOnClick={false}
+          closeOnClick
           className="custom-popup"
         >
           <div className="min-w-[240px] p-5">
@@ -249,8 +206,7 @@ export default function MapViewMapLibre({
               return (
                 <div className="space-y-1">
                   <p className="text-sm font-bold text-gray-800">
-                    {totalCount}{" "}
-                    {totalCount === 1 ? "person" : "people"} total
+                    {totalCount} {totalCount === 1 ? "person" : "people"} total
                   </p>
                   <div className="space-y-0.5 text-xs text-gray-600">
                     {checkInCount > 0 && (

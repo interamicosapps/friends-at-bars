@@ -5,92 +5,20 @@ import MapView from "@/components/MapView";
 import MapFloatingLogo from "@/components/MapFloatingLogo";
 import LocationToggle, { type LocationToggleRef } from "@/components/LocationToggle";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
-import { CheckIn, SupabaseCheckIn } from "@/types/checkin";
+import { CheckIn } from "@/types/checkin";
 import {
-  extractTimeFromTimestamp,
-  DEFAULT_START_TIME,
-  normalizeDateTime,
   generateNightlifeTimeOptions,
   getDynamicStartTime,
-  calculateTimeDifference,
-  calculateEndDateTime,
 } from "@/lib/timeUtils";
-import { checkInService } from "@/lib/supabaseClient";
-import { OHIO_STATE_VENUES } from "@/data/venues";
+import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
+import { useTestMode } from "@/contexts/TestModeContext";
 import { locationService, getLocationTrackingEnabled } from "@/lib/locationService";
 import { cn } from "@/lib/utils";
 
 const MAP_LOCATION_PROMPT_DISMISSED = "map_location_prompt_dismissed";
 
-function loadCheckInsFromSupabase(): Promise<CheckIn[]> {
-  return checkInService.fetchCheckIns().then((supabaseData) => {
-    return supabaseData
-      .map((supabaseCheckIn: SupabaseCheckIn) => {
-        const startFallbackTime =
-          extractTimeFromTimestamp(
-            supabaseCheckIn.start_time ?? supabaseCheckIn.created_at
-          ) || DEFAULT_START_TIME;
-        const normalizedStart = normalizeDateTime({
-          raw: supabaseCheckIn.start_time,
-          date: supabaseCheckIn.date,
-          fallbackTime: startFallbackTime,
-        });
-        const normalizedEnd = normalizeDateTime({
-          raw: supabaseCheckIn.end_time,
-          date: normalizedStart.date,
-          fallbackTime: normalizedStart.time,
-        });
-        let startDateTime = normalizedStart.iso;
-        let startTime = normalizedStart.time;
-        let eventDate = normalizedStart.date;
-        let endDateTime = normalizedEnd.iso;
-        let endTime = normalizedEnd.time;
-        let durationMinutes = Math.round(
-          (new Date(endDateTime).getTime() -
-            new Date(startDateTime).getTime()) /
-            60000
-        );
-        if (
-          !supabaseCheckIn.end_time ||
-          !Number.isFinite(durationMinutes) ||
-          durationMinutes <= 0
-        ) {
-          const fallbackDuration = calculateTimeDifference(startTime, endTime);
-          const duration = fallbackDuration > 0 ? fallbackDuration : 60;
-          const computed = calculateEndDateTime(
-            eventDate,
-            startTime,
-            duration
-          );
-          endTime = computed.endTime;
-          endDateTime = computed.endDateTime;
-          durationMinutes = duration;
-        }
-        const venue = OHIO_STATE_VENUES.find(
-          (v) => v.name === supabaseCheckIn.venue
-        );
-        return {
-          id: supabaseCheckIn.id,
-          venue: supabaseCheckIn.venue,
-          venueArea: venue?.area,
-          date: eventDate,
-          startTime,
-          durationMinutes,
-          endTime,
-          startDateTime,
-          endDateTime,
-          timestamp: new Date(supabaseCheckIn.created_at),
-        };
-      })
-      .sort(
-        (a, b) =>
-          new Date(a.startDateTime).getTime() -
-          new Date(b.startDateTime).getTime()
-      );
-  });
-}
-
 export default function MapPage() {
+  const { useMockCheckIns } = useTestMode();
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(() =>
     format(new Date(), "yyyy-MM-dd")
@@ -116,8 +44,8 @@ export default function MapPage() {
   });
 
   useEffect(() => {
-    loadCheckInsFromSupabase().then(setCheckIns);
-  }, []);
+    fetchCheckInsForDisplay(useMockCheckIns).then(setCheckIns);
+  }, [useMockCheckIns]);
 
   // Map-only location prompt: show when on map and location not enabled and not dismissed this session
   useEffect(() => {

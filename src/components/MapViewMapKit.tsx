@@ -30,12 +30,11 @@ export default function MapViewMapKit({
   const mapReadyFired = useRef(false);
   const hasFiredFirstInteraction = useRef(false);
   const userLocationAnnotationRef = useRef<mapkit.Annotation | null>(null);
-  const restoredRegionRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
 
   const onMapReadyRef = useRef(onMapReady);
   const onFirstInteractionRef = useRef(onFirstInteraction);
-  const getVenueActivityRef = useRef<((name: string) => CheckIn[])>(() => []);
+  const getVenueActivityRef = useRef<(name: string) => CheckIn[]>(() => []);
   onMapReadyRef.current = onMapReady;
   onFirstInteractionRef.current = onFirstInteraction;
 
@@ -80,6 +79,15 @@ export default function MapViewMapKit({
     );
   }, [activeCheckIns, liveCounts, getVenueActivity]);
 
+  useEffect(() => {
+    if (!popupInfo) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPopupInfo(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [popupInfo]);
+
   // Init map once (no dependency on callbacks so map never reloads on parent re-render)
   useEffect(() => {
     const el = containerRef.current;
@@ -100,7 +108,6 @@ export default function MapViewMapKit({
             new mapkit.Coordinate(parsed.centerLat, parsed.centerLon),
             new mapkit.CoordinateSpan(parsed.spanLat, parsed.spanLon)
           );
-          restoredRegionRef.current = true;
         }
       } catch {
         // ignore
@@ -123,7 +130,10 @@ export default function MapViewMapKit({
         const openVenuePopup = (venueName: string) => {
           const venue = OHIO_STATE_VENUES.find((v) => v.name === venueName);
           if (!venue) return;
-          if (!hasFiredFirstInteraction.current && onFirstInteractionRef.current) {
+          if (
+            !hasFiredFirstInteraction.current &&
+            onFirstInteractionRef.current
+          ) {
             hasFiredFirstInteraction.current = true;
             onFirstInteractionRef.current();
           }
@@ -139,15 +149,12 @@ export default function MapViewMapKit({
             venue.coordinates[0],
             venue.coordinates[1]
           );
-          const m = new mapkit.MarkerAnnotation(
-            c,
-            {
-              title: "",
-              subtitle: "",
-              color: "#3B82F6", // blue venue markers
-              glyphText: "",
-            } as any
-          );
+          const m = new mapkit.MarkerAnnotation(c, {
+            title: "",
+            subtitle: "",
+            color: "#3B82F6", // blue venue markers
+            glyphText: "",
+          } as any);
           (m as unknown as { data?: { venueName?: string } }).data = {
             venueName: venue.name,
           };
@@ -162,17 +169,23 @@ export default function MapViewMapKit({
 
         // Fallback: map-level selection if supported
         const mapAny = map as mapkit.Map & {
-          addEventListener?: (type: string, fn: (e: { annotation: mapkit.Annotation }) => void) => void;
+          addEventListener?: (
+            type: string,
+            fn: (e: { annotation: mapkit.Annotation }) => void
+          ) => void;
         };
         if (typeof mapAny.addEventListener === "function") {
-          mapAny.addEventListener("select", (e: { annotation: mapkit.Annotation }) => {
-            const ann = e.annotation as mapkit.Annotation & {
-              data?: { venueName?: string };
-            };
-            const fromData = ann.data?.venueName;
-            const venueName = fromData || ann.subtitle || ann.title;
-            if (venueName) openVenuePopup(venueName);
-          });
+          mapAny.addEventListener(
+            "select",
+            (e: { annotation: mapkit.Annotation }) => {
+              const ann = e.annotation as mapkit.Annotation & {
+                data?: { venueName?: string };
+              };
+              const fromData = ann.data?.venueName;
+              const venueName = fromData || ann.subtitle || ann.title;
+              if (venueName) openVenuePopup(venueName);
+            }
+          );
         }
         // MapKit has no single onLoad; after annotations + next frame, treat as ready.
         if (onMapReadyRef.current && !mapReadyFired.current) {
@@ -184,9 +197,7 @@ export default function MapViewMapKit({
         setMapReady(true);
       })
       .catch((e) => {
-        setError(
-          e instanceof Error ? e.message : "MapKit JS failed to load"
-        );
+        setError(e instanceof Error ? e.message : "MapKit JS failed to load");
       });
 
     return () => {
@@ -198,7 +209,10 @@ export default function MapViewMapKit({
           const r = map.region as any;
           if (r && r.center && r.span) {
             const center = r.center as { latitude: number; longitude: number };
-            const span = r.span as { latitudeDelta: number; longitudeDelta: number };
+            const span = r.span as {
+              latitudeDelta: number;
+              longitudeDelta: number;
+            };
             sessionStorage.setItem(
               MAP_REGION_KEY,
               JSON.stringify({
@@ -223,32 +237,6 @@ export default function MapViewMapKit({
     };
   }, []);
 
-  // Center map when date/time changes (skip once if we restored saved region)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || activeCheckIns.length === 0) return;
-    if (restoredRegionRef.current) {
-      restoredRegionRef.current = false;
-      return;
-    }
-    const venueCounts: Record<string, number> = {};
-    activeCheckIns.forEach((checkIn) => {
-      venueCounts[checkIn.venue] = (venueCounts[checkIn.venue] || 0) + 1;
-    });
-    const maxCount = Math.max(...Object.values(venueCounts));
-    const topVenues = OHIO_STATE_VENUES.filter(
-      (v) => venueCounts[v.name] === maxCount
-    );
-    if (topVenues.length === 0) return;
-    const venue = topVenues[Math.floor(Math.random() * topVenues.length)];
-    const coord = new mapkit.Coordinate(
-      venue.coordinates[0],
-      venue.coordinates[1]
-    );
-    const span = new mapkit.CoordinateSpan(0.04, 0.04);
-    map.region = new mapkit.CoordinateRegion(coord, span);
-  }, [selectedDate, selectedTime, activeCheckIns]);
-
   // User location marker (green dot) — add/remove when userLocation or map changes
   useEffect(() => {
     const map = mapRef.current;
@@ -269,15 +257,12 @@ export default function MapViewMapKit({
         userLocation.latitude,
         userLocation.longitude
       );
-      const marker = new mapkit.MarkerAnnotation(
-        coord,
-        {
-          title: "",
-          subtitle: "",
-          color: "#10B981",
-          glyphColor: "#ffffff",
-        } as any
-      );
+      const marker = new mapkit.MarkerAnnotation(coord, {
+        title: "",
+        subtitle: "",
+        color: "#10B981",
+        glyphColor: "#ffffff",
+      } as any);
       map.addAnnotation(marker);
       userLocationAnnotationRef.current = marker;
     }
@@ -290,7 +275,8 @@ export default function MapViewMapKit({
           <p className="font-semibold">Map unavailable</p>
           <p className="mt-1">{error}</p>
           <p className="mt-2 text-xs">
-            Set VITE_MAPKIT_TOKEN and allowlist this origin in Apple Developer → Maps.
+            Set VITE_MAPKIT_TOKEN and allowlist this origin in Apple Developer →
+            Maps.
           </p>
         </div>
       </div>
@@ -298,23 +284,36 @@ export default function MapViewMapKit({
   }
 
   return (
-    <div className="relative h-full w-full min-h-[300px]">
-      <div
-        ref={containerRef}
-        className="absolute inset-0 min-h-[300px]"
-      />
-      {/* HTML popup overlay — MapKit callouts are limited; mirror MapLibre popup content */}
+    <div className="relative h-full min-h-[300px] w-full">
+      <div ref={containerRef} className="absolute inset-0 min-h-[300px]" />
+      {/* HTML popup overlay — centered in map area; backdrop tap dismisses */}
       {popupInfo && (
-        <div className="absolute left-1/2 top-4 z-20 w-[90%] max-w-sm -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-5 shadow-lg">
+        <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
           <button
             type="button"
-            className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+            className="absolute inset-0 cursor-pointer bg-black/35 pointer-events-auto"
+            aria-label="Close venue details"
+            onClick={() => setPopupInfo(null)}
+          />
+          <div
+            className="relative z-10 w-full max-w-sm max-h-[min(85vh,520px)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl pointer-events-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mapkit-venue-popup-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+          <button
+            type="button"
+            className="absolute right-2 top-2 z-10 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
             aria-label="Close"
             onClick={() => setPopupInfo(null)}
           >
             ×
           </button>
-          <h3 className="mb-2 pr-6 text-xl font-bold text-gray-900">
+          <h3
+            id="mapkit-venue-popup-title"
+            className="mb-2 pr-8 text-xl font-bold text-gray-900"
+          >
             {popupInfo.venue.name}
           </h3>
           <p className="mb-4 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
@@ -352,6 +351,7 @@ export default function MapViewMapKit({
               </div>
             );
           })()}
+          </div>
         </div>
       )}
     </div>

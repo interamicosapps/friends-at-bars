@@ -1,8 +1,8 @@
 # MapKit JS setup
 
-**Web** (browser / Vercel) uses **MapKit JS** in the page. The **Capacitor iOS** app uses **native `MKMapView`** via the local `bar-fest-native-map` plugin (no MapKit JS token in the native map path). **Android** uses MapLibre only.
+**Web** (browser / Vercel) and **Capacitor iOS** (WKWebView loading the same web app, e.g. via `server.url`) use **MapKit JS** in the page (`MapViewMapKit`). **Android** uses MapLibre only (`MapViewMapLibre`).
 
-Safari or Chrome on iPhone (not the installed app) still loads the web bundle and uses MapKit JS like desktop.
+Safari or Chrome on iPhone (not the installed app) loads the web bundle and uses MapKit JS like desktop.
 
 ## Token
 
@@ -16,7 +16,7 @@ Safari or Chrome on iPhone (not the installed app) still loads the web bundle an
 |-------------|----------------------------------|
 | **Local (`npm run dev`)** | **`.env.local`** in the repo root (gitignored). Restart dev server after changes. |
 | **Vercel** | Project → **Settings → Environment Variables**. Set for Production (and Preview if needed). Redeploy after changing. |
-| **Codemagic** | App → **Environment variables** → add `VITE_MAPKIT_TOKEN` (mark **sensitive**) if you need MapKit JS in the built JS bundle (web preview, or any code path that still loads `mapkit.js`). The **native iOS** map does not use this token at runtime; keep the variable for **web/Vercel** parity or CI checks that exercise the web map. |
+| **Codemagic** | App → **Environment variables** → add `VITE_MAPKIT_TOKEN` (mark **sensitive**) so builds that bundle the web app include MapKit JS for web preview or iOS WebView loads. |
 
 ## Without a token
 

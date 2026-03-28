@@ -14,7 +14,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/Popover";
 import { CheckIn } from "@/types/checkin";
-import { OHIO_STATE_VENUES } from "@/data/venues";
+import { CAMPUS_AREAS, OHIO_STATE_VENUES } from "@/data/venues";
 import {
   formatDateDisplay,
   formatTimeDisplay,
@@ -119,20 +119,17 @@ export default function ActiveCheckInsPanel({
 
   type AreaData = { venues: Record<string, number>; total: number };
   const areaMap: Record<string, AreaData> = {};
+  for (const area of CAMPUS_AREAS) {
+    areaMap[area] = { venues: {}, total: 0 };
+  }
   OHIO_STATE_VENUES.forEach((venue) => {
-    const venueCheckIns = getVenueActivity(venue.name);
-    if (venueCheckIns.length > 0 && venue.area) {
-      if (!areaMap[venue.area]) {
-        areaMap[venue.area] = { venues: {}, total: 0 };
-      }
-      const areaData = areaMap[venue.area];
-      areaData.venues[venue.name] = venueCheckIns.length;
-      areaData.total += venueCheckIns.length;
-    }
+    if (!venue.area || !areaMap[venue.area]) return;
+    const count = getVenueActivity(venue.name).length;
+    const areaData = areaMap[venue.area];
+    areaData.venues[venue.name] = count;
+    areaData.total += count;
   });
-  const areaEntries = Object.entries(areaMap).sort(
-    (a, b) => b[1].total - a[1].total
-  );
+  const areaEntries = CAMPUS_AREAS.map((area) => [area, areaMap[area]] as const);
 
   const toggleArea = (area: string) => {
     setExpandedAreas((prev) => {
@@ -233,65 +230,69 @@ export default function ActiveCheckInsPanel({
             Active Check-ins
           </h2>
           <div className="overflow-y-auto flex-1 min-h-0">
-            {activeCheckIns.length === 0 ? (
-              <p className="py-4 text-center text-sm text-gray-500">
-                No check-ins during this time
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {areaEntries.map(([area, areaData]) => {
-                  const isExpanded = expandedAreas.has(area);
-                  const venueEntries = Object.entries(areaData.venues).sort(
-                    (a, b) => b[1] - a[1]
-                  );
-                  return (
-                    <div
-                      key={area}
-                      className="rounded-lg border border-gray-200 bg-gray-50"
+            <div className="space-y-2">
+              {areaEntries.map(([area, areaData]) => {
+                const isExpanded = expandedAreas.has(area);
+                const venueEntries = Object.entries(areaData.venues).sort(
+                  (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+                );
+                return (
+                  <div
+                    key={area}
+                    className="rounded-lg border border-gray-200 bg-gray-50"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleArea(area)}
+                      className="flex w-full items-center justify-between gap-2 p-3 text-left transition hover:bg-gray-100"
                     >
-                      <button
-                        type="button"
-                        onClick={() => toggleArea(area)}
-                        className="flex w-full items-center justify-between p-3 text-left transition hover:bg-gray-100"
-                      >
-                        <div className="flex items-center gap-2">
-                          {isExpanded ? (
-                            <ChevronDown className="h-4 w-4 text-gray-500" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 text-gray-500" />
-                          )}
-                          <span className="font-semibold text-gray-900">
-                            {area}
-                          </span>
-                        </div>
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />
+                        )}
+                        <span className="font-semibold text-gray-900">
+                          {area}
+                        </span>
+                      </div>
+                      {areaData.total >= 1 ? (
+                        <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
                           {areaData.total}
                         </span>
-                      </button>
-                      {isExpanded && (
-                        <div className="border-t border-gray-200 bg-white">
+                      ) : null}
+                    </button>
+                    {isExpanded && (
+                      <div className="border-t border-gray-200 bg-white">
+                        {areaData.total === 0 ? (
+                          <p className="px-3 py-4 text-center text-sm font-medium text-gray-500">
+                            No Attendance Recorded
+                          </p>
+                        ) : (
                           <div className="space-y-1 p-2">
                             {venueEntries.map(([venueName, count]) => (
                               <div
                                 key={venueName}
-                                className="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50"
+                                className="flex items-center justify-between gap-2 rounded px-3 py-2 hover:bg-gray-50"
                               >
                                 <span className="text-sm font-medium text-gray-700">
                                   {venueName}
                                 </span>
-                                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
-                                  {count}
-                                </span>
+                                {count >= 1 ? (
+                                  <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                                    {count}
+                                  </span>
+                                ) : null}
                               </div>
                             ))}
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
