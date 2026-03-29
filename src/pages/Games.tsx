@@ -12,7 +12,7 @@ type GameTile = {
 // Game tile data: optional image path (under public/ is served from root) and optional path to game
 const games: GameTile[] = [
   { id: 1, title: "Switch Search", path: "/games/switch-search", image: "/images/games/switchsearchpic.png" },
-  { id: 2, title: "Game 2" },
+  { id: 2, title: "Mega Toe", path: "/games/mega-toe" },
   { id: 3, title: "Game 3" },
   { id: 4, title: "Game 4" },
   { id: 5, title: "Game 5" },
@@ -23,11 +23,6 @@ const games: GameTile[] = [
 
 export default function Games() {
   const handleTileClick = (gameId: number) => {
-    // Only the first tile navigates, others just for animation testing
-    if (gameId === 1) {
-      return; // Let Link handle navigation
-    }
-    // Animation testing - tiles are clickable but don't navigate
     console.log(`Clicked game ${gameId} (animation test)`);
   };
 
@@ -38,7 +33,7 @@ export default function Games() {
         
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           {games.map((game) => {
-            const isFirstGame = game.id === 1;
+            const hasPath = Boolean(game.path);
             const TileContent = (
               <Card
                 className={cn(
@@ -47,7 +42,7 @@ export default function Games() {
                   "active:scale-95",
                   "cursor-pointer"
                 )}
-                onClick={() => !isFirstGame && handleTileClick(game.id)}
+                onClick={() => !hasPath && handleTileClick(game.id)}
               >
                 {/* Tile image or placeholder - image fits inside box (no crop), centered with space on sides or top/bottom */}
                 <div className="relative flex aspect-[4/3] w-full items-center justify-center bg-white overflow-hidden">
@@ -71,13 +66,9 @@ export default function Games() {
               </Card>
             );
 
-            if (isFirstGame && game.path) {
+            if (game.path) {
               return (
-                <Link
-                  key={game.id}
-                  to={game.path}
-                  className="block"
-                >
+                <Link key={game.id} to={game.path} className="block">
                   {TileContent}
                 </Link>
               );

@@ -9,6 +9,7 @@ const MapPage = lazy(() => import("./pages/MapPage"));
 const Test = lazy(() => import("./pages/Test"));
 const Games = lazy(() => import("./pages/Games"));
 const SwitchSearch = lazy(() => import("./pages/SwitchSearch"));
+const MegaToe = lazy(() => import("./pages/MegaToe"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Loading fallback component
@@ -67,6 +68,14 @@ function App() {
                 element={
                   <Suspense fallback={<LoadingFallback />}>
                     <SwitchSearch />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="games/mega-toe"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <MegaToe />
                   </Suspense>
                 }
               />

@@ -13,12 +13,16 @@ export default function Layout() {
   const isMap = pathname === "/map";
   const isGames = pathname === "/games" || pathname.startsWith("/games/");
   const isSwitchSearch = pathname.includes("switch-search");
+  const isMegaToe = pathname.includes("mega-toe");
   const isNativeIos =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
-  /** Hide bottom bar during Switch Search gameplay / end screen (immersive). */
+  /** Hide bottom bar during Switch Search gameplay / end, or on Mega Toe (full screen). */
   const showBottomNav =
-    isActivities || isMap || (isGames && !(isSwitchSearch && immersive));
-  const fullHeightMain = isActivities || isMap || isSwitchSearch;
+    isActivities ||
+    isMap ||
+    (isGames && !(isSwitchSearch && immersive) && !isMegaToe);
+  const fullHeightMain =
+    isActivities || isMap || isSwitchSearch || isMegaToe;
 
   const bottomNavPad = "calc(3.5rem + var(--safe-area-inset-bottom))";
   const immersiveShell = shellHeightImmersive();
@@ -65,7 +69,12 @@ export default function Layout() {
                     height: immersiveShell,
                     maxHeight: immersiveShell,
                   }
-                : undefined
+                : isMegaToe
+                  ? {
+                      height: immersiveShell,
+                      maxHeight: immersiveShell,
+                    }
+                  : undefined
           }
         >
           <Outlet />
