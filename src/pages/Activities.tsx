@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import { Menu } from "lucide-react";
@@ -6,10 +6,13 @@ import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 import CheckInOverlayContent from "@/components/CheckInOverlayContent";
 import { CheckIn } from "@/types/checkin";
 import {
-  generateNightlifeTimeOptions,
+  buildNightlifeTimeOptionsForSlider,
   getDynamicStartTime,
+  selectedDateTimeMatchesLocalNow,
 } from "@/lib/timeUtils";
 import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
+import { fetchLiveVenueCountsForDisplay } from "@/lib/fetchLiveVenueCounts";
+import type { VenueCounts } from "@/types/checkin";
 import { useTestMode } from "@/contexts/TestModeContext";
 
 const CHECKIN_OVERLAY_KEY = "activities_checkin_overlay_collapsed";
@@ -33,8 +36,16 @@ export default function Activities() {
   const [selectedDate, setSelectedDate] = useState<string>(() =>
     format(new Date(), "yyyy-MM-dd")
   );
-  const dynamicStartTime = getDynamicStartTime();
-  const [selectedTime, setSelectedTime] = useState<string>(dynamicStartTime);
+  const timeSliderAnchorRef = useRef<string | undefined>(undefined);
+  if (timeSliderAnchorRef.current === undefined) {
+    timeSliderAnchorRef.current = getDynamicStartTime();
+  }
+  const [selectedTime, setSelectedTime] = useState(
+    () => timeSliderAnchorRef.current!
+  );
+  /** When true and date is today, selected time tracks the wall clock until the user moves the slider. */
+  const [followWallClock, setFollowWallClock] = useState(true);
+  const [timeOptionsEpoch, setTimeOptionsEpoch] = useState(0);
   const [checkInOverlayOpen, setCheckInOverlayOpenState] = useState(() => {
     const fromQuery = searchParams.get("open") === "checkin";
     if (fromQuery) return true;
@@ -48,15 +59,68 @@ export default function Activities() {
     }
   };
 
-  const allNightlifeOptions = generateNightlifeTimeOptions();
-  const nightlifeTimeOptions = allNightlifeOptions.filter((time) => {
-    const [hours, minutes] = time.split(":").map(Number);
-    const [startHours, startMinutes] = dynamicStartTime.split(":").map(Number);
-    const timeMinutes = hours * 60 + minutes;
-    const startMinutesTotal = startHours * 60 + startMinutes;
-    if (hours >= 24) return true;
-    return timeMinutes >= startMinutesTotal;
-  });
+  const nightlifeTimeOptions = useMemo(
+    () =>
+      buildNightlifeTimeOptionsForSlider(timeSliderAnchorRef.current!),
+    [selectedDate, timeOptionsEpoch]
+  );
+
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick((t) => t + 1), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!followWallClock) return;
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    if (selectedDate !== todayStr) return;
+
+    const syncToClock = () => {
+      const t = format(new Date(), "yyyy-MM-dd");
+      if (t !== selectedDate) return;
+      const now = getDynamicStartTime();
+      if (now === timeSliderAnchorRef.current) return;
+      timeSliderAnchorRef.current = now;
+      setSelectedTime(now);
+      setTimeOptionsEpoch((e) => e + 1);
+    };
+
+    syncToClock();
+    const id = window.setInterval(syncToClock, 10_000);
+    return () => window.clearInterval(id);
+  }, [followWallClock, selectedDate]);
+
+  const isLiveNow = useMemo(
+    () => selectedDateTimeMatchesLocalNow(selectedDate, selectedTime),
+    [selectedDate, selectedTime, nowTick]
+  );
+
+  const [liveVenueCounts, setLiveVenueCounts] = useState<VenueCounts | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!isLiveNow) {
+      setLiveVenueCounts(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const v = await fetchLiveVenueCountsForDisplay(useMockCheckIns);
+        if (!cancelled) setLiveVenueCounts(v);
+      } catch {
+        if (!cancelled) setLiveVenueCounts({});
+      }
+    };
+    load();
+    const id = window.setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [isLiveNow, useMockCheckIns]);
 
   const loadCheckIns = async () => {
     try {
@@ -81,7 +145,21 @@ export default function Activities() {
 
   const handleDateChange = (date: string) => {
     setSelectedDate(date);
-    setSelectedTime(dynamicStartTime);
+    const now = getDynamicStartTime();
+    timeSliderAnchorRef.current = now;
+    setSelectedTime(now);
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    setFollowWallClock(date === todayStr);
+    setTimeOptionsEpoch((e) => e + 1);
+  };
+
+  const handleSelectTime = (time: string) => {
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const nowStr = getDynamicStartTime();
+    setFollowWallClock(
+      selectedDate === todayStr && time === nowStr
+    );
+    setSelectedTime(time);
   };
 
   return (
@@ -97,9 +175,11 @@ export default function Activities() {
             selectedDate={selectedDate}
             selectedTime={selectedTime}
             onSelectDate={handleDateChange}
-            onSelectTime={setSelectedTime}
+            onSelectTime={handleSelectTime}
             timeOptions={nightlifeTimeOptions}
-            dynamicStartTime={dynamicStartTime}
+            dynamicStartTime={getDynamicStartTime()}
+            showLiveViewerCounts={isLiveNow}
+            liveVenueCounts={liveVenueCounts}
             endSlot={
               checkInOverlayOpen ? undefined : (
                 <button

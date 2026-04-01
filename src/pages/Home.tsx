@@ -1,4 +1,4 @@
-import { useState, useEffect, Suspense, lazy } from "react";
+import { useState, useEffect, Suspense, lazy, useMemo, useRef } from "react";
 import { format } from "date-fns";
 import CheckInForm from "@/components/CheckInForm";
 import CheckInList from "@/components/CheckInList";
@@ -16,7 +16,7 @@ import {
   isCheckInInPast,
   DEFAULT_START_TIME,
   normalizeDateTime,
-  generateNightlifeTimeOptions,
+  buildNightlifeTimeOptionsForSlider,
   getDynamicStartTime,
 } from "@/lib/timeUtils";
 import {
@@ -46,25 +46,18 @@ export default function Home() {
     format(new Date(), "yyyy-MM-dd")
   );
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  // Calculate dynamic start time based on current time
-  const dynamicStartTime = getDynamicStartTime();
-  const [mapSelectedTime, setMapSelectedTime] = useState<string>(
-    dynamicStartTime
+  const mapTimeSliderAnchorRef = useRef<string | undefined>(undefined);
+  if (mapTimeSliderAnchorRef.current === undefined) {
+    mapTimeSliderAnchorRef.current = getDynamicStartTime();
+  }
+  const [mapSelectedTime, setMapSelectedTime] = useState(
+    () => mapTimeSliderAnchorRef.current!
   );
-  // Filter nightlife time options to start from dynamic start time
-  const allNightlifeOptions = generateNightlifeTimeOptions();
-  const nightlifeTimeOptions = allNightlifeOptions.filter((time) => {
-    const [hours, minutes] = time.split(":").map(Number);
-    const [startHours, startMinutes] = dynamicStartTime.split(":").map(Number);
-    const timeMinutes = hours * 60 + minutes;
-    const startMinutesTotal = startHours * 60 + startMinutes;
-    // Times >= 24:00 are next day, so always include them
-    if (hours >= 24) {
-      return true;
-    }
-    // For today's times, include if >= start time
-    return timeMinutes >= startMinutesTotal;
-  });
+  const nightlifeTimeOptions = useMemo(
+    () =>
+      buildNightlifeTimeOptionsForSlider(mapTimeSliderAnchorRef.current!),
+    [mapSelectedDate]
+  );
 
   const generateTempId = () =>
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -368,7 +361,9 @@ export default function Home() {
 
   const handleMapDateChange = (date: string) => {
     setMapSelectedDate(date);
-    setMapSelectedTime(dynamicStartTime); // Reset to dynamic start time
+    const now = getDynamicStartTime();
+    mapTimeSliderAnchorRef.current = now;
+    setMapSelectedTime(now);
   };
 
   const handleMapTimeChange = (time: string) => {

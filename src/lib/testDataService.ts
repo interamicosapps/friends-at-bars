@@ -1,4 +1,8 @@
-import { SupabaseCheckIn, SupabaseCheckInInsert } from "@/types/checkin";
+import {
+  SupabaseCheckIn,
+  SupabaseCheckInInsert,
+  type VenueCounts,
+} from "@/types/checkin";
 
 // Test data structure from test-data.json
 interface TestDataCheckIn {
@@ -11,8 +15,14 @@ interface TestDataCheckIn {
   created_at: string;
 }
 
+interface TestDataFileV2 {
+  checkIns: TestDataCheckIn[];
+  liveViewersByVenue?: Record<string, number>;
+}
+
 // In-memory storage for test check-ins (new ones added during test session)
 let testCheckIns: SupabaseCheckIn[] = [];
+let liveViewersByVenue: Record<string, number> = {};
 let initialDataLoaded = false;
 
 // Load initial data from test-data.json
@@ -27,10 +37,16 @@ const loadInitialData = async (): Promise<SupabaseCheckIn[]> => {
       throw new Error(`Failed to load test data: ${response.statusText}`);
     }
 
-    const testData: TestDataCheckIn[] = await response.json();
+    const raw: TestDataCheckIn[] | TestDataFileV2 = await response.json();
+    const rows: TestDataCheckIn[] = Array.isArray(raw)
+      ? raw
+      : raw.checkIns ?? [];
+    liveViewersByVenue = Array.isArray(raw)
+      ? {}
+      : { ...(raw.liveViewersByVenue ?? {}) };
 
     // Convert test data format to SupabaseCheckIn format
-    const convertedData: SupabaseCheckIn[] = testData.map((item) => ({
+    const convertedData: SupabaseCheckIn[] = rows.map((item) => ({
       id: item.id,
       venue: item.venue,
       start_time: item.start_time,
@@ -104,6 +120,11 @@ export const testDataService = {
   // Fetch all check-ins
   async fetchCheckIns(): Promise<SupabaseCheckIn[]> {
     return await loadInitialData();
+  },
+
+  async fetchLiveVenueCounts(): Promise<VenueCounts> {
+    await loadInitialData();
+    return { ...liveViewersByVenue };
   },
 
   // Update the start/end time for a single check-in

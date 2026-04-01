@@ -1,95 +1,153 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 import MapView from "@/components/MapView";
 import MapFloatingLogo from "@/components/MapFloatingLogo";
-import LocationToggle, { type LocationToggleRef } from "@/components/LocationToggle";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
+import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
 import { CheckIn } from "@/types/checkin";
 import {
-  generateNightlifeTimeOptions,
+  buildNightlifeTimeOptionsForSlider,
   getDynamicStartTime,
 } from "@/lib/timeUtils";
 import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
 import { useTestMode } from "@/contexts/TestModeContext";
-import { locationService, getLocationTrackingEnabled } from "@/lib/locationService";
+import {
+  locationService,
+  getLocationTrackingEnabled,
+} from "@/lib/locationService";
 import { cn } from "@/lib/utils";
-
-const MAP_LOCATION_PROMPT_DISMISSED = "map_location_prompt_dismissed";
+import MapLocationPermissionPrompt from "@/components/MapLocationPermissionPrompt";
 
 export default function MapPage() {
+  const navigate = useNavigate();
+  const { locationToggleRef, mapUserLocation } = useLocationTrackingOutlet();
   const { useMockCheckIns } = useTestMode();
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(() =>
     format(new Date(), "yyyy-MM-dd")
   );
-  const dynamicStartTime = getDynamicStartTime();
-  const [selectedTime, setSelectedTime] = useState<string>(dynamicStartTime);
-  const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const timeSliderAnchorRef = useRef<string | undefined>(undefined);
+  if (timeSliderAnchorRef.current === undefined) {
+    timeSliderAnchorRef.current = getDynamicStartTime();
+  }
+  const [selectedTime, setSelectedTime] = useState(
+    () => timeSliderAnchorRef.current!
+  );
+  const [followWallClock, setFollowWallClock] = useState(true);
+  const [timeOptionsEpoch, setTimeOptionsEpoch] = useState(0);
   const [overlayExpanded, setOverlayExpanded] = useState(false);
-  const [showLocationModal, setShowLocationModal] = useState(false);
-  const locationToggleRef = useRef<LocationToggleRef>(null);
+  /** null = permission not checked yet (do not show map). */
+  const [mapAllowed, setMapAllowed] = useState<boolean | null>(null);
+  const [locationPromptBusy, setLocationPromptBusy] = useState(false);
 
-  const allNightlifeOptions = generateNightlifeTimeOptions();
-  const nightlifeTimeOptions = allNightlifeOptions.filter((time) => {
-    const [hours, minutes] = time.split(":").map(Number);
-    const [startHours, startMinutes] = dynamicStartTime.split(":").map(Number);
-    const timeMinutes = hours * 60 + minutes;
-    const startMinutesTotal = startHours * 60 + startMinutes;
-    if (hours >= 24) return true;
-    return timeMinutes >= startMinutesTotal;
-  });
+  const nightlifeTimeOptions = useMemo(
+    () =>
+      buildNightlifeTimeOptionsForSlider(timeSliderAnchorRef.current!),
+    [selectedDate, timeOptionsEpoch]
+  );
+
+  useEffect(() => {
+    if (!followWallClock) return;
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    if (selectedDate !== todayStr) return;
+
+    const syncToClock = () => {
+      const t = format(new Date(), "yyyy-MM-dd");
+      if (t !== selectedDate) return;
+      const now = getDynamicStartTime();
+      if (now === timeSliderAnchorRef.current) return;
+      timeSliderAnchorRef.current = now;
+      setSelectedTime(now);
+      setTimeOptionsEpoch((e) => e + 1);
+    };
+
+    syncToClock();
+    const id = window.setInterval(syncToClock, 10_000);
+    return () => window.clearInterval(id);
+  }, [followWallClock, selectedDate]);
 
   useEffect(() => {
     fetchCheckInsForDisplay(useMockCheckIns).then(setCheckIns);
   }, [useMockCheckIns]);
 
-  // Map-only location prompt: show when on map and location not enabled and not dismissed this session
+  // Map is only usable with OS/browser location permission; prompt blocks the route otherwise.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const enabled = getLocationTrackingEnabled();
-      if (enabled) {
-        if (!cancelled) setShowLocationModal(false);
-        return;
-      }
+
+    const evaluate = async () => {
       const granted = await locationService.checkPermissions();
-      if (granted || cancelled) {
-        if (!cancelled) setShowLocationModal(false);
-        return;
-      }
-      const dismissed =
-        typeof sessionStorage !== "undefined" &&
-        sessionStorage.getItem(MAP_LOCATION_PROMPT_DISMISSED) === "1";
-      if (!cancelled && !dismissed) setShowLocationModal(true);
+      if (cancelled) return;
+      setMapAllowed(granted);
+    };
+
+    void evaluate();
+    const onFocus = () => {
+      void evaluate();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  // When allowed, start tracking (shared hidden toggle in Layout).
+  useEffect(() => {
+    if (mapAllowed !== true) return;
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      await locationToggleRef.current?.requestEnable();
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref stable
+  }, [mapAllowed]);
 
-  const handleEnableLocation = async () => {
+  const handleAllowLocation = async () => {
+    setLocationPromptBusy(true);
     try {
       await locationToggleRef.current?.requestEnable();
-      setShowLocationModal(false);
+      const granted = await locationService.checkPermissions();
+      const trackingOn = getLocationTrackingEnabled();
+      if (granted && trackingOn) {
+        setMapAllowed(true);
+      }
     } catch {
-      // Keep modal open on error
+      // Keep prompt open
+    } finally {
+      setLocationPromptBusy(false);
     }
   };
 
-  const handleNotNow = () => {
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.setItem(MAP_LOCATION_PROMPT_DISMISSED, "1");
+  const handleBackFromMapPrompt = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/", { replace: true });
     }
-    setShowLocationModal(false);
   };
 
   const handleDateChange = (date: string) => {
     setSelectedDate(date);
-    setSelectedTime(dynamicStartTime);
+    const now = getDynamicStartTime();
+    timeSliderAnchorRef.current = now;
+    setSelectedTime(now);
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    setFollowWallClock(date === todayStr);
+    setTimeOptionsEpoch((e) => e + 1);
+  };
+
+  const handleSelectTime = (time: string) => {
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const nowStr = getDynamicStartTime();
+    setFollowWallClock(
+      selectedDate === todayStr && time === nowStr
+    );
+    setSelectedTime(time);
   };
 
   const [hours, minutes] = selectedTime.split(":").map(Number);
@@ -109,12 +167,11 @@ export default function MapPage() {
   );
 
   const safeTop = "var(--safe-area-inset-top)";
-  // Collapsed logo + date pill share one row; align with the location icon.
   const pillTop = `calc(${safeTop} + 8px)`;
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden">
-      {/* Top chrome: logo + pill (collapsed) or expanded panel fills space between logo and location toggle */}
+      {/* Top chrome: logo + date pill; expanded panel fills the row. Location is handled by the map permission flow. */}
       <div
         className={cn(
           "pointer-events-none absolute left-3 right-3 z-[55] flex gap-2",
@@ -142,73 +199,43 @@ export default function MapPage() {
               selectedDate={selectedDate}
               selectedTime={selectedTime}
               onSelectDate={handleDateChange}
-              onSelectTime={setSelectedTime}
+              onSelectTime={handleSelectTime}
               timeOptions={nightlifeTimeOptions}
               onClose={() => setOverlayExpanded(false)}
               showCloseButton
-              dynamicStartTime={dynamicStartTime}
+              dynamicStartTime={getDynamicStartTime()}
               hideCheckInsList
             />
           </div>
         ) : (
           <div className="min-w-0 flex-1" aria-hidden />
         )}
-        <div className="pointer-events-auto shrink-0">
-          <LocationToggle
-            ref={locationToggleRef}
-            variant="compact"
-            onLocationUpdate={setUserLocation}
-            onEnabledChange={(enabled) => {
-              if (enabled) setShowLocationModal(false);
-            }}
-          />
-        </div>
       </div>
 
-      <MapView
-        checkIns={checkIns}
-        selectedDate={selectedDate}
-        selectedTime={selectedTime}
-        onSelectDate={handleDateChange}
-        onSelectTime={setSelectedTime}
-        timeOptions={nightlifeTimeOptions}
-        userLocation={userLocation}
-        showListPanel={false}
-        dynamicStartTime={dynamicStartTime}
-        fillContainer
-      />
-
-      {/* Map-only location prompt modal */}
-      {showLocationModal && (
-        <div
-          className="fixed inset-x-0 top-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          style={{
-            bottom: "calc(3.5rem + var(--safe-area-inset-bottom))",
-          }}
-        >
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">
-            <p className="mb-4 text-center text-sm text-gray-700">
-              In order to use the map, enable location.
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={handleEnableLocation}
-                className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
-              >
-                Enable
-              </button>
-              <button
-                type="button"
-                onClick={handleNotNow}
-                className="w-full rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-              >
-                Not now
-              </button>
-            </div>
-          </div>
-        </div>
+      {mapAllowed === true && (
+        <MapView
+          checkIns={checkIns}
+          selectedDate={selectedDate}
+          selectedTime={selectedTime}
+          onSelectDate={handleDateChange}
+          onSelectTime={handleSelectTime}
+          timeOptions={nightlifeTimeOptions}
+          userLocation={mapUserLocation}
+          showListPanel={false}
+          dynamicStartTime={getDynamicStartTime()}
+          fillContainer
+        />
       )}
+
+      <MapLocationPermissionPrompt
+        open={mapAllowed === false}
+        variant="map"
+        onAllow={handleAllowLocation}
+        onSecondary={handleBackFromMapPrompt}
+        secondaryLabel="Back"
+        busy={locationPromptBusy}
+        coverNav
+      />
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
   generateStartTimeOptions,
   isCheckInActiveAt,
 } from "@/lib/timeUtils";
+import { cn } from "@/lib/utils";
 
 interface ActiveCheckInsPanelProps {
   checkIns: CheckIn[];
@@ -38,6 +39,10 @@ interface ActiveCheckInsPanelProps {
   hideCheckInsList?: boolean;
   /** Renders to the right of the date/time row (e.g. Activities Check-In button). */
   endSlot?: ReactNode;
+  /** When true and `liveVenueCounts` is set, show live viewer counts (red styling). */
+  showLiveViewerCounts?: boolean;
+  /** Per-venue live viewer counts from `live_locations` or test data; null while loading. */
+  liveVenueCounts?: Record<string, number> | null;
 }
 
 const formatDateValue = (date: Date) => format(date, "yyyy-MM-dd");
@@ -54,6 +59,8 @@ export default function ActiveCheckInsPanel({
   dynamicStartTime,
   hideCheckInsList = false,
   endSlot,
+  showLiveViewerCounts = false,
+  liveVenueCounts = null,
 }: ActiveCheckInsPanelProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
@@ -117,6 +124,10 @@ export default function ActiveCheckInsPanel({
     return Math.min(Math.max(percentage, minPercentage), maxPercentage);
   };
 
+  const liveMode = Boolean(
+    showLiveViewerCounts && liveVenueCounts !== null
+  );
+
   type AreaData = { venues: Record<string, number>; total: number };
   const areaMap: Record<string, AreaData> = {};
   for (const area of CAMPUS_AREAS) {
@@ -124,7 +135,9 @@ export default function ActiveCheckInsPanel({
   }
   OHIO_STATE_VENUES.forEach((venue) => {
     if (!venue.area || !areaMap[venue.area]) return;
-    const count = getVenueActivity(venue.name).length;
+    const count = liveMode
+      ? (liveVenueCounts![venue.name] ?? 0)
+      : getVenueActivity(venue.name).length;
     const areaData = areaMap[venue.area];
     areaData.venues[venue.name] = count;
     areaData.total += count;
@@ -227,7 +240,7 @@ export default function ActiveCheckInsPanel({
       {!hideCheckInsList && (
         <div className="border-t border-gray-200 pt-2 flex-1 min-h-0 flex flex-col overflow-hidden">
           <h2 className="mb-2 text-xs font-bold text-gray-900 flex-shrink-0">
-            Active Check-ins
+            {liveMode ? "Live now" : "Active Check-ins"}
           </h2>
           <div className="overflow-y-auto flex-1 min-h-0">
             <div className="space-y-2">
@@ -257,7 +270,14 @@ export default function ActiveCheckInsPanel({
                         </span>
                       </div>
                       {areaData.total >= 1 ? (
-                        <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                        <span
+                          className={cn(
+                            "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
+                            liveMode
+                              ? "bg-red-100 text-red-800"
+                              : "bg-blue-100 text-blue-800"
+                          )}
+                        >
                           {areaData.total}
                         </span>
                       ) : null}
@@ -279,7 +299,14 @@ export default function ActiveCheckInsPanel({
                                   {venueName}
                                 </span>
                                 {count >= 1 ? (
-                                  <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                                  <span
+                                    className={cn(
+                                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
+                                      liveMode
+                                        ? "bg-red-50 text-red-600"
+                                        : "bg-gray-100 text-gray-700"
+                                    )}
+                                  >
                                     {count}
                                   </span>
                                 ) : null}

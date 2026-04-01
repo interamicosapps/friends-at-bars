@@ -2,6 +2,8 @@ import { Outlet, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import Navbar from "./Navbar";
 import BottomNav from "./BottomNav";
+import LocationLaunchGate from "@/components/LocationLaunchGate";
+import { LocationTrackingProvider } from "@/contexts/LocationTrackingContext";
 import { useGameImmersive } from "@/contexts/GameImmersiveContext";
 import { shellHeightImmersive } from "@/constants/layoutHeights";
 
@@ -28,6 +30,7 @@ export default function Layout() {
   const immersiveShell = shellHeightImmersive();
 
   return (
+    <LocationTrackingProvider>
     <div className="flex min-h-screen flex-col bg-background">
       {/* Keep only the iOS status/safe-area strip dark; app header remains white. */}
       {isNativeIos && (
@@ -81,6 +84,8 @@ export default function Layout() {
         </div>
       </main>
       {showBottomNav && <BottomNav />}
+      <LocationLaunchGate />
     </div>
+    </LocationTrackingProvider>
   );
 }
