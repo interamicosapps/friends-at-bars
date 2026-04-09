@@ -10,6 +10,10 @@ export interface MapLocationPermissionPromptProps {
   variant: LocationPermissionPromptVariant;
   busy?: boolean;
   coverNav?: boolean;
+  /** Native: explain that the primary action opens system Settings. */
+  nativeSettingsNote?: boolean;
+  /** Web: show how to allow location via the browser site controls. */
+  showWebLocationHelp?: boolean;
 }
 
 const COPY: Record<
@@ -34,10 +38,17 @@ function MapLocationPermissionPrompt({
   variant,
   busy = false,
   coverNav = false,
+  nativeSettingsNote = false,
+  showWebLocationHelp = false,
 }: MapLocationPermissionPromptProps) {
   if (!open) return null;
 
   const { description } = COPY[variant];
+  const primaryLabel = busy
+    ? "Opening..."
+    : nativeSettingsNote
+      ? "Open Settings"
+      : "Allow location access";
 
   return (
     <div
@@ -73,6 +84,22 @@ function MapLocationPermissionPrompt({
           >
             {description}
           </p>
+          {nativeSettingsNote && (
+            <p className="mt-2 max-w-sm text-pretty text-xs leading-relaxed text-zinc-500">
+              The button below opens Settings for this app so you can turn Location
+              on. Return here when you are done.
+            </p>
+          )}
+          {showWebLocationHelp && (
+            <p
+              className="mt-3 max-w-sm text-pretty text-xs leading-relaxed text-amber-200/90"
+              role="status"
+            >
+              If the browser did not ask for location: use the lock or site icon in
+              the address bar, open site settings or permissions, set Location to
+              Allow, then come back to this tab.
+            </p>
+          )}
           <div
             className="mt-10 flex h-36 w-36 items-center justify-center rounded-3xl bg-zinc-900/80 ring-1 ring-white/10"
             aria-hidden
@@ -91,7 +118,7 @@ function MapLocationPermissionPrompt({
             onClick={() => void onAllow()}
             className="w-full rounded-2xl bg-white py-3.5 text-center text-base font-semibold text-zinc-950 shadow-lg transition enabled:hover:bg-zinc-100 enabled:active:scale-[0.99] disabled:opacity-60"
           >
-            {busy ? "Requesting..." : "Allow location access"}
+            {primaryLabel}
           </button>
           <button
             type="button"

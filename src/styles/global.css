@@ -35,7 +35,7 @@
 /* Mobile optimizations */
 @media (max-width: 768px) {
   /* Ensure minimum touch target sizes on mobile */
-  button,
+  button:not(.mega-toe-cell),
   a,
   input[type="button"],
   input[type="submit"],

@@ -1,8 +1,11 @@
 import { useState, useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
 import MapLocationPermissionPrompt from "@/components/MapLocationPermissionPrompt";
 import {
   locationService,
   getLocationTrackingEnabled,
+  isNativePlatform,
+  openNativeAppLocationSettings,
 } from "@/lib/locationService";
 import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
 
@@ -18,6 +21,12 @@ function setLaunchSkipped(): void {
   sessionStorage.setItem(LAUNCH_GATE_SKIPPED_KEY, "1");
 }
 
+function useNativeSettingsShortcut(): boolean {
+  if (!isNativePlatform) return false;
+  const p = Capacitor.getPlatform();
+  return p === "ios" || p === "android";
+}
+
 type LaunchOverlay = "checking" | "prompt" | "hidden";
 
 /**
@@ -28,6 +37,8 @@ export default function LocationLaunchGate() {
   const { locationToggleRef } = useLocationTrackingOutlet();
   const [overlay, setOverlay] = useState<LaunchOverlay>("checking");
   const [busy, setBusy] = useState(false);
+  const [showWebLocationHelp, setShowWebLocationHelp] = useState(false);
+  const nativeSettingsShortcut = useNativeSettingsShortcut();
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +49,7 @@ export default function LocationLaunchGate() {
       const skipped = readLaunchSkipped();
       if (granted || skipped) {
         setOverlay("hidden");
+        setShowWebLocationHelp(false);
       } else {
         setOverlay("prompt");
       }
@@ -72,14 +84,23 @@ export default function LocationLaunchGate() {
   const handleAllow = async () => {
     setBusy(true);
     try {
+      if (nativeSettingsShortcut) {
+        await openNativeAppLocationSettings();
+        return;
+      }
       await locationToggleRef.current?.requestEnable();
       const granted = await locationService.checkPermissions();
       const trackingOn = getLocationTrackingEnabled();
       if (granted && trackingOn) {
         setOverlay("hidden");
+        setShowWebLocationHelp(false);
+      } else {
+        setShowWebLocationHelp(true);
       }
     } catch {
-      // keep prompt
+      if (!nativeSettingsShortcut) {
+        setShowWebLocationHelp(true);
+      }
     } finally {
       setBusy(false);
     }
@@ -88,6 +109,7 @@ export default function LocationLaunchGate() {
   const handleSkip = () => {
     setLaunchSkipped();
     setOverlay("hidden");
+    setShowWebLocationHelp(false);
   };
 
   const showPrompt = overlay === "prompt";
@@ -112,6 +134,8 @@ export default function LocationLaunchGate() {
         secondaryLabel="Skip"
         busy={busy}
         coverNav
+        nativeSettingsNote={nativeSettingsShortcut}
+        showWebLocationHelp={showWebLocationHelp}
       />
     </>
   );

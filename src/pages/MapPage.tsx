@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 import MapView from "@/components/MapView";
@@ -16,6 +17,8 @@ import { useTestMode } from "@/contexts/TestModeContext";
 import {
   locationService,
   getLocationTrackingEnabled,
+  isNativePlatform,
+  openNativeAppLocationSettings,
 } from "@/lib/locationService";
 import { cn } from "@/lib/utils";
 import MapLocationPermissionPrompt from "@/components/MapLocationPermissionPrompt";
@@ -41,6 +44,12 @@ export default function MapPage() {
   /** null = permission not checked yet (do not show map). */
   const [mapAllowed, setMapAllowed] = useState<boolean | null>(null);
   const [locationPromptBusy, setLocationPromptBusy] = useState(false);
+  const [showWebLocationHelp, setShowWebLocationHelp] = useState(false);
+
+  const nativeSettingsShortcut =
+    isNativePlatform &&
+    (Capacitor.getPlatform() === "ios" ||
+      Capacitor.getPlatform() === "android");
 
   const nightlifeTimeOptions = useMemo(
     () =>
@@ -80,6 +89,7 @@ export default function MapPage() {
       const granted = await locationService.checkPermissions();
       if (cancelled) return;
       setMapAllowed(granted);
+      if (granted) setShowWebLocationHelp(false);
     };
 
     void evaluate();
@@ -110,20 +120,30 @@ export default function MapPage() {
   const handleAllowLocation = async () => {
     setLocationPromptBusy(true);
     try {
+      if (nativeSettingsShortcut) {
+        await openNativeAppLocationSettings();
+        return;
+      }
       await locationToggleRef.current?.requestEnable();
       const granted = await locationService.checkPermissions();
       const trackingOn = getLocationTrackingEnabled();
       if (granted && trackingOn) {
         setMapAllowed(true);
+        setShowWebLocationHelp(false);
+      } else {
+        setShowWebLocationHelp(true);
       }
     } catch {
-      // Keep prompt open
+      if (!nativeSettingsShortcut) {
+        setShowWebLocationHelp(true);
+      }
     } finally {
       setLocationPromptBusy(false);
     }
   };
 
   const handleBackFromMapPrompt = () => {
+    setShowWebLocationHelp(false);
     if (window.history.length > 1) {
       navigate(-1);
     } else {
@@ -235,6 +255,8 @@ export default function MapPage() {
         secondaryLabel="Back"
         busy={locationPromptBusy}
         coverNav
+        nativeSettingsNote={nativeSettingsShortcut}
+        showWebLocationHelp={showWebLocationHelp}
       />
     </div>
   );

@@ -59,6 +59,8 @@ export interface LiveLocationInsert {
   latitude: number;
   longitude: number;
   is_active: boolean;
+  /** Set on every upsert so counts and stale cleanup use a reliable clock. */
+  last_updated?: string;
 }
 
 export type VenueCounts = Record<string, number>;

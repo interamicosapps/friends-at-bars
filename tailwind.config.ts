@@ -67,10 +67,21 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "mega-toe-grid-pop": {
+          "0%, 100%": {
+            transform: "scale(1) translateY(0)",
+            filter: "drop-shadow(0 0 0 transparent)",
+          },
+          "40%": {
+            transform: "scale(1.06) translateY(-2px)",
+            filter: "drop-shadow(0 4px 6px rgb(0 0 0 / 0.22))",
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "mega-toe-grid-pop": "mega-toe-grid-pop 0.55s ease-out 1",
       },
     },
   },

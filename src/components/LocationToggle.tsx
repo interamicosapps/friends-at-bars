@@ -33,6 +33,8 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
   const watchIdRef = useRef<string | null>(null);
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const backgroundWatcherIdRef = useRef<string | null>(null);
+  /** Foreground 60s tick: avoid redundant deactivates; clear ghosts on first "not at venue" after start. */
+  const venuePresenceRef = useRef<"unknown" | "inside" | "outside">("outside");
   const isEnabledRef = useRef(isEnabled);
   const hasRestoredRef = useRef(false);
   const [backgroundPreferred] = useState(() => getBackgroundLocationPreferred());
@@ -156,6 +158,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       );
 
       watchIdRef.current = watchId;
+      venuePresenceRef.current = "unknown";
 
       // If user prefers background ("Always") location, start background watcher (native only)
       if (backgroundPreferred && isNativePlatform) {
@@ -219,6 +222,8 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         await locationService.stopBackgroundWatcher(backgroundWatcherIdRef.current);
         backgroundWatcherIdRef.current = null;
       }
+
+      venuePresenceRef.current = "outside";
 
       // Deactivate user's location in database (only if Supabase updates are enabled)
       if (!skipSupabase) {

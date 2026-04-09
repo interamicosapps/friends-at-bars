@@ -64,9 +64,9 @@ const RULES_COPY = (
   <p className="text-sm leading-relaxed text-muted-foreground">
     Ultimate tic-tac-toe: nine small boards in one grid.{" "}
     <strong className="text-foreground">O</strong> goes first. Moves send the
-    opponent to the matching big cell; finished targets mean a free move. Against
-    the computer you are <strong className="text-foreground">O</strong> and the
-    app plays <strong className="text-foreground">X</strong>.{" "}
+    opponent to the matching big cell; finished targets mean a free move.
+    Against the computer you are <strong className="text-foreground">O</strong>{" "}
+    and the app plays <strong className="text-foreground">X</strong>.{" "}
     <strong className="text-foreground">Computer – Easy</strong> uses simple
     heuristics; <strong className="text-foreground">Computer – Hard</strong>{" "}
     also avoids obvious mistakes and favors stronger meta play.
@@ -150,7 +150,9 @@ function computeNextState(
   };
 }
 
-function getValidMoves(prev: GameState): { bigIdx: number; smallIdx: number }[] {
+function getValidMoves(
+  prev: GameState
+): { bigIdx: number; smallIdx: number }[] {
   const out: { bigIdx: number; smallIdx: number }[] = [];
   for (let b = 0; b < 9; b++) {
     if (prev.miniStatus[b] !== "active") continue;
@@ -162,7 +164,9 @@ function getValidMoves(prev: GameState): { bigIdx: number; smallIdx: number }[] 
   return out;
 }
 
-function pickAiMoveEasy(prev: GameState): { bigIdx: number; smallIdx: number } | null {
+function pickAiMoveEasy(
+  prev: GameState
+): { bigIdx: number; smallIdx: number } | null {
   const moves = getValidMoves(prev);
   if (moves.length === 0) return null;
 
@@ -183,7 +187,8 @@ function pickAiMoveEasy(prev: GameState): { bigIdx: number; smallIdx: number } |
 }
 
 function oCanWinInOne(state: GameState): boolean {
-  if (state.gameResult !== "playing" || state.currentPlayer !== "O") return false;
+  if (state.gameResult !== "playing" || state.currentPlayer !== "O")
+    return false;
   for (const m of getValidMoves(state)) {
     const next = computeNextState(state, m.bigIdx, m.smallIdx);
     if (next?.gameResult === "O") return true;
@@ -222,7 +227,9 @@ function pickRandomFrom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
-function pickAiMoveHard(prev: GameState): { bigIdx: number; smallIdx: number } | null {
+function pickAiMoveHard(
+  prev: GameState
+): { bigIdx: number; smallIdx: number } | null {
   const moves = getValidMoves(prev);
   if (moves.length === 0) return null;
 
@@ -377,10 +384,7 @@ export default function MegaToe() {
 
     const id = window.setTimeout(() => {
       setState((prev) => {
-        if (
-          prev.gameResult !== "playing" ||
-          prev.currentPlayer !== "X"
-        ) {
+        if (prev.gameResult !== "playing" || prev.currentPlayer !== "X") {
           return prev;
         }
         const move =
@@ -409,13 +413,6 @@ export default function MegaToe() {
         ? "— Computer – Easy"
         : "— Computer – Hard";
 
-  const outcomeLine =
-    state.gameResult === "playing"
-      ? null
-      : state.gameResult === "draw"
-        ? "Draw."
-        : `${state.gameResult} wins.`;
-
   if (view === "lobby") {
     return (
       <div
@@ -425,7 +422,11 @@ export default function MegaToe() {
         <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-8">
           <h1 className="text-3xl font-bold text-foreground">Mega Toe</h1>
           <div className="flex flex-col gap-3">
-            <Button size="lg" className="w-full" onClick={() => setView("game")}>
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={() => setView("game")}
+            >
               Play
             </Button>
             <Button
@@ -550,72 +551,65 @@ export default function MegaToe() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          {outcomeLine && (
-            <p
-              className="flex-shrink-0 py-1 text-center text-sm font-medium text-foreground"
-              role="status"
-              aria-live="polite"
-            >
-              {outcomeLine}
-            </p>
-          )}
-
-          <div className="flex min-h-0 flex-1 items-center justify-center py-1">
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden py-1">
             <div
-              className="h-full w-full max-h-full min-h-0 max-w-full rounded-lg p-0.5"
+              className="mx-auto grid min-h-0 w-full max-w-full grid-cols-3 grid-rows-3 gap-2 rounded-md bg-foreground/85 p-0.5 [grid-template-columns:repeat(3,minmax(0,1fr))] [grid-template-rows:repeat(3,minmax(0,1fr))] dark:bg-foreground/75 sm:gap-2.5 sm:p-1"
+              style={{
+                aspectRatio: "1 / 1",
+                width: "min(calc(100vw - 1rem), 100%)",
+                maxHeight: "100%",
+              }}
+              role="grid"
+              aria-label="Mega tic-tac-toe board"
             >
-              <div
-                className="mx-auto grid aspect-square h-full w-full max-h-full grid-cols-3 gap-0.5 sm:gap-1"
-                style={{ maxWidth: "min(100vw - 1rem, 100%)" }}
-                role="grid"
-                aria-label="Mega tic-tac-toe board"
-              >
-                {Array.from({ length: 9 }, (_, bigIdx) => {
-                  const miniLegalForTurn =
-                    playing &&
-                    state.miniStatus[bigIdx] === "active" &&
-                    (state.nextTarget === null ||
-                      state.nextTarget === bigIdx);
-                  const dimInactiveMini =
-                    playing &&
-                    state.miniStatus[bigIdx] === "active" &&
-                    !miniLegalForTurn;
-                  return (
-                    <MiniBoard
-                      key={bigIdx}
-                      bigIdx={bigIdx}
-                      cells={state.minis[bigIdx]}
-                      miniStatus={state.miniStatus[bigIdx]}
-                      highlightTurn={miniLegalForTurn}
-                      turnPlayer={state.currentPlayer}
-                      dimInactiveMini={dimInactiveMini}
-                      isPlayable={
-                        playing &&
-                        humanCanClick &&
-                        state.miniStatus[bigIdx] === "active" &&
-                        (state.nextTarget === null ||
-                          state.nextTarget === bigIdx)
-                      }
-                      lastSmallIdx={
-                        state.lastMove?.bigIdx === bigIdx
-                          ? state.lastMove.smallIdx
-                          : null
-                      }
-                      lastPlayer={
-                        state.lastMove?.bigIdx === bigIdx
-                          ? state.lastMove.player
-                          : null
-                      }
-                      onCellClick={(smallIdx) => applyMove(bigIdx, smallIdx)}
-                    />
-                  );
-                })}
-              </div>
+              {Array.from({ length: 9 }, (_, bigIdx) => {
+                const miniLegalForTurn =
+                  playing &&
+                  state.miniStatus[bigIdx] === "active" &&
+                  (state.nextTarget === null || state.nextTarget === bigIdx);
+                const dimInactiveMini =
+                  playing &&
+                  state.miniStatus[bigIdx] === "active" &&
+                  !miniLegalForTurn;
+                const lineAnimKey = `${state.currentPlayer}-${state.nextTarget ?? "f"}-${state.lastMove?.bigIdx ?? "x"}-${state.lastMove?.smallIdx ?? "x"}`;
+                return (
+                  <MiniBoard
+                    key={bigIdx}
+                    bigIdx={bigIdx}
+                    cells={state.minis[bigIdx]}
+                    miniStatus={state.miniStatus[bigIdx]}
+                    highlightTurn={miniLegalForTurn}
+                    turnPlayer={state.currentPlayer}
+                    dimInactiveMini={dimInactiveMini}
+                    animateInnerGridLines={
+                      playing && miniLegalForTurn && humanCanClick
+                    }
+                    lineAnimKey={lineAnimKey}
+                    isPlayable={
+                      playing &&
+                      humanCanClick &&
+                      state.miniStatus[bigIdx] === "active" &&
+                      (state.nextTarget === null || state.nextTarget === bigIdx)
+                    }
+                    lastSmallIdx={
+                      state.lastMove?.bigIdx === bigIdx
+                        ? state.lastMove.smallIdx
+                        : null
+                    }
+                    lastPlayer={
+                      state.lastMove?.bigIdx === bigIdx
+                        ? state.lastMove.player
+                        : null
+                    }
+                    onCellClick={(smallIdx) => applyMove(bigIdx, smallIdx)}
+                  />
+                );
+              })}
             </div>
           </div>
 
           <nav
-            className="flex flex-shrink-0 flex-wrap items-center justify-center gap-1 border-t border-border pt-2 pb-1 sm:gap-2"
+            className="flex flex-shrink-0 flex-wrap items-center justify-center gap-1 border-t border-border pb-1 pt-2 sm:gap-2"
             aria-label="Game actions"
           >
             <Button
@@ -661,11 +655,15 @@ type MiniBoardProps = {
   bigIdx: number;
   cells: (Player | null)[];
   miniStatus: MiniOutcome;
-  /** Current player can legally move in this mini — outline in their color (blue O / red X). */
+  /** Current player can legally move in this mini — inner grid lines use their color. */
   highlightTurn: boolean;
   turnPlayer: Player;
   /** Active mini where current player cannot move — subtle dim. */
   dimInactiveMini: boolean;
+  /** Human’s turn: play a short “pop” on inner lines; computer’s turn (X) uses color only. */
+  animateInnerGridLines: boolean;
+  /** Bumps when this changes so the line animation can replay on the human’s turn. */
+  lineAnimKey: string;
   isPlayable: boolean;
   lastSmallIdx: number | null;
   lastPlayer: Player | null;
@@ -679,44 +677,38 @@ function MiniBoard({
   highlightTurn,
   turnPlayer,
   dimInactiveMini,
+  animateInnerGridLines,
+  lineAnimKey,
   isPlayable,
   lastSmallIdx,
   lastPlayer,
   onCellClick,
 }: MiniBoardProps) {
   const finished = miniStatus !== "active";
-
-  const turnRingO =
-    highlightTurn &&
-    !finished &&
-    turnPlayer === "O" &&
-    "border-sky-600 ring-2 ring-sky-500 ring-offset-1 ring-offset-background sm:ring-offset-2";
-  const turnRingX =
-    highlightTurn &&
-    !finished &&
-    turnPlayer === "X" &&
-    "border-red-600 ring-2 ring-red-500 ring-offset-1 ring-offset-background sm:ring-offset-2";
+  const innerLineHighlight = highlightTurn && !finished;
+  const innerLineColor = !innerLineHighlight
+    ? "border-[#1c1c1c] dark:border-neutral-200"
+    : turnPlayer === "O"
+      ? "border-sky-600 dark:border-sky-400"
+      : "border-red-600 dark:border-red-500";
 
   return (
     <div
       className={cn(
-        "relative min-h-0 min-w-0 rounded border-2 p-px sm:p-0.5",
-        miniStatus === "active" && !finished && "bg-card",
+        "relative min-h-0 min-w-0 rounded-sm",
+        miniStatus === "active" &&
+          !finished &&
+          "bg-[color-mix(in_srgb,hsl(var(--muted))_50%,white)]",
         miniStatus === "O" &&
           finished &&
-          "border-sky-700/50 bg-sky-500/25 dark:border-sky-500/40 dark:bg-sky-500/20",
+          "bg-sky-500/25 ring-2 ring-inset ring-sky-700/50 dark:bg-sky-500/20 dark:ring-sky-500/40",
         miniStatus === "X" &&
           finished &&
-          "border-red-700/50 bg-red-500/25 dark:border-red-500/40 dark:bg-red-500/20",
+          "bg-red-500/25 ring-2 ring-inset ring-red-700/50 dark:bg-red-500/20 dark:ring-red-500/40",
         miniStatus === "draw" &&
           finished &&
-          "border-muted-foreground/40 bg-muted/40",
-        !highlightTurn &&
-          miniStatus === "active" &&
-          "border-border",
-        dimInactiveMini && "opacity-[0.88]",
-        turnRingO,
-        turnRingX
+          "bg-muted/40 ring-2 ring-inset ring-muted-foreground/40",
+        dimInactiveMini && "opacity-[0.88]"
       )}
       aria-label={`Board ${bigIdx + 1}`}
     >
@@ -735,50 +727,65 @@ function MiniBoard({
               —
             </span>
           ) : (
-            <Mark
-              player={miniStatus}
-              size="lg"
-              className="text-neutral-900"
-            />
+            <Mark player={miniStatus} size="lg" className="text-neutral-900" />
           )}
         </div>
       )}
 
-      <div className="grid h-full w-full grid-cols-3 grid-rows-3 gap-px">
-        {cells.map((cell, smallIdx) => {
-          const isLast =
-            lastSmallIdx === smallIdx && lastPlayer !== null && !finished;
-          return (
-            <button
-              key={smallIdx}
-              type="button"
-              disabled={finished || !isPlayable || cell !== null}
-              onClick={() => onCellClick(smallIdx)}
-              className={cn(
-                "flex aspect-square min-h-0 min-w-0 items-center justify-center rounded-[2px] border border-border/80 bg-background text-foreground",
-                isLast &&
-                  lastPlayer === "O" &&
-                  "bg-sky-500/25 dark:bg-sky-400/20",
-                isLast &&
-                  lastPlayer === "X" &&
-                  "bg-red-500/25 dark:bg-red-400/20",
-                !isLast &&
-                  !finished &&
-                  isPlayable &&
-                  cell === null &&
-                  "hover:bg-accent/50",
-                (finished || !isPlayable || cell !== null) &&
-                  cell === null &&
-                  "cursor-default opacity-70"
-              )}
-              aria-label={`Cell ${smallIdx + 1}, ${cell ?? "empty"}`}
-            >
-              {cell ? (
-                <Mark player={cell} className="text-foreground" />
-              ) : null}
-            </button>
-          );
-        })}
+      <div className="relative h-full min-h-0 w-full min-w-0 p-1.5 sm:p-2">
+        <div
+          key={
+            animateInnerGridLines && innerLineHighlight
+              ? lineAnimKey
+              : "mini-inner-grid"
+          }
+          className={cn(
+            "grid h-full min-h-0 w-full min-w-0 grid-cols-3 grid-rows-3 [grid-template-columns:repeat(3,minmax(0,1fr))] [grid-template-rows:repeat(3,minmax(0,1fr))]",
+            animateInnerGridLines &&
+              innerLineHighlight &&
+              "motion-safe:animate-mega-toe-grid-pop"
+          )}
+        >
+          {cells.map((cell, smallIdx) => {
+            const isLast =
+              lastSmallIdx === smallIdx && lastPlayer !== null && !finished;
+            const row = Math.floor(smallIdx / 3);
+            const col = smallIdx % 3;
+            return (
+              <button
+                key={smallIdx}
+                type="button"
+                disabled={finished || !isPlayable || cell !== null}
+                onClick={() => onCellClick(smallIdx)}
+                className={cn(
+                  "mega-toe-cell box-border flex min-h-0 min-w-0 touch-manipulation items-center justify-center rounded-none border-solid bg-transparent text-foreground",
+                  col < 2 && "border-r-2",
+                  row < 2 && "border-b-2",
+                  (col < 2 || row < 2) && innerLineColor,
+                  isLast &&
+                    lastPlayer === "O" &&
+                    "bg-sky-500/25 dark:bg-sky-400/20",
+                  isLast &&
+                    lastPlayer === "X" &&
+                    "bg-red-500/25 dark:bg-red-400/20",
+                  !isLast &&
+                    !finished &&
+                    isPlayable &&
+                    cell === null &&
+                    "hover:bg-muted/40",
+                  (finished || !isPlayable || cell !== null) &&
+                    cell === null &&
+                    "cursor-default opacity-70"
+                )}
+                aria-label={`Cell ${smallIdx + 1}, ${cell ?? "empty"}`}
+              >
+                {cell ? (
+                  <Mark player={cell} className="text-foreground" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

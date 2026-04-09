@@ -7,6 +7,10 @@ import {
   wasSupabaseNetworkError,
 } from "./supabaseClient";
 import { OHIO_STATE_VENUES } from "@/data/venues";
+import {
+  LIVE_LOCATION_MAX_AGE_MS,
+  LIVE_LOCATION_STALE_MS,
+} from "@/constants/liveLocation";
 import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
 
 interface LocationData {
@@ -304,9 +308,31 @@ const webGeolocation = {
 const isNative = Capacitor.isNativePlatform();
 export { isNative as isNativePlatform };
 
+/** iOS / Android only: opens system Settings for this app (Location, etc.). No-op on web. */
+export async function openNativeAppLocationSettings(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  const platform = Capacitor.getPlatform();
+  if (platform !== "ios" && platform !== "android") return;
+  try {
+    const { NativeSettings, AndroidSettings, IOSSettings } = await import(
+      "capacitor-native-settings"
+    );
+    await NativeSettings.open({
+      optionAndroid: AndroidSettings.ApplicationDetails,
+      optionIOS: IOSSettings.App,
+    });
+  } catch (e) {
+    console.warn(LOG_PREFIX, "openNativeAppLocationSettings failed", e);
+  }
+}
+
 // Throttle backend updates from background watcher (same 60s idea)
 let lastBackgroundBackendUpdate = 0;
 const BACKGROUND_BACKEND_INTERVAL_MS = 60000;
+
+/** Tracks whether background samples last placed the user inside a geofenced venue. */
+type BackgroundVenuePresence = "unknown" | "inside" | "outside";
+let backgroundVenuePresence: BackgroundVenuePresence = "outside";
 
 export const locationService = {
   // Request location permissions. Does not call the system dialog if permission is already granted (avoids iOS re-prompt on every app open).
@@ -518,6 +544,7 @@ export const locationService = {
    */
   async startBackgroundWatcher(skipSupabase: boolean): Promise<string | null> {
     if (!isNative) return null;
+    backgroundVenuePresence = "unknown";
     try {
       const { registerPlugin } = await import("@capacitor/core");
       const BackgroundGeolocation = registerPlugin<{
@@ -542,15 +569,33 @@ export const locationService = {
           if (error?.code === "NOT_AUTHORIZED") return;
           if (!location) return;
           const now = Date.now();
-          if (now - lastBackgroundBackendUpdate < BACKGROUND_BACKEND_INTERVAL_MS) return;
-          const isAtVenue = findNearestVenue(location.latitude, location.longitude);
+          if (now - lastBackgroundBackendUpdate < BACKGROUND_BACKEND_INTERVAL_MS) {
+            return;
+          }
+          const isAtVenue = findNearestVenue(
+            location.latitude,
+            location.longitude
+          );
           if (isAtVenue && !skipSupabase) {
             lastBackgroundBackendUpdate = now;
-            locationService.updateLiveLocation({
-              latitude: location.latitude,
-              longitude: location.longitude,
-              accuracy: location.accuracy ?? 0,
-            }).catch((err) => console.error("Background location update failed:", err));
+            backgroundVenuePresence = "inside";
+            locationService
+              .updateLiveLocation({
+                latitude: location.latitude,
+                longitude: location.longitude,
+                accuracy: location.accuracy ?? 0,
+              })
+              .catch((err) =>
+                console.error("Background location update failed:", err)
+              );
+          } else if (!skipSupabase && backgroundVenuePresence !== "outside") {
+            lastBackgroundBackendUpdate = now;
+            backgroundVenuePresence = "outside";
+            locationService
+              .deactivateUserLocation()
+              .catch((err) =>
+                console.error("Background deactivate location failed:", err)
+              );
           }
         }
       );
@@ -563,6 +608,7 @@ export const locationService = {
 
   async stopBackgroundWatcher(watcherId: string | null): Promise<void> {
     if (!watcherId || !isNative) return;
+    backgroundVenuePresence = "outside";
     try {
       const { registerPlugin } = await import("@capacitor/core");
       const BackgroundGeolocation = registerPlugin<{ removeWatcher: (options: { id: string }) => Promise<void> }>("BackgroundGeolocation");
@@ -583,13 +629,15 @@ export const locationService = {
       return; // No backend update when not at venue
     }
 
-    // User is at a venue - upsert location
+    const nowIso = new Date().toISOString();
+    // User is at a venue - upsert location (always refresh last_updated for live counts)
     const locationData: LiveLocationInsert = {
       user_id: userId,
       venue_name: venueMatch.venue.name,
       latitude: location.latitude,
       longitude: location.longitude,
       is_active: true,
+      last_updated: nowIso,
     };
 
     const { error } = await supabase
@@ -638,10 +686,14 @@ export const locationService = {
 
   // Get live user counts per venue
   async getVenueCounts(): Promise<VenueCounts> {
+    const freshAfter = new Date(
+      Date.now() - LIVE_LOCATION_MAX_AGE_MS
+    ).toISOString();
     const { data, error } = await supabase
       .from("live_locations")
       .select("venue_name")
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .gte("last_updated", freshAfter);
 
     if (error) {
       if (isSupabaseNetworkError(error)) {
@@ -701,16 +753,19 @@ export const locationService = {
     };
   },
 
-  // Cleanup: Remove stale locations (older than 30 minutes)
+  // Cleanup: deactivate rows with stale last_updated (matches live count window)
   async cleanupStaleLocations(): Promise<void> {
-    const thirtyMinutesAgo = new Date(
-      Date.now() - 30 * 60 * 1000
+    const staleBefore = new Date(
+      Date.now() - LIVE_LOCATION_STALE_MS
     ).toISOString();
 
     const { error } = await supabase
       .from("live_locations")
-      .update({ is_active: false })
-      .lt("last_updated", thirtyMinutesAgo)
+      .update({
+        is_active: false,
+        last_updated: new Date().toISOString(),
+      })
+      .lt("last_updated", staleBefore)
       .eq("is_active", true);
 
     if (error) {

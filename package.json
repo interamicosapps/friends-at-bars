@@ -28,6 +28,7 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@supabase/supabase-js": "^2.76.1",
     "@types/react-router-dom": "^5.3.3",
+    "capacitor-native-settings": "^7.0.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "date-fns": "^4.1.0",

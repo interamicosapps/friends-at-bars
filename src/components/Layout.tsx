@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
+import { locationService } from "@/lib/locationService";
 import Navbar from "./Navbar";
 import BottomNav from "./BottomNav";
 import LocationLaunchGate from "@/components/LocationLaunchGate";
@@ -8,6 +10,12 @@ import { useGameImmersive } from "@/contexts/GameImmersiveContext";
 import { shellHeightImmersive } from "@/constants/layoutHeights";
 
 export default function Layout() {
+  useEffect(() => {
+    void locationService.cleanupStaleLocations().catch(() => {
+      /* non-blocking; counts also filter by last_updated */
+    });
+  }, []);
+
   const location = useLocation();
   const pathname = location.pathname;
   const { immersive } = useGameImmersive();

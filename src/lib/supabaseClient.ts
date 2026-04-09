@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { LIVE_LOCATION_MAX_AGE_MS } from "@/constants/liveLocation";
 import {
   SupabaseCheckIn,
   SupabaseCheckInInsert,
@@ -155,10 +156,14 @@ export const liveLocationService = {
 
   // Fetch aggregated venue counts
   async fetchVenueCounts(): Promise<VenueCounts> {
+    const freshAfter = new Date(
+      Date.now() - LIVE_LOCATION_MAX_AGE_MS
+    ).toISOString();
     const { data, error } = await supabase
       .from("live_locations")
       .select("venue_name")
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .gte("last_updated", freshAfter);
 
     if (error) throw error;
 
