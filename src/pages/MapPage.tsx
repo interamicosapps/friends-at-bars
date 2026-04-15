@@ -45,6 +45,9 @@ export default function MapPage() {
   const [mapAllowed, setMapAllowed] = useState<boolean | null>(null);
   const [locationPromptBusy, setLocationPromptBusy] = useState(false);
   const [showWebLocationHelp, setShowWebLocationHelp] = useState(false);
+  const [nativeSettingsError, setNativeSettingsError] = useState<string | null>(
+    null
+  );
 
   const nativeSettingsShortcut =
     isNativePlatform &&
@@ -89,7 +92,10 @@ export default function MapPage() {
       const granted = await locationService.checkPermissions();
       if (cancelled) return;
       setMapAllowed(granted);
-      if (granted) setShowWebLocationHelp(false);
+      if (granted) {
+        setShowWebLocationHelp(false);
+        setNativeSettingsError(null);
+      }
     };
 
     void evaluate();
@@ -118,10 +124,14 @@ export default function MapPage() {
   }, [mapAllowed]);
 
   const handleAllowLocation = async () => {
+    setNativeSettingsError(null);
     setLocationPromptBusy(true);
     try {
       if (nativeSettingsShortcut) {
-        await openNativeAppLocationSettings();
+        const result = await openNativeAppLocationSettings();
+        if (!result.ok) {
+          setNativeSettingsError(result.displayText);
+        }
         return;
       }
       await locationToggleRef.current?.requestEnable();
@@ -144,6 +154,7 @@ export default function MapPage() {
 
   const handleBackFromMapPrompt = () => {
     setShowWebLocationHelp(false);
+    setNativeSettingsError(null);
     if (window.history.length > 1) {
       navigate(-1);
     } else {
@@ -257,6 +268,7 @@ export default function MapPage() {
         coverNav
         nativeSettingsNote={nativeSettingsShortcut}
         showWebLocationHelp={showWebLocationHelp}
+        nativeSettingsError={nativeSettingsError}
       />
     </div>
   );

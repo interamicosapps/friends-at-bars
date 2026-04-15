@@ -1,6 +1,11 @@
 import { Capacitor } from "@capacitor/core";
 import { Geolocation as CapacitorGeolocation } from "@capacitor/geolocation";
 import {
+  NativeSettings,
+  AndroidSettings,
+  IOSSettings,
+} from "capacitor-native-settings";
+import {
   supabase,
   logSupabaseNetworkOnce,
   isSupabaseNetworkError,
@@ -308,21 +313,79 @@ const webGeolocation = {
 const isNative = Capacitor.isNativePlatform();
 export { isNative as isNativePlatform };
 
-/** iOS / Android only: opens system Settings for this app (Location, etc.). No-op on web. */
-export async function openNativeAppLocationSettings(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
+export type OpenNativeAppSettingsResult =
+  | { ok: true }
+  | { ok: false; displayText: string };
+
+function buildSettingsOpenFailureDisplay(
+  platform: string,
+  summary: string,
+  detail?: string
+): string {
+  const d = detail?.trim() || "(none)";
+  return [
+    "Couldn't open Settings from the app.",
+    "",
+    summary,
+    "",
+    "Detail for support (copy everything below this line):",
+    "---",
+    `platform=${platform}`,
+    d,
+  ].join("\n");
+}
+
+/** iOS / Android: opens system Settings for this app (app page on iOS, app details on Android). */
+export async function openNativeAppLocationSettings(): Promise<OpenNativeAppSettingsResult> {
+  if (!Capacitor.isNativePlatform()) {
+    return {
+      ok: false,
+      displayText: buildSettingsOpenFailureDisplay(
+        "web-or-unknown",
+        "Not running inside the native app shell.",
+        "Capacitor.isNativePlatform() is false"
+      ),
+    };
+  }
   const platform = Capacitor.getPlatform();
-  if (platform !== "ios" && platform !== "android") return;
+  if (platform !== "ios" && platform !== "android") {
+    return {
+      ok: false,
+      displayText: buildSettingsOpenFailureDisplay(
+        platform,
+        "Opening Settings is only set up for iOS and Android.",
+        `getPlatform()=${platform}`
+      ),
+    };
+  }
   try {
-    const { NativeSettings, AndroidSettings, IOSSettings } = await import(
-      "capacitor-native-settings"
-    );
-    await NativeSettings.open({
+    const result = await NativeSettings.open({
       optionAndroid: AndroidSettings.ApplicationDetails,
       optionIOS: IOSSettings.App,
     });
-  } catch (e) {
+    if (result && typeof result === "object" && result.status === false) {
+      return {
+        ok: false,
+        displayText: buildSettingsOpenFailureDisplay(
+          platform,
+          "The system reported that Settings did not open.",
+          `NativeSettings.open returned status=false: ${JSON.stringify(result)}`
+        ),
+      };
+    }
+    return { ok: true };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? e.stack : undefined;
     console.warn(LOG_PREFIX, "openNativeAppLocationSettings failed", e);
+    return {
+      ok: false,
+      displayText: buildSettingsOpenFailureDisplay(
+        platform,
+        msg || "Unknown error",
+        stack ? `${msg}\n${stack}` : msg
+      ),
+    };
   }
 }
 

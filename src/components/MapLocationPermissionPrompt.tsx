@@ -1,4 +1,5 @@
 import { MapPinned } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 
 export type LocationPermissionPromptVariant = "launch" | "map";
 
@@ -14,6 +15,8 @@ export interface MapLocationPermissionPromptProps {
   nativeSettingsNote?: boolean;
   /** Web: show how to allow location via the browser site controls. */
   showWebLocationHelp?: boolean;
+  /** Native: full error text when opening Settings failed (copyable for support). */
+  nativeSettingsError?: string | null;
 }
 
 const COPY: Record<
@@ -40,6 +43,7 @@ function MapLocationPermissionPrompt({
   coverNav = false,
   nativeSettingsNote = false,
   showWebLocationHelp = false,
+  nativeSettingsError = null,
 }: MapLocationPermissionPromptProps) {
   if (!open) return null;
 
@@ -90,6 +94,28 @@ function MapLocationPermissionPrompt({
               on. Return here when you are done.
             </p>
           )}
+          {nativeSettingsNote && Capacitor.getPlatform() === "android" && (
+            <p className="mt-1 max-w-sm text-pretty text-xs leading-relaxed text-zinc-500">
+              App info → Permissions → Location.
+            </p>
+          )}
+          {nativeSettingsError ? (
+            <div
+              className="mt-4 w-full max-w-md rounded-xl border border-red-500/40 bg-red-950/50 px-3 py-3 text-left"
+              role="alert"
+              aria-live="polite"
+            >
+              <p className="text-sm font-medium text-red-200">
+                Something went wrong opening Settings
+              </p>
+              <p className="mt-1 text-xs text-red-200/80">
+                Copy the text below and share it if you need help.
+              </p>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2 font-mono text-[11px] leading-snug text-zinc-200 select-all">
+                {nativeSettingsError}
+              </pre>
+            </div>
+          ) : null}
           {showWebLocationHelp && (
             <p
               className="mt-3 max-w-sm text-pretty text-xs leading-relaxed text-amber-200/90"

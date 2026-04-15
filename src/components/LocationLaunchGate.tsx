@@ -38,6 +38,9 @@ export default function LocationLaunchGate() {
   const [overlay, setOverlay] = useState<LaunchOverlay>("checking");
   const [busy, setBusy] = useState(false);
   const [showWebLocationHelp, setShowWebLocationHelp] = useState(false);
+  const [nativeSettingsError, setNativeSettingsError] = useState<string | null>(
+    null
+  );
   const nativeSettingsShortcut = useNativeSettingsShortcut();
 
   useEffect(() => {
@@ -50,6 +53,7 @@ export default function LocationLaunchGate() {
       if (granted || skipped) {
         setOverlay("hidden");
         setShowWebLocationHelp(false);
+        setNativeSettingsError(null);
       } else {
         setOverlay("prompt");
       }
@@ -82,10 +86,14 @@ export default function LocationLaunchGate() {
   }, [overlay]);
 
   const handleAllow = async () => {
+    setNativeSettingsError(null);
     setBusy(true);
     try {
       if (nativeSettingsShortcut) {
-        await openNativeAppLocationSettings();
+        const result = await openNativeAppLocationSettings();
+        if (!result.ok) {
+          setNativeSettingsError(result.displayText);
+        }
         return;
       }
       await locationToggleRef.current?.requestEnable();
@@ -110,6 +118,7 @@ export default function LocationLaunchGate() {
     setLaunchSkipped();
     setOverlay("hidden");
     setShowWebLocationHelp(false);
+    setNativeSettingsError(null);
   };
 
   const showPrompt = overlay === "prompt";
@@ -136,6 +145,7 @@ export default function LocationLaunchGate() {
         coverNav
         nativeSettingsNote={nativeSettingsShortcut}
         showWebLocationHelp={showWebLocationHelp}
+        nativeSettingsError={nativeSettingsError}
       />
     </>
   );
