@@ -30,6 +30,7 @@ workflows:
         script: |
           if [ -z "$VITE_MAPKIT_TOKEN" ]; then echo "Note: VITE_MAPKIT_TOKEN is not set — native iOS map still works; MapKit JS (web) needs a token at runtime."; fi
           npm run build
+      # Regenerates ios/App/App/capacitor.config.json + Package.swift; required so native plugins match JS.
       - name: Sync Capacitor iOS
         script: |
           npx cap sync ios
