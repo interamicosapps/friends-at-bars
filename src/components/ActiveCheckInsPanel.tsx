@@ -43,6 +43,8 @@ interface ActiveCheckInsPanelProps {
   showLiveViewerCounts?: boolean;
   /** Per-venue live viewer counts from `live_locations` or test data; null while loading. */
   liveVenueCounts?: Record<string, number> | null;
+  /** When true, hide all attendance-style counts (area + venue); still list venues when expanded. */
+  hideAttendanceBadges?: boolean;
 }
 
 const formatDateValue = (date: Date) => format(date, "yyyy-MM-dd");
@@ -61,6 +63,7 @@ export default function ActiveCheckInsPanel({
   endSlot,
   showLiveViewerCounts = false,
   liveVenueCounts = null,
+  hideAttendanceBadges = false,
 }: ActiveCheckInsPanelProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
@@ -125,8 +128,13 @@ export default function ActiveCheckInsPanel({
   };
 
   const liveMode = Boolean(
-    showLiveViewerCounts && liveVenueCounts !== null
+    showLiveViewerCounts && liveVenueCounts !== null && !hideAttendanceBadges
   );
+
+  const venuesInAreaSorted = (area: string) =>
+    OHIO_STATE_VENUES.filter((v) => v.area === area)
+      .map((v) => v.name)
+      .sort((a, b) => a.localeCompare(b));
 
   type AreaData = { venues: Record<string, number>; total: number };
   const areaMap: Record<string, AreaData> = {};
@@ -269,7 +277,7 @@ export default function ActiveCheckInsPanel({
                           {area}
                         </span>
                       </div>
-                      {areaData.total >= 1 ? (
+                      {!hideAttendanceBadges && areaData.total >= 1 ? (
                         <span
                           className={cn(
                             "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
@@ -284,7 +292,20 @@ export default function ActiveCheckInsPanel({
                     </button>
                     {isExpanded && (
                       <div className="border-t border-gray-200 bg-white">
-                        {areaData.total === 0 ? (
+                        {hideAttendanceBadges ? (
+                          <div className="space-y-1 p-2">
+                            {venuesInAreaSorted(area).map((venueName) => (
+                              <div
+                                key={venueName}
+                                className="rounded px-3 py-2 hover:bg-gray-50"
+                              >
+                                <span className="text-sm font-medium text-gray-700">
+                                  {venueName}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : areaData.total === 0 ? (
                           <p className="px-3 py-4 text-center text-sm font-medium text-gray-500">
                             No Attendance Recorded
                           </p>

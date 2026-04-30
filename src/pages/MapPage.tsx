@@ -243,7 +243,13 @@ export default function MapPage() {
         )}
       </div>
 
-      {mapAllowed === true && (
+      {/* Load map even when permission is denied so it shows behind the prompt; block interaction until allowed. */}
+      <div
+        className={cn(
+          "absolute inset-0 z-0 min-h-0 w-full",
+          mapAllowed !== true && "pointer-events-none"
+        )}
+      >
         <MapView
           checkIns={checkIns}
           selectedDate={selectedDate}
@@ -256,7 +262,7 @@ export default function MapPage() {
           dynamicStartTime={getDynamicStartTime()}
           fillContainer
         />
-      )}
+      </div>
 
       <MapLocationPermissionPrompt
         open={mapAllowed === false}

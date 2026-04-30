@@ -19,17 +19,13 @@ export interface MapLocationPermissionPromptProps {
   nativeSettingsError?: string | null;
 }
 
-const COPY: Record<
-  LocationPermissionPromptVariant,
-  { description: string }
-> = {
+const COPY: Record<LocationPermissionPromptVariant, { description: string }> = {
   launch: {
-    description:
-      "Find the best bars in your area and scope out their vibe. You can skip for now and explore the app - the map will ask again when you open it.",
+    description: "Find the best bars in your area and scope out their vibe.",
   },
   map: {
     description:
-      "The map needs your location to show where you are and what's nearby. Go back to keep browsing, or allow access to open the map.",
+      "Enable location to browse attendance and deals at your favorite bars.",
   },
 };
 
@@ -54,12 +50,12 @@ function MapLocationPermissionPrompt({
       ? "Open Settings"
       : "Allow location access";
 
+  const overlayBgClass = variant === "map" ? "bg-zinc-950/70" : "bg-zinc-950";
+
   return (
     <div
-      className={`flex flex-col bg-zinc-950 text-white ${
-        coverNav
-          ? "fixed inset-0 z-[200]"
-          : "fixed inset-x-0 top-0 z-[100]"
+      className={`flex flex-col text-white ${overlayBgClass} ${
+        coverNav ? "fixed inset-0 z-[200]" : "fixed inset-x-0 top-0 z-[100]"
       }`}
       style={
         coverNav
@@ -88,15 +84,9 @@ function MapLocationPermissionPrompt({
           >
             {description}
           </p>
-          {nativeSettingsNote && (
-            <p className="mt-2 max-w-sm text-pretty text-xs leading-relaxed text-zinc-500">
-              The button below opens Settings for this app so you can turn Location
-              on. Return here when you are done.
-            </p>
-          )}
           {nativeSettingsNote && Capacitor.getPlatform() === "android" && (
-            <p className="mt-1 max-w-sm text-pretty text-xs leading-relaxed text-zinc-500">
-              App info → Permissions → Location.
+            <p className="mt-2 max-w-sm text-pretty text-xs leading-relaxed text-zinc-500">
+              App info → Permissions → Location
             </p>
           )}
           {nativeSettingsError ? (
@@ -111,7 +101,7 @@ function MapLocationPermissionPrompt({
               <p className="mt-1 text-xs text-red-200/80">
                 Copy the text below and share it if you need help.
               </p>
-              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2 font-mono text-[11px] leading-snug text-zinc-200 select-all">
+              <pre className="mt-2 max-h-40 select-all overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2 font-mono text-[11px] leading-snug text-zinc-200">
                 {nativeSettingsError}
               </pre>
             </div>
@@ -121,9 +111,9 @@ function MapLocationPermissionPrompt({
               className="mt-3 max-w-sm text-pretty text-xs leading-relaxed text-amber-200/90"
               role="status"
             >
-              If the browser did not ask for location: use the lock or site icon in
-              the address bar, open site settings or permissions, set Location to
-              Allow, then come back to this tab.
+              If the browser did not ask for location: use the lock or site icon
+              in the address bar, open site settings or permissions, set
+              Location to Allow, then come back to this tab.
             </p>
           )}
           <div
@@ -150,7 +140,7 @@ function MapLocationPermissionPrompt({
             type="button"
             disabled={busy}
             onClick={onSecondary}
-            className="w-full rounded-2xl border border-white/25 bg-transparent py-3.5 text-center text-base font-semibold text-white transition enabled:hover:bg-white/10 enabled:active:scale-[0.99] disabled:opacity-50"
+            className="w-full rounded-2xl border border-zinc-600 bg-zinc-800 py-3.5 text-center text-base font-semibold text-white shadow-md transition enabled:hover:bg-zinc-700 enabled:active:scale-[0.99] disabled:opacity-50"
           >
             {secondaryLabel}
           </button>

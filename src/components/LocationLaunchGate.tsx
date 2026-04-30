@@ -30,8 +30,8 @@ function useNativeSettingsShortcut(): boolean {
 type LaunchOverlay = "checking" | "prompt" | "hidden";
 
 /**
- * Blocks the whole app on first load when location permission is not granted,
- * until the user allows (system dialog) or skips (session only—map will gate again).
+ * Full-screen location prompt on first load when permission is not granted,
+ * until the user allows (system dialog / Settings) or skips (session only—map gates again).
  */
 export default function LocationLaunchGate() {
   const { locationToggleRef } = useLocationTrackingOutlet();
@@ -70,7 +70,6 @@ export default function LocationLaunchGate() {
     };
   }, []);
 
-  // When launch gate is not blocking, ensure tracking if OS permission exists.
   useEffect(() => {
     if (overlay !== "hidden") return;
     let cancelled = false;

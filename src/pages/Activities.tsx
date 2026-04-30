@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import { Menu } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 import CheckInOverlayContent from "@/components/CheckInOverlayContent";
 import { CheckIn } from "@/types/checkin";
@@ -14,6 +15,13 @@ import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
 import { fetchLiveVenueCountsForDisplay } from "@/lib/fetchLiveVenueCounts";
 import type { VenueCounts } from "@/types/checkin";
 import { useTestMode } from "@/contexts/TestModeContext";
+import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
+import {
+  locationService,
+  getLocationTrackingEnabled,
+  isNativePlatform,
+  openNativeAppLocationSettings,
+} from "@/lib/locationService";
 
 const CHECKIN_OVERLAY_KEY = "activities_checkin_overlay_collapsed";
 
@@ -30,6 +38,7 @@ function setCheckInOverlayCollapsed(collapsed: boolean) {
 }
 
 export default function Activities() {
+  const { locationToggleRef } = useLocationTrackingOutlet();
   const { useMockCheckIns } = useTestMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
@@ -100,8 +109,71 @@ export default function Activities() {
     null
   );
 
+  /** OS permission + in-app live toggle — required to show live bar attendance. */
+  const [attendanceUnlocked, setAttendanceUnlocked] = useState(false);
+  const [locationCtaBusy, setLocationCtaBusy] = useState(false);
+  const [locationCtaMessage, setLocationCtaMessage] = useState<string | null>(
+    null
+  );
+
+  const nativeSettingsShortcut =
+    isNativePlatform &&
+    (Capacitor.getPlatform() === "ios" ||
+      Capacitor.getPlatform() === "android");
+
+  const handleLocationCtaClick = async () => {
+    setLocationCtaMessage(null);
+    setLocationCtaBusy(true);
+    try {
+      if (nativeSettingsShortcut) {
+        const result = await openNativeAppLocationSettings();
+        if (!result.ok) {
+          setLocationCtaMessage(result.displayText);
+        }
+        return;
+      }
+      await locationToggleRef.current?.requestEnable();
+      const granted = await locationService.checkPermissions();
+      const trackingOn = getLocationTrackingEnabled();
+      if (!granted || !trackingOn) {
+        setLocationCtaMessage(
+          "If the browser did not ask for location: use the site icon in the address bar, set Location to Allow, then try again."
+        );
+      }
+    } catch {
+      if (!nativeSettingsShortcut) {
+        setLocationCtaMessage("Something went wrong. Please try again.");
+      }
+    } finally {
+      setLocationCtaBusy(false);
+    }
+  };
+
   useEffect(() => {
-    if (!isLiveNow) {
+    let cancelled = false;
+    const refresh = async () => {
+      const permission = await locationService.checkPermissions();
+      if (cancelled) return;
+      setAttendanceUnlocked(permission && getLocationTrackingEnabled());
+    };
+    void refresh();
+    const onFocus = () => void refresh();
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    const poll = window.setInterval(refresh, 2000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+      window.clearInterval(poll);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isLiveNow || !attendanceUnlocked) {
       setLiveVenueCounts(null);
       return;
     }
@@ -120,7 +192,7 @@ export default function Activities() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [isLiveNow, useMockCheckIns]);
+  }, [isLiveNow, attendanceUnlocked, useMockCheckIns]);
 
   const loadCheckIns = async () => {
     try {
@@ -170,6 +242,27 @@ export default function Activities() {
       {/* Main content: list view (date header + ActiveCheckInsPanel) */}
       <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+          {!attendanceUnlocked && (
+            <div className="mb-1.5">
+              <button
+                type="button"
+                disabled={locationCtaBusy}
+                onClick={() => void handleLocationCtaClick()}
+                className="activities-location-strip flex h-[22px] w-full shrink-0 items-center justify-center rounded border border-amber-800/40 bg-amber-900 px-1.5 text-amber-50 shadow-sm transition enabled:hover:bg-amber-800 enabled:active:scale-[0.99] disabled:opacity-60"
+              >
+                <span className="min-h-0 min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-center text-[10px] font-semibold leading-none tracking-tight [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  {locationCtaBusy
+                    ? "Opening…"
+                    : "Click Here to Enable Location and see how busy each bar is right now!"}
+                </span>
+              </button>
+              {locationCtaMessage ? (
+                <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border border-amber-900/20 bg-amber-950/10 p-1.5 font-mono text-[10px] leading-snug text-amber-950/90">
+                  {locationCtaMessage}
+                </pre>
+              ) : null}
+            </div>
+          )}
           <ActiveCheckInsPanel
             checkIns={checkIns}
             selectedDate={selectedDate}
@@ -178,8 +271,9 @@ export default function Activities() {
             onSelectTime={handleSelectTime}
             timeOptions={nightlifeTimeOptions}
             dynamicStartTime={getDynamicStartTime()}
-            showLiveViewerCounts={isLiveNow}
+            showLiveViewerCounts={attendanceUnlocked && isLiveNow}
             liveVenueCounts={liveVenueCounts}
+            hideAttendanceBadges={!attendanceUnlocked}
             endSlot={
               checkInOverlayOpen ? undefined : (
                 <button

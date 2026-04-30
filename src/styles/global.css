@@ -35,13 +35,19 @@
 /* Mobile optimizations */
 @media (max-width: 768px) {
   /* Ensure minimum touch target sizes on mobile */
-  button:not(.mega-toe-cell),
+  /* Compact full-width strips (Activities location CTA) opt out — see Activities.tsx */
+  button:not(.mega-toe-cell):not(.activities-location-strip),
   a,
   input[type="button"],
   input[type="submit"],
   [role="button"] {
     min-height: 44px;
     min-width: 44px;
+  }
+
+  button.activities-location-strip {
+    min-height: unset;
+    min-width: unset;
   }
 
   /* Improve tap targets for interactive elements */
