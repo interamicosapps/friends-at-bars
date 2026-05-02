@@ -11,22 +11,22 @@ import {
   isSupabaseNetworkError,
   wasSupabaseNetworkError,
 } from "./supabaseClient";
-import { OHIO_STATE_VENUES } from "@/data/venues";
 import {
   LIVE_LOCATION_MAX_AGE_MS,
   LIVE_LOCATION_STALE_MS,
 } from "@/constants/liveLocation";
-import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
+import { LiveLocationInsert, VenueCounts } from "@/types/checkin";
+import { nearestVenueForOccupancy } from "@/lib/venueResolution";
+import {
+  isOccupancyApiConfigured,
+  sendOccupancyHeartbeat,
+  leaveOccupancy,
+} from "@/lib/occupancyClient";
 
 interface LocationData {
   latitude: number;
   longitude: number;
   accuracy: number;
-}
-
-interface VenueMatch {
-  venue: Venue;
-  distance: number;
 }
 
 // Type definitions for geolocation
@@ -69,53 +69,6 @@ function logGeoError(
   } else {
     console.warn(LOG_PREFIX, step, err, extra);
   }
-}
-
-// Calculate distance between two coordinates using Haversine formula (in meters)
-function calculateDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371e3; // Earth radius in meters
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // Distance in meters
-}
-
-// Find which venue (if any) the user is at (within 100m radius)
-function findNearestVenue(
-  latitude: number,
-  longitude: number,
-  radiusMeters: number = 100
-): VenueMatch | null {
-  let closestMatch: VenueMatch | null = null;
-  let minDistance = radiusMeters;
-
-  for (const venue of OHIO_STATE_VENUES) {
-    const distance = calculateDistance(
-      latitude,
-      longitude,
-      venue.coordinates[0],
-      venue.coordinates[1]
-    );
-
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestMatch = { venue, distance };
-    }
-  }
-
-  return closestMatch;
 }
 
 const LOCATION_TRACKING_ENABLED_KEY = "location_tracking_enabled";
@@ -635,7 +588,7 @@ export const locationService = {
           if (now - lastBackgroundBackendUpdate < BACKGROUND_BACKEND_INTERVAL_MS) {
             return;
           }
-          const isAtVenue = findNearestVenue(
+          const isAtVenue = nearestVenueForOccupancy(
             location.latitude,
             location.longitude
           );
@@ -684,16 +637,27 @@ export const locationService = {
   // Update user's live location in database
   async updateLiveLocation(location: LocationData): Promise<void> {
     const userId = getUserId();
-    const venueMatch = findNearestVenue(location.latitude, location.longitude);
+    const venueMatch = nearestVenueForOccupancy(
+      location.latitude,
+      location.longitude
+    );
 
-    // Only update backend if at a venue
-    // If not at venue, do nothing (no backend effect)
+    if (isOccupancyApiConfigured()) {
+      void sendOccupancyHeartbeat(
+        location.latitude,
+        location.longitude,
+        userId
+      ).catch((err) =>
+        console.warn("[BarFest occupancy] heartbeat failed:", err)
+      );
+    }
+
+    // Only update Supabase row when assigned to a nearby venue pin
     if (!venueMatch) {
-      return; // No backend update when not at venue
+      return;
     }
 
     const nowIso = new Date().toISOString();
-    // User is at a venue - upsert location (always refresh last_updated for live counts)
     const locationData: LiveLocationInsert = {
       user_id: userId,
       venue_name: venueMatch.venue.name,
@@ -721,6 +685,11 @@ export const locationService = {
   // Deactivate user's location in database (when tracking stops)
   async deactivateUserLocation(): Promise<void> {
     const userId = getUserId();
+    if (isOccupancyApiConfigured()) {
+      void leaveOccupancy(userId).catch((err) =>
+        console.warn("[BarFest occupancy] leave failed:", err)
+      );
+    }
     const { error } = await supabase
       .from("live_locations")
       .update({
@@ -743,8 +712,7 @@ export const locationService = {
 
   // Check if location is at a venue (exposed for LocationToggle to check before backend updates)
   checkIfAtVenue(latitude: number, longitude: number): boolean {
-    const venueMatch = findNearestVenue(latitude, longitude);
-    return venueMatch !== null;
+    return nearestVenueForOccupancy(latitude, longitude) !== null;
   },
 
   // Get live user counts per venue

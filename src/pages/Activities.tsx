@@ -14,6 +14,10 @@ import {
 import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
 import { fetchLiveVenueCountsForDisplay } from "@/lib/fetchLiveVenueCounts";
 import type { VenueCounts } from "@/types/checkin";
+import {
+  isOccupancyComparisonEnabled,
+  subscribeOccupancyCounts,
+} from "@/lib/occupancyClient";
 import { useTestMode } from "@/contexts/TestModeContext";
 import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
 import {
@@ -108,6 +112,9 @@ export default function Activities() {
   const [liveVenueCounts, setLiveVenueCounts] = useState<VenueCounts | null>(
     null
   );
+  const [hybridVenueCounts, setHybridVenueCounts] = useState<VenueCounts | null>(
+    null
+  );
 
   /** OS permission + in-app live toggle — required to show live bar attendance. */
   const [attendanceUnlocked, setAttendanceUnlocked] = useState(false);
@@ -194,6 +201,29 @@ export default function Activities() {
     };
   }, [isLiveNow, attendanceUnlocked, useMockCheckIns]);
 
+  useEffect(() => {
+    if (
+      !isOccupancyComparisonEnabled() ||
+      !isLiveNow ||
+      !attendanceUnlocked
+    ) {
+      if (import.meta.env.DEV) {
+        console.info("[BarFest occ debug] Activities: hybrid polling off", {
+          isOccupancyComparisonEnabled: isOccupancyComparisonEnabled(),
+          isLiveNow,
+          attendanceUnlocked,
+        });
+      }
+      setHybridVenueCounts(null);
+      return;
+    }
+    if (import.meta.env.DEV) {
+      console.info("[BarFest occ debug] Activities: hybrid polling ON");
+    }
+    const unsub = subscribeOccupancyCounts(setHybridVenueCounts);
+    return unsub;
+  }, [isLiveNow, attendanceUnlocked]);
+
   const loadCheckIns = async () => {
     try {
       const convertedCheckIns = await fetchCheckInsForDisplay(useMockCheckIns);
@@ -273,6 +303,8 @@ export default function Activities() {
             dynamicStartTime={getDynamicStartTime()}
             showLiveViewerCounts={attendanceUnlocked && isLiveNow}
             liveVenueCounts={liveVenueCounts}
+            hybridVenueCounts={hybridVenueCounts}
+            showHybridComparison={isOccupancyComparisonEnabled()}
             hideAttendanceBadges={!attendanceUnlocked}
             endSlot={
               checkInOverlayOpen ? undefined : (

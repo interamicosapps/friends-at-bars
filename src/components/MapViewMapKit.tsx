@@ -4,6 +4,11 @@ import { OHIO_STATE_VENUES } from "@/data/venues";
 import { isCheckInActiveAt } from "@/lib/timeUtils";
 import { locationService } from "@/lib/locationService";
 import { loadMapKit } from "@/lib/mapkitLoader";
+import {
+  BAR_ZONE_CENTER,
+  BAR_ZONE_RADIUS_METERS,
+} from "@/constants/barZoneFence";
+import { approximateCircleRingWgs84 } from "@/lib/geodesicPolygon";
 
 const MAP_REGION_KEY = "activities_map_region";
 
@@ -12,6 +17,10 @@ export interface MapViewMapKitProps {
   selectedDate: string;
   selectedTime: string;
   userLocation?: { latitude: number; longitude: number } | null;
+  /** Dev/test: outline unified bar-zone circle */
+  showBarZoneTestFence?: boolean;
+  showLiveCountComparison?: boolean;
+  hybridLiveVenueCounts?: VenueCounts | null;
   onFirstInteraction?: () => void;
   onMapReady?: () => void;
 }
@@ -22,11 +31,15 @@ export default function MapViewMapKit({
   selectedDate,
   selectedTime,
   userLocation,
+  showBarZoneTestFence = false,
+  showLiveCountComparison = false,
+  hybridLiveVenueCounts = null,
   onFirstInteraction,
   onMapReady,
 }: MapViewMapKitProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapkit.Map | null>(null);
+  const barZoneFenceOverlayRef = useRef<unknown | null>(null);
   const mapReadyFired = useRef(false);
   const hasFiredFirstInteraction = useRef(false);
   const userLocationAnnotationRef = useRef<mapkit.Annotation | null>(null);
@@ -268,6 +281,71 @@ export default function MapViewMapKit({
     }
   }, [userLocation, mapReady]);
 
+  // Test-mode bar zone polygon (thick red outline)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const prevOverlay = barZoneFenceOverlayRef.current as { remove?: () => void } | null;
+    try {
+      if (prevOverlay && typeof map.removeOverlay === "function") {
+        map.removeOverlay(prevOverlay);
+      }
+    } catch {
+      // ignore
+    }
+    barZoneFenceOverlayRef.current = null;
+
+    if (!showBarZoneTestFence || typeof map.addOverlay !== "function") {
+      return;
+    }
+
+    try {
+      const ring = approximateCircleRingWgs84(
+        BAR_ZONE_CENTER.latitude,
+        BAR_ZONE_CENTER.longitude,
+        BAR_ZONE_RADIUS_METERS
+      ).map((p) => new mapkit.Coordinate(p.latitude, p.longitude));
+      let styleOpts: ConstructorParameters<typeof mapkit.Style>[0] | undefined;
+      try {
+        styleOpts = {
+          strokeColor: "#DC2626",
+          lineWidth: 4,
+          fillColor: "rgba(220,38,38,0.06)",
+          fillOpacity: 0.06,
+        };
+      } catch {
+        styleOpts = undefined;
+      }
+      const OverlayCtor =
+        (
+          mapkit as unknown as {
+            PolygonOverlay?: new (coords: mapkit.Coordinate[], s?: mapkit.Style) => unknown;
+          }
+        ).PolygonOverlay ?? null;
+      if (!OverlayCtor) return;
+      const style = styleOpts ? new mapkit.Style(styleOpts) : undefined;
+      const overlay = new OverlayCtor(ring, style);
+      map.addOverlay(overlay);
+      barZoneFenceOverlayRef.current = overlay;
+    } catch (e) {
+      console.warn("[BarFest MapKit] bar zone overlay failed:", e);
+    }
+
+    return () => {
+      const m = mapRef.current;
+      const o = barZoneFenceOverlayRef.current;
+      barZoneFenceOverlayRef.current = null;
+      try {
+        if (m && o && typeof m.removeOverlay === "function") {
+          m.removeOverlay(o);
+        }
+      } catch {
+        // ignore
+      }
+    };
+  }, [showBarZoneTestFence, mapReady]);
+
   if (error) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-gray-100 p-4 text-center text-sm text-gray-600">
@@ -322,18 +400,29 @@ export default function MapViewMapKit({
           {(() => {
             const checkInCount = popupInfo.checkIns.length;
             const liveCount = liveCounts[popupInfo.venue.name] || 0;
-            const totalCount = checkInCount + liveCount;
-            if (totalCount === 0) {
+            const hybridOn =
+              showLiveCountComparison && hybridLiveVenueCounts !== null;
+            const hybridCount = hybridOn
+              ? hybridLiveVenueCounts![popupInfo.venue.name] ?? 0
+              : null;
+
+            if (!hybridOn && checkInCount === 0 && liveCount === 0) {
               return (
                 <p className="text-sm font-semibold text-gray-500">
                   No check-ins during this time
                 </p>
               );
             }
+
+            const headlineTotal =
+              checkInCount +
+              (hybridOn ? Math.max(liveCount, hybridCount ?? 0) : liveCount);
+
             return (
               <div className="space-y-1">
                 <p className="text-sm font-bold text-gray-800">
-                  {totalCount} {totalCount === 1 ? "person" : "people"} total
+                  {headlineTotal}{" "}
+                  {headlineTotal === 1 ? "person" : "people"} approximate total
                 </p>
                 <div className="space-y-0.5 text-xs text-gray-600">
                   {checkInCount > 0 && (
@@ -342,10 +431,21 @@ export default function MapViewMapKit({
                       {checkInCount > 1 ? "s" : ""}
                     </p>
                   )}
-                  {liveCount > 0 && (
-                    <p>
-                      {liveCount} live user{liveCount > 1 ? "s" : ""} at venue
-                    </p>
+                  {hybridOn ? (
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                        {hybridCount ?? 0} hybrid live
+                      </span>
+                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+                        {liveCount} legacy live
+                      </span>
+                    </div>
+                  ) : (
+                    liveCount > 0 && (
+                      <p>
+                        {liveCount} live user{liveCount > 1 ? "s" : ""} at venue
+                      </p>
+                    )
                   )}
                 </div>
               </div>

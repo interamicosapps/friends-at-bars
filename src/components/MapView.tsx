@@ -3,18 +3,19 @@ import { Capacitor } from "@capacitor/core";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CheckIn } from "@/types/checkin";
 import {
   generateStartTimeOptions,
   isCheckInActiveAt,
 } from "@/lib/timeUtils";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
+import { CheckIn as CheckInModel, VenueCounts } from "@/types/checkin";
+import { useTestMode } from "@/contexts/TestModeContext";
 
 const MapViewMapLibre = lazy(() => import("@/components/MapViewMapLibre"));
 const MapViewMapKit = lazy(() => import("@/components/MapViewMapKit"));
 
 export interface MapViewProps {
-  checkIns: CheckIn[];
+  checkIns: CheckInModel[];
   selectedDate: string;
   selectedTime: string;
   onSelectDate: (date: string) => void;
@@ -31,6 +32,9 @@ export interface MapViewProps {
   onMapReady?: () => void;
   /** Fill parent (e.g. map page): edge-to-edge, no card chrome. */
   fillContainer?: boolean;
+  /** Map popups: show green hybrid vs red legacy counts. */
+  showLiveCountComparison?: boolean;
+  hybridLiveVenueCounts?: VenueCounts | null;
 }
 
 /**
@@ -53,7 +57,11 @@ export default function MapView({
   onFirstInteraction,
   onMapReady,
   fillContainer = false,
+  showLiveCountComparison = false,
+  hybridLiveVenueCounts = null,
 }: MapViewProps) {
+  const { useMockCheckIns, devTestModeUiEnabled } = useTestMode();
+  const showBarZoneTestFence = devTestModeUiEnabled && useMockCheckIns;
   const [isCollapsed, setIsCollapsed] = useState(true);
   const previousSelectedDate = useRef<string | null>(null);
 
@@ -103,6 +111,9 @@ export default function MapView({
     selectedDate,
     selectedTime,
     userLocation,
+    showBarZoneTestFence,
+    showLiveCountComparison,
+    hybridLiveVenueCounts,
     onFirstInteraction,
     onMapReady,
   };

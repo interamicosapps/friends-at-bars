@@ -29,11 +29,23 @@ declare global {
       constructor(latitudeDelta: number, longitudeDelta: number);
     }
 
+    class Style {
+      constructor(options?: Record<string, unknown>);
+    }
+
+    /** Closed venue polygon overlay (often used for geo shapes on the map). */
+    class PolygonOverlay {
+      constructor(coordinates: Coordinate[], style?: Style);
+      enabled?: boolean;
+    }
+
     class Map {
       constructor(element: HTMLElement, options?: MapKitMapOptions);
       region: CoordinateRegion;
       addAnnotation(annotation: Annotation): void;
       removeAnnotation(annotation: Annotation): void;
+      addOverlay(overlay: unknown): void;
+      removeOverlay(overlay: unknown): void;
       destroy(): void;
       selectedAnnotation: Annotation | null;
       annotations: Annotation[];

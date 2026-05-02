@@ -5,6 +5,34 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // Dev-only: lets the web app call the occupancy service on the machine that runs Vite,
+    // so `Failed to fetch` is avoided when using a phone (127.0.0.1:8787 would hit the phone, not your PC).
+    // Set `VITE_OCCUPANCY_API_URL=/api/occupancy` in `.env.local` and keep occupancy-service on PORT 8787.
+    proxy: {
+      "/api/occupancy": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/occupancy/, "") || "/",
+        /**
+         * When occupancy-service is not running, browsers see `500`; this makes the terminal say why.
+         */
+        configure: (proxy) => {
+          proxy.on("error", (err: Error & { code?: string }) => {
+            const msg =
+              err.code === "ECONNREFUSED"
+                ? "ECONNREFUSED — nothing on 127.0.0.1:8787 (start occupancy-service)."
+                : err.message;
+            console.error(
+              `\n[Vite occupancy proxy] ${msg}\n` +
+                `  Fix: cd occupancy-service → npm run dev (after .env with Redis)\n` +
+                `  Or: npm run dev:with-occupancy from repo root\n`
+            );
+          });
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
