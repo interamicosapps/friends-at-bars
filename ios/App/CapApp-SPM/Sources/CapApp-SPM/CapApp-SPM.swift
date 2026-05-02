@@ -1,5 +1,8 @@
 import NativeSettingsPlugin
 
+/// Force-link Bar Zone Fence plugin (SPM strips types only referenced from JS).
+private let _barZoneFenceForceLoad: BarZoneFencePlugin.Type = BarZoneFencePlugin.self
+
 public let isCapacitorApp = true
 
 // MARK: - SPM: force-load native Capacitor plugins

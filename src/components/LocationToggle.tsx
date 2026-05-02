@@ -7,6 +7,10 @@ import {
   getBackgroundLocationPreferred,
   isNativePlatform,
 } from "@/lib/locationService";
+import {
+  ensureBarZoneFenceMonitoring,
+  stopBarZoneFenceMonitoring,
+} from "@/lib/barZoneFenceNative";
 import { Button } from "@/components/ui/Button";
 
 export interface LocationToggleRef {
@@ -129,9 +133,13 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       const initialLocation = await locationService.getCurrentLocation();
       if (initialLocation) {
         console.log("Initial location obtained:", initialLocation.latitude, initialLocation.longitude);
-        // Update local state only (green dot) - backend update happens on 60-second interval
         const loc = { latitude: initialLocation.latitude, longitude: initialLocation.longitude };
         onLocationUpdate?.(loc);
+        void locationService.updateLiveLocation({
+          latitude: initialLocation.latitude,
+          longitude: initialLocation.longitude,
+          accuracy: initialLocation.accuracy ?? 0,
+        });
       } else {
         console.warn(
           "[BarFest location] Failed to get initial location after retries — search console for",
@@ -171,14 +179,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         try {
           const location = await locationService.getCurrentLocation();
           if (location) {
-            // Check if at venue before updating backend
-            const isAtVenue = locationService.checkIfAtVenue(location.latitude, location.longitude);
-            
-            if (isAtVenue && !skipSupabase) {
-              // Only update backend if at a venue
-              await locationService.updateLiveLocation(location);
-            }
-            // If not at venue, do nothing (no backend update)
+            await locationService.updateLiveLocation(location);
           }
         } catch (err) {
           // Suppress timeout errors (code 3) - they're expected when device is idle
@@ -191,6 +192,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
 
       setIsEnabled(true);
       setLocationTrackingEnabled(true);
+      void ensureBarZoneFenceMonitoring();
       console.log("Location tracking started successfully");
     } catch (err) {
       console.error("Error starting location tracking:", err);
@@ -226,6 +228,8 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       venuePresenceRef.current = "outside";
 
       // Deactivate user's location in database (only if Supabase updates are enabled)
+      void stopBarZoneFenceMonitoring();
+
       if (!skipSupabase) {
         try {
           await locationService.deactivateUserLocation();

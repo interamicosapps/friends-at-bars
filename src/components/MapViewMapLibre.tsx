@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import Map, { Marker, Popup } from "react-map-gl/maplibre";
+import Map, { Layer, Marker, Popup, Source } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
+import type { Feature, Polygon } from "geojson";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { CheckIn, VenueCounts } from "@/types/checkin";
 import { OHIO_STATE_VENUES } from "@/data/venues";
 import { isCheckInActiveAt } from "@/lib/timeUtils";
 import { locationService } from "@/lib/locationService";
+import {
+  BAR_ZONE_CENTER,
+  BAR_ZONE_RADIUS_METERS,
+} from "@/constants/barZoneFence";
+import { approximateCircleRingWgs84 } from "@/lib/geodesicPolygon";
 
 export interface MapViewMapLibreProps {
   checkIns: CheckIn[];
   selectedDate: string;
   selectedTime: string;
   userLocation?: { latitude: number; longitude: number } | null;
+  showBarZoneTestFence?: boolean;
+  showLiveCountComparison?: boolean;
+  hybridLiveVenueCounts?: VenueCounts | null;
   onFirstInteraction?: () => void;
   onMapReady?: () => void;
 }
@@ -22,6 +31,9 @@ export default function MapViewMapLibre({
   selectedDate,
   selectedTime,
   userLocation,
+  showBarZoneTestFence = false,
+  showLiveCountComparison = false,
+  hybridLiveVenueCounts = null,
   onFirstInteraction,
   onMapReady,
 }: MapViewMapLibreProps) {
@@ -69,6 +81,22 @@ export default function MapViewMapLibre({
   }, [activeCheckIns, liveCounts]);
 
   const markers = OHIO_STATE_VENUES;
+
+  const barZoneFenceGeo = useMemo((): Feature<Polygon> => {
+    const outer = approximateCircleRingWgs84(
+      BAR_ZONE_CENTER.latitude,
+      BAR_ZONE_CENTER.longitude,
+      BAR_ZONE_RADIUS_METERS
+    ).map((p) => [p.longitude, p.latitude] as [number, number]);
+    return {
+      type: "Feature",
+      properties: {},
+      geometry: {
+        type: "Polygon",
+        coordinates: [outer],
+      },
+    };
+  }, []);
 
   const createMarkerElement = () => {
     const size = 12;
@@ -138,6 +166,24 @@ export default function MapViewMapLibre({
         © CartoDB, © OpenStreetMap
       </div>
 
+      {showBarZoneTestFence ? (
+        <Source id="barfest-bar-zone-fence" type="geojson" data={barZoneFenceGeo}>
+          <Layer
+            id="barfest-bar-zone-fill"
+            type="fill"
+            paint={{ "fill-color": "#DC2626", "fill-opacity": 0.04 }}
+          />
+          <Layer
+            id="barfest-bar-zone-line"
+            type="line"
+            paint={{
+              "line-color": "#DC2626",
+              "line-width": 4,
+            }}
+          />
+        </Source>
+      ) : null}
+
       {markers.map((venue) => {
         const markerElement = createMarkerElement();
         return (
@@ -195,18 +241,29 @@ export default function MapViewMapLibre({
             {(() => {
               const checkInCount = popupInfo.checkIns.length;
               const liveCount = liveCounts[popupInfo.venue.name] || 0;
-              const totalCount = checkInCount + liveCount;
-              if (totalCount === 0) {
+              const hybridOn =
+                showLiveCountComparison && hybridLiveVenueCounts !== null;
+              const hybridCount = hybridOn
+                ? hybridLiveVenueCounts![popupInfo.venue.name] ?? 0
+                : null;
+
+              if (!hybridOn && checkInCount === 0 && liveCount === 0) {
                 return (
                   <p className="text-sm font-semibold text-gray-500">
                     No check-ins during this time
                   </p>
                 );
               }
+
+              const headlineTotal =
+                checkInCount +
+                (hybridOn ? Math.max(liveCount, hybridCount ?? 0) : liveCount);
+
               return (
                 <div className="space-y-1">
                   <p className="text-sm font-bold text-gray-800">
-                    {totalCount} {totalCount === 1 ? "person" : "people"} total
+                    {headlineTotal}{" "}
+                    {headlineTotal === 1 ? "person" : "people"} approximate total
                   </p>
                   <div className="space-y-0.5 text-xs text-gray-600">
                     {checkInCount > 0 && (
@@ -215,10 +272,21 @@ export default function MapViewMapLibre({
                         {checkInCount > 1 ? "s" : ""}
                       </p>
                     )}
-                    {liveCount > 0 && (
-                      <p>
-                        {liveCount} live user{liveCount > 1 ? "s" : ""} at venue
-                      </p>
+                    {hybridOn ? (
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                          {hybridCount ?? 0} hybrid live
+                        </span>
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+                          {liveCount} legacy live
+                        </span>
+                      </div>
+                    ) : (
+                      liveCount > 0 && (
+                        <p>
+                          {liveCount} live user{liveCount > 1 ? "s" : ""} at venue
+                        </p>
+                      )
                     )}
                   </div>
                 </div>

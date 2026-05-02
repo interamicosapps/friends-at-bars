@@ -7,11 +7,17 @@ import MapView from "@/components/MapView";
 import MapFloatingLogo from "@/components/MapFloatingLogo";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
 import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
-import { CheckIn } from "@/types/checkin";
 import {
   buildNightlifeTimeOptionsForSlider,
   getDynamicStartTime,
+  selectedDateTimeMatchesLocalNow,
 } from "@/lib/timeUtils";
+import type { CheckIn, VenueCounts } from "@/types/checkin";
+import { fetchLiveVenueCountsForDisplay } from "@/lib/fetchLiveVenueCounts";
+import {
+  isOccupancyComparisonEnabled,
+  subscribeOccupancyCounts,
+} from "@/lib/occupancyClient";
 import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
 import { useTestMode } from "@/contexts/TestModeContext";
 import {
@@ -48,6 +54,97 @@ export default function MapPage() {
   const [nativeSettingsError, setNativeSettingsError] = useState<string | null>(
     null
   );
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick((t) => t + 1), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const [mapLiveAttendanceUnlocked, setMapLiveAttendanceUnlocked] =
+    useState(false);
+
+  useEffect(() => {
+    if (mapAllowed !== true) {
+      setMapLiveAttendanceUnlocked(false);
+      return;
+    }
+    let cancelled = false;
+    const refresh = async () => {
+      const permission = await locationService.checkPermissions();
+      if (cancelled) return;
+      setMapLiveAttendanceUnlocked(
+        Boolean(permission && getLocationTrackingEnabled())
+      );
+    };
+    void refresh();
+    const id = window.setInterval(refresh, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [mapAllowed]);
+
+  const isLiveNow = useMemo(
+    () => selectedDateTimeMatchesLocalNow(selectedDate, selectedTime),
+    [selectedDate, selectedTime, nowTick]
+  );
+
+  const [liveVenueCounts, setLiveVenueCounts] = useState<VenueCounts | null>(
+    null
+  );
+  const [hybridVenueCounts, setHybridVenueCounts] = useState<VenueCounts | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (
+      mapAllowed !== true ||
+      !mapLiveAttendanceUnlocked ||
+      !isLiveNow
+    ) {
+      setLiveVenueCounts(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const v = await fetchLiveVenueCountsForDisplay(useMockCheckIns);
+        if (!cancelled) setLiveVenueCounts(v);
+      } catch {
+        if (!cancelled) setLiveVenueCounts({});
+      }
+    };
+    load();
+    const id = window.setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [mapAllowed, mapLiveAttendanceUnlocked, isLiveNow, useMockCheckIns]);
+
+  useEffect(() => {
+    if (
+      !isOccupancyComparisonEnabled() ||
+      mapAllowed !== true ||
+      !mapLiveAttendanceUnlocked ||
+      !isLiveNow
+    ) {
+      if (import.meta.env.DEV) {
+        console.info("[BarFest occ debug] MapPage: hybrid polling off", {
+          isOccupancyComparisonEnabled: isOccupancyComparisonEnabled(),
+          mapAllowed,
+          mapLiveAttendanceUnlocked,
+          isLiveNow,
+        });
+      }
+      setHybridVenueCounts(null);
+      return;
+    }
+    if (import.meta.env.DEV) {
+      console.info("[BarFest occ debug] MapPage: hybrid polling ON");
+    }
+    const unsub = subscribeOccupancyCounts(setHybridVenueCounts);
+    return unsub;
+  }, [mapAllowed, mapLiveAttendanceUnlocked, isLiveNow]);
 
   const nativeSettingsShortcut =
     isNativePlatform &&
@@ -236,6 +333,11 @@ export default function MapPage() {
               showCloseButton
               dynamicStartTime={getDynamicStartTime()}
               hideCheckInsList
+              showLiveViewerCounts={mapLiveAttendanceUnlocked && isLiveNow}
+              liveVenueCounts={liveVenueCounts}
+              hybridVenueCounts={hybridVenueCounts}
+              showHybridComparison={isOccupancyComparisonEnabled()}
+              hideAttendanceBadges={false}
             />
           </div>
         ) : (
@@ -261,6 +363,14 @@ export default function MapPage() {
           showListPanel={false}
           dynamicStartTime={getDynamicStartTime()}
           fillContainer
+          showLiveCountComparison={
+            mapLiveAttendanceUnlocked &&
+            isLiveNow &&
+            isOccupancyComparisonEnabled()
+          }
+          hybridLiveVenueCounts={
+            mapLiveAttendanceUnlocked && isLiveNow ? hybridVenueCounts : null
+          }
         />
       </div>
 

@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useMemo,
   useState,
   useRef,
@@ -13,7 +14,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/Popover";
-import { CheckIn } from "@/types/checkin";
+import { CheckIn, type VenueCounts } from "@/types/checkin";
 import { CAMPUS_AREAS, OHIO_STATE_VENUES } from "@/data/venues";
 import {
   formatDateDisplay,
@@ -42,7 +43,11 @@ interface ActiveCheckInsPanelProps {
   /** When true and `liveVenueCounts` is set, show live viewer counts (red styling). */
   showLiveViewerCounts?: boolean;
   /** Per-venue live viewer counts from `live_locations` or test data; null while loading. */
-  liveVenueCounts?: Record<string, number> | null;
+  liveVenueCounts?: VenueCounts | null;
+  /** Redis/hybrid occupancy counts for side-by-side comparison (green, left of red). */
+  hybridVenueCounts?: VenueCounts | null;
+  /** When true and hybrid counts are loaded, show green hybrid next to red legacy. */
+  showHybridComparison?: boolean;
   /** When true, hide all attendance-style counts (area + venue); still list venues when expanded. */
   hideAttendanceBadges?: boolean;
 }
@@ -63,6 +68,8 @@ export default function ActiveCheckInsPanel({
   endSlot,
   showLiveViewerCounts = false,
   liveVenueCounts = null,
+  hybridVenueCounts = null,
+  showHybridComparison = false,
   hideAttendanceBadges = false,
 }: ActiveCheckInsPanelProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -127,14 +134,56 @@ export default function ActiveCheckInsPanel({
     return Math.min(Math.max(percentage, minPercentage), maxPercentage);
   };
 
-  const liveMode = Boolean(
-    showLiveViewerCounts && liveVenueCounts !== null && !hideAttendanceBadges
+  /** User is viewing “live attendance” slice (today + unlocked), even if legacy counts are still loading. */
+  const liveAttendanceContext = Boolean(
+    showLiveViewerCounts && !hideAttendanceBadges
   );
+  /** Legacy Supabase/live_locations counts resolved at least once. */
+  const liveMode = Boolean(
+    liveAttendanceContext && liveVenueCounts !== null
+  );
+  /** Green/red pills: Redis response received (possibly empty); legacy can still be `{}` during load. */
+  const comparisonActive = Boolean(
+    showHybridComparison &&
+      hybridVenueCounts !== null &&
+      liveAttendanceContext
+  );
+  const showLiveHeading = Boolean(liveMode || comparisonActive);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !showHybridComparison) return;
+    console.info("[BarFest occ debug] ActiveCheckInsPanel (comparison mode on)", {
+      comparisonActive,
+      showHybridComparison,
+      hybridVenueCountsNull: hybridVenueCounts === null,
+      hybridVenueKeys: hybridVenueCounts ? Object.keys(hybridVenueCounts) : [],
+      liveAttendanceContext,
+      liveMode,
+      showLiveViewerCounts,
+      hideAttendanceBadges,
+      liveVenueCountsNull: liveVenueCounts === null,
+    });
+  }, [
+    showHybridComparison,
+    hybridVenueCounts,
+    comparisonActive,
+    liveAttendanceContext,
+    liveMode,
+    showLiveViewerCounts,
+    hideAttendanceBadges,
+    liveVenueCounts,
+  ]);
 
   const venuesInAreaSorted = (area: string) =>
     OHIO_STATE_VENUES.filter((v) => v.area === area)
       .map((v) => v.name)
       .sort((a, b) => a.localeCompare(b));
+
+  const hybridTotalForArea = (area: string) =>
+    venuesInAreaSorted(area).reduce(
+      (sum, name) => sum + (hybridVenueCounts![name] ?? 0),
+      0
+    );
 
   type AreaData = { venues: Record<string, number>; total: number };
   const areaMap: Record<string, AreaData> = {};
@@ -143,9 +192,10 @@ export default function ActiveCheckInsPanel({
   }
   OHIO_STATE_VENUES.forEach((venue) => {
     if (!venue.area || !areaMap[venue.area]) return;
-    const count = liveMode
-      ? (liveVenueCounts![venue.name] ?? 0)
-      : getVenueActivity(venue.name).length;
+    const count =
+      comparisonActive || liveMode
+        ? (liveVenueCounts ?? {})[venue.name] ?? 0
+        : getVenueActivity(venue.name).length;
     const areaData = areaMap[venue.area];
     areaData.venues[venue.name] = count;
     areaData.total += count;
@@ -248,7 +298,7 @@ export default function ActiveCheckInsPanel({
       {!hideCheckInsList && (
         <div className="border-t border-gray-200 pt-2 flex-1 min-h-0 flex flex-col overflow-hidden">
           <h2 className="mb-2 text-xs font-bold text-gray-900 flex-shrink-0">
-            {liveMode ? "Live now" : "Active Check-ins"}
+            {showLiveHeading ? "Live now" : "Active Check-ins"}
           </h2>
           <div className="overflow-y-auto flex-1 min-h-0">
             <div className="space-y-2">
@@ -277,7 +327,17 @@ export default function ActiveCheckInsPanel({
                           {area}
                         </span>
                       </div>
-                      {!hideAttendanceBadges && areaData.total >= 1 ? (
+                      {!hideAttendanceBadges &&
+                      (comparisonActive ? (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">
+                            {hybridTotalForArea(area)}
+                          </span>
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
+                            {areaData.total}
+                          </span>
+                        </div>
+                      ) : areaData.total >= 1 ? (
                         <span
                           className={cn(
                             "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
@@ -288,7 +348,7 @@ export default function ActiveCheckInsPanel({
                         >
                           {areaData.total}
                         </span>
-                      ) : null}
+                      ) : null)}
                     </button>
                     {isExpanded && (
                       <div className="border-t border-gray-200 bg-white">
@@ -304,6 +364,33 @@ export default function ActiveCheckInsPanel({
                                 </span>
                               </div>
                             ))}
+                          </div>
+                        ) : comparisonActive ? (
+                          <div className="space-y-1 p-2">
+                            {venuesInAreaSorted(area).map((venueName) => {
+                              const legacy =
+                                (liveVenueCounts ?? {})[venueName] ?? 0;
+                              const hybrid =
+                                hybridVenueCounts![venueName] ?? 0;
+                              return (
+                                <div
+                                  key={venueName}
+                                  className="flex items-center justify-between gap-2 rounded px-3 py-2 hover:bg-gray-50"
+                                >
+                                  <span className="text-sm font-medium text-gray-700">
+                                    {venueName}
+                                  </span>
+                                  <div className="flex shrink-0 items-center gap-1">
+                                    <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
+                                      {hybrid}
+                                    </span>
+                                    <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">
+                                      {legacy}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : areaData.total === 0 ? (
                           <p className="px-3 py-4 text-center text-sm font-medium text-gray-500">
