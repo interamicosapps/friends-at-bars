@@ -109,13 +109,13 @@ export default function MapPage() {
     };
   }, []);
 
-  // When allowed, start tracking (shared hidden toggle in Layout).
+  // When allowed, resume tracking only if the user had left live tracking on (deferred restore).
   useEffect(() => {
     if (mapAllowed !== true) return;
     let cancelled = false;
     (async () => {
       if (cancelled) return;
-      await locationToggleRef.current?.requestEnable();
+      await locationToggleRef.current?.restorePersistedTrackingIfNeeded();
     })();
     return () => {
       cancelled = true;

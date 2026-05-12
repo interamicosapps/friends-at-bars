@@ -1,3 +1,10 @@
+/**
+ * Native location boundary: @capacitor/geolocation + @capacitor-community/background-geolocation (iOS).
+ * Plugin versions (see package-lock): geolocation 7.x; background-geolocation 1.2.x.
+ * iOS Info.plist: NSLocationWhenInUseUsageDescription, NSLocationAlwaysAndWhenInUseUsageDescription,
+ * UIBackgroundModes location (background plugin). Geolocation README also requires Always+WhenInUse
+ * because ion-ios-geolocation may report in background.
+ */
 import { Capacitor } from "@capacitor/core";
 import { Geolocation as CapacitorGeolocation } from "@capacitor/geolocation";
 import {
@@ -15,6 +22,7 @@ import { OHIO_STATE_VENUES } from "@/data/venues";
 import {
   LIVE_LOCATION_MAX_AGE_MS,
   LIVE_LOCATION_STALE_MS,
+  VENUE_LIVE_SUPABASE_HEARTBEAT_MS,
 } from "@/constants/liveLocation";
 import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
 
@@ -69,6 +77,178 @@ function logGeoError(
   } else {
     console.warn(LOG_PREFIX, step, err, extra);
   }
+}
+
+/** @capacitor/geolocation native error codes (README Errors table) */
+const CAP_GEO_DENIED = "OS-PLUG-GLOC-0003";
+const CAP_GEO_RESTRICTED = "OS-PLUG-GLOC-0008";
+const CAP_GEO_SERVICES_OFF = "OS-PLUG-GLOC-0007";
+
+export type LocationWatchErrorKind =
+  | "permission_denied"
+  | "restricted"
+  | "location_off"
+  | "timeout"
+  | "unavailable"
+  | "unknown";
+
+export type ParsedLocationWatchError = {
+  kind: LocationWatchErrorKind;
+  /** Short UI string */
+  message: string;
+  raw?: unknown;
+};
+
+function extractCapacitorErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const o = err as Record<string, unknown>;
+  if (typeof o.code === "string") return o.code;
+  const msg = typeof o.message === "string" ? o.message : "";
+  const m = msg.match(/OS-PLUG-GLOC-\d{4}/);
+  return m ? m[0] : undefined;
+}
+
+/** Map native Capacitor geolocation errors + web numeric codes to UI-friendly categories. */
+export function parseLocationWatchError(err: unknown): ParsedLocationWatchError {
+  const capCode = extractCapacitorErrorCode(err);
+  if (capCode === CAP_GEO_DENIED) {
+    return {
+      kind: "permission_denied",
+      message:
+        "Location access was denied. Enable it in Settings to keep live tracking on.",
+      raw: err,
+    };
+  }
+  if (capCode === CAP_GEO_RESTRICTED) {
+    return {
+      kind: "restricted",
+      message:
+        "Location is restricted on this device (Screen Time or policy). Live tracking was turned off.",
+      raw: err,
+    };
+  }
+  if (capCode === CAP_GEO_SERVICES_OFF) {
+    return {
+      kind: "location_off",
+      message:
+        "Location Services are off. Turn them on in Settings to use live tracking.",
+      raw: err,
+    };
+  }
+  if (capCode === "OS-PLUG-GLOC-0010") {
+    return {
+      kind: "timeout",
+      message: "Location timed out. Try again or move to an area with better GPS.",
+      raw: err,
+    };
+  }
+  if (err && typeof err === "object" && "code" in err) {
+    const c = (err as GeolocationPositionError).code;
+    if (c === 1) {
+      return {
+        kind: "permission_denied",
+        message:
+          "Location permission was denied. Allow location for this site or app to keep tracking.",
+        raw: err,
+      };
+    }
+    if (c === 2) {
+      return {
+        kind: "unavailable",
+        message: "Position unavailable. Check GPS or network location.",
+        raw: err,
+      };
+    }
+    if (c === 3) {
+      return {
+        kind: "timeout",
+        message: "Location timed out. Try again.",
+        raw: err,
+      };
+    }
+  }
+  return {
+    kind: "unknown",
+    message: "Location update failed. Try toggling tracking off and on.",
+    raw: err,
+  };
+}
+
+export function isFatalLocationWatchError(parsed: ParsedLocationWatchError): boolean {
+  return (
+    parsed.kind === "permission_denied" ||
+    parsed.kind === "restricted" ||
+    parsed.kind === "location_off"
+  );
+}
+
+const permissionLostListeners = new Set<() => void>();
+const appResumeListeners = new Set<() => void>();
+let appResumeListenerHandle: { remove: () => Promise<void> } | null = null;
+
+/** Called when background watcher reports NOT_AUTHORIZED or similar; UI should stop tracking. */
+export function subscribeLocationPermissionLost(cb: () => void): () => void {
+  permissionLostListeners.add(cb);
+  return () => permissionLostListeners.delete(cb);
+}
+
+function notifyLocationPermissionLost(): void {
+  permissionLostListeners.forEach((cb) => {
+    try {
+      cb();
+    } catch (e) {
+      console.warn(LOG_PREFIX, "permissionLost listener error", e);
+    }
+  });
+}
+
+let appResumeListenerPending: Promise<void> | null = null;
+
+async function ensureNativeAppResumeListener(): Promise<void> {
+  if (!Capacitor.isNativePlatform() || appResumeListenerHandle) return;
+  if (appResumeListenerPending) {
+    await appResumeListenerPending;
+    return;
+  }
+  appResumeListenerPending = (async () => {
+    const { App } = await import("@capacitor/app");
+    if (!appResumeListenerHandle) {
+      appResumeListenerHandle = await App.addListener("appStateChange", ({ isActive }) => {
+        if (!isActive) return;
+        appResumeListeners.forEach((cb) => {
+          try {
+            cb();
+          } catch (e) {
+            console.warn(LOG_PREFIX, "app resume listener error", e);
+          }
+        });
+      });
+    }
+  })();
+  try {
+    await appResumeListenerPending;
+  } finally {
+    appResumeListenerPending = null;
+  }
+}
+
+/**
+ * Native only: run callbacks when app becomes active (e.g. user changed location permission in Settings).
+ */
+export function subscribeNativeAppResume(callback: () => void): () => void {
+  if (!Capacitor.isNativePlatform()) {
+    return () => {};
+  }
+  appResumeListeners.add(callback);
+  void ensureNativeAppResumeListener();
+  return () => {
+    appResumeListeners.delete(callback);
+    if (appResumeListeners.size === 0 && appResumeListenerHandle) {
+      const h = appResumeListenerHandle;
+      appResumeListenerHandle = null;
+      void h.remove();
+    }
+  };
 }
 
 // Calculate distance between two coordinates using Haversine formula (in meters)
@@ -389,9 +569,9 @@ export async function openNativeAppLocationSettings(): Promise<OpenNativeAppSett
   }
 }
 
-// Throttle backend updates from background watcher (same 60s idea)
-let lastBackgroundBackendUpdate = 0;
-const BACKGROUND_BACKEND_INTERVAL_MS = 60000;
+// Throttle background Supabase writes: same heartbeat as foreground; venue change writes immediately.
+let lastBackgroundSupabaseWriteAt = 0;
+let lastBackgroundWrittenVenueName: string | null = null;
 
 /** Tracks whether background samples last placed the user inside a geofenced venue. */
 type BackgroundVenuePresence = "unknown" | "inside" | "outside";
@@ -453,12 +633,14 @@ export const locationService = {
   async getCurrentLocation(): Promise<LocationData | null> {
     try {
       if (isNative) {
+        // Battery-first on iOS/Android: coarse fix + cache, then high accuracy if needed for venue checks.
         try {
           const capPosition = await CapacitorGeolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 10000,
+            enableHighAccuracy: false,
+            timeout: 15000,
+            maximumAge: 20000,
           });
-          console.log(LOG_PREFIX, "native getCurrentPosition success", {
+          console.log(LOG_PREFIX, "native getCurrentPosition success (balanced)", {
             lat: capPosition.coords.latitude,
             lon: capPosition.coords.longitude,
           });
@@ -468,13 +650,14 @@ export const locationService = {
             accuracy: capPosition.coords.accuracy || 0,
           };
         } catch (e) {
-          console.warn(LOG_PREFIX, "native getCurrentPosition failed", e);
+          console.warn(LOG_PREFIX, "native getCurrentPosition balanced attempt failed", e);
           try {
             const capPosition = await CapacitorGeolocation.getCurrentPosition({
-              enableHighAccuracy: false,
-              timeout: 15000,
+              enableHighAccuracy: true,
+              timeout: 12000,
+              maximumAge: 0,
             });
-            console.log(LOG_PREFIX, "native getCurrentPosition retry (low accuracy) success");
+            console.log(LOG_PREFIX, "native getCurrentPosition retry (high accuracy) success");
             return {
               latitude: capPosition.coords.latitude,
               longitude: capPosition.coords.longitude,
@@ -531,22 +714,31 @@ export const locationService = {
 
   // Start watching location (for continuous updates)
   async watchPosition(
-    callback: (location: LocationData) => void,
-    options?: { enableHighAccuracy?: boolean; timeout?: number }
+    callback: (
+      location: LocationData | null,
+      watchError?: ParsedLocationWatchError
+    ) => void,
+    options?: {
+      enableHighAccuracy?: boolean;
+      timeout?: number;
+      maximumAge?: number;
+    }
   ): Promise<string> {
     if (isNative) {
-      // Native implementation using Capacitor
       const watchId = await CapacitorGeolocation.watchPosition(
         {
-          enableHighAccuracy: options?.enableHighAccuracy ?? true,
-          timeout: options?.timeout ?? 10000,
+          enableHighAccuracy: options?.enableHighAccuracy ?? false,
+          timeout: options?.timeout ?? 20000,
+          maximumAge: options?.maximumAge ?? 10000,
         },
         (
           position: GeolocationPosition | null,
           err?: GeolocationPositionError
         ) => {
           if (err) {
-            console.error("Location watch error:", err);
+            const parsed = parseLocationWatchError(err);
+            console.warn(LOG_PREFIX, "native watchPosition error", parsed.kind, err);
+            callback(null, parsed);
             return;
           }
 
@@ -562,12 +754,11 @@ export const locationService = {
 
       return watchId;
     } else {
-      // Web implementation using browser API
       const watchId = await webGeolocation.watchPosition(
         {
-          // Match getCurrentLocation fallback: low accuracy reduces watch errors on desktop
           enableHighAccuracy: options?.enableHighAccuracy ?? false,
           timeout: options?.timeout ?? 15000,
+          maximumAge: options?.maximumAge ?? 0,
         },
         (
           position: GeolocationPosition | null,
@@ -575,6 +766,7 @@ export const locationService = {
         ) => {
           if (err) {
             logGeoError("watchPosition callback error", err);
+            callback(null, parseLocationWatchError(err));
             return;
           }
 
@@ -608,6 +800,8 @@ export const locationService = {
   async startBackgroundWatcher(skipSupabase: boolean): Promise<string | null> {
     if (!isNative) return null;
     backgroundVenuePresence = "unknown";
+    lastBackgroundSupabaseWriteAt = 0;
+    lastBackgroundWrittenVenueName = null;
     try {
       const { registerPlugin } = await import("@capacitor/core");
       const BackgroundGeolocation = registerPlugin<{
@@ -624,23 +818,49 @@ export const locationService = {
         {
           backgroundMessage: "Bar Fest uses your location to update bar counts when you're nearby.",
           backgroundTitle: "Bar Fest",
-          requestPermissions: true,
+          // Foreground flow already requested via @capacitor/geolocation; avoids duplicate prompts.
+          requestPermissions: false,
           stale: false,
-          distanceFilter: 50,
+          distanceFilter: 75,
         },
         (location, error) => {
-          if (error?.code === "NOT_AUTHORIZED") return;
-          if (!location) return;
-          const now = Date.now();
-          if (now - lastBackgroundBackendUpdate < BACKGROUND_BACKEND_INTERVAL_MS) {
+          if (error?.code === "NOT_AUTHORIZED") {
+            setLocationTrackingEnabled(false);
+            notifyLocationPermissionLost();
             return;
           }
-          const isAtVenue = findNearestVenue(
+          if (!location) return;
+          const now = Date.now();
+          const venueMatch = findNearestVenue(
             location.latitude,
             location.longitude
           );
-          if (isAtVenue && !skipSupabase) {
-            lastBackgroundBackendUpdate = now;
+          const venueName = venueMatch?.venue.name ?? null;
+
+          if (!venueName) {
+            if (backgroundVenuePresence !== "outside") {
+              backgroundVenuePresence = "outside";
+              lastBackgroundWrittenVenueName = null;
+              lastBackgroundSupabaseWriteAt = 0;
+              if (!skipSupabase) {
+                locationService
+                  .deactivateUserLocation()
+                  .catch((err) =>
+                    console.error("Background deactivate location failed:", err)
+                  );
+              }
+            }
+            return;
+          }
+
+          const venueChanged = venueName !== lastBackgroundWrittenVenueName;
+          const heartbeatDue =
+            now - lastBackgroundSupabaseWriteAt >=
+            VENUE_LIVE_SUPABASE_HEARTBEAT_MS;
+
+          if (!skipSupabase && (venueChanged || heartbeatDue)) {
+            lastBackgroundSupabaseWriteAt = now;
+            lastBackgroundWrittenVenueName = venueName;
             backgroundVenuePresence = "inside";
             locationService
               .updateLiveLocation({
@@ -651,14 +871,8 @@ export const locationService = {
               .catch((err) =>
                 console.error("Background location update failed:", err)
               );
-          } else if (!skipSupabase && backgroundVenuePresence !== "outside") {
-            lastBackgroundBackendUpdate = now;
-            backgroundVenuePresence = "outside";
-            locationService
-              .deactivateUserLocation()
-              .catch((err) =>
-                console.error("Background deactivate location failed:", err)
-              );
+          } else if (!skipSupabase) {
+            backgroundVenuePresence = "inside";
           }
         }
       );
@@ -672,6 +886,8 @@ export const locationService = {
   async stopBackgroundWatcher(watcherId: string | null): Promise<void> {
     if (!watcherId || !isNative) return;
     backgroundVenuePresence = "outside";
+    lastBackgroundWrittenVenueName = null;
+    lastBackgroundSupabaseWriteAt = 0;
     try {
       const { registerPlugin } = await import("@capacitor/core");
       const BackgroundGeolocation = registerPlugin<{ removeWatcher: (options: { id: string }) => Promise<void> }>("BackgroundGeolocation");
@@ -747,6 +963,12 @@ export const locationService = {
     return venueMatch !== null;
   },
 
+  /** Venue name within geofence radius, or null if not at any venue. */
+  getVenueNameIfAtVenue(latitude: number, longitude: number): string | null {
+    const venueMatch = findNearestVenue(latitude, longitude);
+    return venueMatch?.venue.name ?? null;
+  },
+
   // Get live user counts per venue
   async getVenueCounts(): Promise<VenueCounts> {
     const freshAfter = new Date(
@@ -779,7 +1001,7 @@ export const locationService = {
     return counts;
   },
 
-  // Subscribe to real-time venue count updates
+  // Subscribe to real-time venue count updates (requires `live_locations` enabled for Realtime in Supabase Dashboard).
   subscribeToVenueCounts(callback: (counts: VenueCounts) => void) {
     const channel = supabase
       .channel("live_locations")

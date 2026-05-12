@@ -377,6 +377,7 @@ export default function Test() {
         <LocationToggle 
           onLocationUpdate={setUserLocation}
           skipSupabase={true}
+          autoRestoreTracking
         />
       </div>
 

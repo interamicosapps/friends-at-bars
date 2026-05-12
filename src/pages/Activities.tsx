@@ -173,6 +173,11 @@ export default function Activities() {
   }, []);
 
   useEffect(() => {
+    void locationToggleRef.current?.restorePersistedTrackingIfNeeded();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref is stable; run once on Activities mount
+  }, []);
+
+  useEffect(() => {
     if (!isLiveNow || !attendanceUnlocked) {
       setLiveVenueCounts(null);
       return;

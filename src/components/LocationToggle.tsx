@@ -6,11 +6,20 @@ import {
   setLocationTrackingEnabled,
   getBackgroundLocationPreferred,
   isNativePlatform,
+  isFatalLocationWatchError,
+  subscribeNativeAppResume,
+  subscribeLocationPermissionLost,
 } from "@/lib/locationService";
 import { Button } from "@/components/ui/Button";
+import {
+  VENUE_LIVE_SUPABASE_HEARTBEAT_MS,
+  VENUE_LOCATION_POLL_INTERVAL_MS,
+} from "@/constants/liveLocation";
 
 export interface LocationToggleRef {
   requestEnable: () => Promise<void>;
+  /** When tracking was left on, resume only after user opens Activities or Map (see autoRestoreTracking). */
+  restorePersistedTrackingIfNeeded: () => Promise<void>;
 }
 
 interface LocationToggleProps {
@@ -20,10 +29,21 @@ interface LocationToggleProps {
   variant?: "default" | "compact";
   /** Called when enabled state changes (for parent to show/hide location dialog). */
   onEnabledChange?: (enabled: boolean) => void;
+  /**
+   * If true, immediately restart tracking when the toggle mounts if the user had left tracking on.
+   * Default false: defer until Activities/Map call restorePersistedTrackingIfNeeded (clearer permission context).
+   */
+  autoRestoreTracking?: boolean;
 }
 
 const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(function LocationToggle(
-  { onLocationUpdate, skipSupabase = false, variant = "default", onEnabledChange },
+  {
+    onLocationUpdate,
+    skipSupabase = false,
+    variant = "default",
+    onEnabledChange,
+    autoRestoreTracking = false,
+  },
   ref
 ) {
   const [isEnabled, setIsEnabled] = useState(() => getLocationTrackingEnabled());
@@ -33,10 +53,14 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
   const watchIdRef = useRef<string | null>(null);
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const backgroundWatcherIdRef = useRef<string | null>(null);
-  /** Foreground 60s tick: avoid redundant deactivates; clear ghosts on first "not at venue" after start. */
+  /** Last venue written to Supabase for heartbeat / venue-change logic. */
+  const lastSupabaseVenueRef = useRef<string | null>(null);
+  const lastSupabaseWriteAtRef = useRef<number>(0);
+  /** Foreground poll: venue detection + conditional Supabase heartbeat. */
   const venuePresenceRef = useRef<"unknown" | "inside" | "outside">("outside");
   const isEnabledRef = useRef(isEnabled);
-  const hasRestoredRef = useRef(false);
+  const isLoadingRef = useRef(false);
+  const hasAutoRestoredRef = useRef(false);
   const [backgroundPreferred] = useState(() => getBackgroundLocationPreferred());
 
   // Keep ref in sync with state and notify parent
@@ -45,13 +69,34 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     onEnabledChange?.(isEnabled);
   }, [isEnabled, onEnabledChange]);
 
-  // On mount: restore tracking if user had it on (persists across navigation and app restart)
   useEffect(() => {
-    if (hasRestoredRef.current) return;
-    hasRestoredRef.current = true;
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  // Optional cold-start restore (e.g. Test page). Map/Activities use restorePersistedTrackingIfNeeded instead.
+  useEffect(() => {
+    if (!autoRestoreTracking || hasAutoRestoredRef.current) return;
+    hasAutoRestoredRef.current = true;
     if (getLocationTrackingEnabled()) {
-      startTracking();
+      void startTracking();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot restore; startTracking is stable enough for this path
+  }, [autoRestoreTracking]);
+
+  useEffect(() => {
+    const unsubResume = subscribeNativeAppResume(() => {
+      void checkPermissions();
+    });
+    const unsubLost = subscribeLocationPermissionLost(() => {
+      setError(
+        "Background location permission was revoked. Open Settings to allow Always, or turn tracking on again."
+      );
+      void stopTracking();
+    });
+    return () => {
+      unsubResume();
+      unsubLost();
+    };
   }, []);
 
   useEffect(() => {
@@ -89,10 +134,12 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     const granted = await locationService.checkPermissions();
     console.log("Permission check result:", granted);
     setHasPermission(granted);
-    // If we had tracking enabled but lost permission, disable tracking
-    if (isEnabled && !granted) {
+    if (isEnabledRef.current && !granted) {
       console.warn("Permission lost while tracking was enabled, stopping tracking");
-      stopTracking();
+      setError(
+        "Location access was revoked in Settings. Live tracking has been turned off."
+      );
+      await stopTracking();
     }
     return granted;
   };
@@ -124,14 +171,52 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         console.log("Permission granted and verified");
       }
 
+      const syncLiveRowFromSample = async (loc: {
+        latitude: number;
+        longitude: number;
+        accuracy?: number;
+      }) => {
+        if (skipSupabase) return;
+        const venueName = locationService.getVenueNameIfAtVenue(
+          loc.latitude,
+          loc.longitude
+        );
+        const now = Date.now();
+        if (!venueName) {
+          if (lastSupabaseVenueRef.current !== null) {
+            await locationService.deactivateUserLocation();
+            lastSupabaseVenueRef.current = null;
+            lastSupabaseWriteAtRef.current = 0;
+          }
+          return;
+        }
+        const venueChanged = venueName !== lastSupabaseVenueRef.current;
+        const heartbeatDue =
+          now - lastSupabaseWriteAtRef.current >=
+          VENUE_LIVE_SUPABASE_HEARTBEAT_MS;
+        if (venueChanged || heartbeatDue) {
+          await locationService.updateLiveLocation({
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            accuracy: loc.accuracy ?? 0,
+          });
+          lastSupabaseVenueRef.current = venueName;
+          lastSupabaseWriteAtRef.current = now;
+        }
+      };
+
+      lastSupabaseVenueRef.current = null;
+      lastSupabaseWriteAtRef.current = 0;
+
       // Get initial location for local display (green dot)
       console.log("Getting initial location...");
       const initialLocation = await locationService.getCurrentLocation();
       if (initialLocation) {
         console.log("Initial location obtained:", initialLocation.latitude, initialLocation.longitude);
-        // Update local state only (green dot) - backend update happens on 60-second interval
+        // Update local state only (green dot); Supabase uses venue-change + heartbeat rules in syncLiveRowFromSample.
         const loc = { latitude: initialLocation.latitude, longitude: initialLocation.longitude };
         onLocationUpdate?.(loc);
+        await syncLiveRowFromSample(initialLocation);
       } else {
         console.warn(
           "[BarFest location] Failed to get initial location after retries — search console for",
@@ -148,13 +233,25 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       // Start watching position - real-time local updates only (for green dot)
       // Low accuracy + longer timeout reduces failures on desktop (Wi‑Fi only).
       const watchId = await locationService.watchPosition(
-        async (location) => {
-          // Real-time local update (green dot moves immediately)
+        async (location, watchErr) => {
+          if (watchErr) {
+            if (isFatalLocationWatchError(watchErr)) {
+              setError(watchErr.message);
+              setLocationTrackingEnabled(false);
+              await stopTracking();
+              return;
+            }
+            if (watchErr.kind !== "timeout") {
+              setError(watchErr.message);
+            }
+            return;
+          }
+          if (!location) return;
+          setError(null);
           const loc = { latitude: location.latitude, longitude: location.longitude };
           onLocationUpdate?.(loc);
-          // NO backend update here - backend updates happen separately every 60 seconds
         },
-        { enableHighAccuracy: false, timeout: 15000 }
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 15000 }
       );
 
       watchIdRef.current = watchId;
@@ -166,19 +263,12 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         backgroundWatcherIdRef.current = bgId;
       }
 
-      // Backend update interval - check venue proximity every 60 seconds
+      // Poll GPS for venue enter/leave; Supabase upsert only on venue change or heartbeat while at same bar.
       updateIntervalRef.current = setInterval(async () => {
         try {
           const location = await locationService.getCurrentLocation();
           if (location) {
-            // Check if at venue before updating backend
-            const isAtVenue = locationService.checkIfAtVenue(location.latitude, location.longitude);
-            
-            if (isAtVenue && !skipSupabase) {
-              // Only update backend if at a venue
-              await locationService.updateLiveLocation(location);
-            }
-            // If not at venue, do nothing (no backend update)
+            await syncLiveRowFromSample(location);
           }
         } catch (err) {
           // Suppress timeout errors (code 3) - they're expected when device is idle
@@ -187,7 +277,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           }
           console.error("Error in backend location update:", err);
         }
-      }, 60000);
+      }, VENUE_LOCATION_POLL_INTERVAL_MS);
 
       setIsEnabled(true);
       setLocationTrackingEnabled(true);
@@ -224,6 +314,8 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       }
 
       venuePresenceRef.current = "outside";
+      lastSupabaseVenueRef.current = null;
+      lastSupabaseWriteAtRef.current = 0;
 
       // Deactivate user's location in database (only if Supabase updates are enabled)
       if (!skipSupabase) {
@@ -253,14 +345,24 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     }
   };
 
-  useImperativeHandle(ref, () => ({
-    requestEnable: async () => {
-      if (!isEnabled && !isLoading) {
+  useImperativeHandle(
+    ref,
+    () => ({
+      requestEnable: async () => {
+        if (!isEnabled && !isLoading) {
+          await checkPermissions();
+          await startTracking();
+        }
+      },
+      restorePersistedTrackingIfNeeded: async () => {
+        if (!getLocationTrackingEnabled()) return;
+        if (isEnabledRef.current || isLoadingRef.current) return;
         await checkPermissions();
-        startTracking();
-      }
-    },
-  }), [isEnabled, isLoading]);
+        await startTracking();
+      },
+    }),
+    [isEnabled, isLoading]
+  );
 
   if (variant === "compact") {
     return (

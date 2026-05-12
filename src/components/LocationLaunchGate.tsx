@@ -76,7 +76,7 @@ export default function LocationLaunchGate() {
     (async () => {
       const granted = await locationService.checkPermissions();
       if (cancelled || !granted) return;
-      await locationToggleRef.current?.requestEnable();
+      await locationToggleRef.current?.restorePersistedTrackingIfNeeded();
     })();
     return () => {
       cancelled = true;

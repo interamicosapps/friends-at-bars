@@ -33,7 +33,6 @@ export function LocationTrackingProvider({ children }: { children: ReactNode }) 
         setMapUserLocation,
       }}
     >
-      {children}
       <div className="hidden" aria-hidden>
         <LocationToggle
           ref={locationToggleRef}
@@ -41,6 +40,7 @@ export function LocationTrackingProvider({ children }: { children: ReactNode }) 
           onLocationUpdate={(loc) => setMapUserLocation(loc)}
         />
       </div>
+      {children}
     </LocationTrackingContext.Provider>
   );
 }
