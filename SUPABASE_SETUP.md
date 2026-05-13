@@ -4,7 +4,7 @@
 
 1. Go to [supabase.com](https://supabase.com) and create an account
 2. Create a new project
-3. Note your project URL and anon key from Settings > API
+3. Note your project URL and public client key from **Settings → API** (or the **Connect → React + Vite** snippet), e.g. `VITE_SUPABASE_PUBLISHABLE_KEY` (`sb_publishable_…`) or the legacy **anon** JWT (`eyJ…`).
 
 ## 2. Create Database Table
 
@@ -52,12 +52,19 @@ Create a `.env.local` file in your project root:
 
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key-here
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-Replace with your actual Supabase project URL and anon key.
+Or use the legacy JWT:
 
-**If you see requests to a different project URL in the console** (e.g. `net::ERR_NAME_NOT_RESOLVED` for another project ID): your app is still using an old URL. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env` or `.env.local` to match your current Supabase project, then **restart the dev server** (`npm run dev`) so Vite picks up the new values.
+```env
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
+```
+
+The app reads **`VITE_SUPABASE_PUBLISHABLE_KEY` first**, then falls back to **`VITE_SUPABASE_ANON_KEY`**.
+
+**If you see requests to a different project URL in the console** (e.g. `net::ERR_NAME_NOT_RESOLVED` for another project ID): your app is still using an old URL. Set `VITE_SUPABASE_URL` and your public key in `.env` or `.env.local` to match your current Supabase project, then **restart the dev server** (`npm run dev`) so Vite picks up the new values.
 
 ## 4. Features Implemented
 

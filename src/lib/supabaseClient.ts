@@ -7,16 +7,20 @@ import {
   LiveLocationInsert,
   VenueCounts,
 } from "@/types/checkin";
+import { liveLocLog } from "@/lib/liveLocationDebug";
 
-// You'll need to replace these with your actual Supabase project URL and anon key
-// Get these from your Supabase project settings
+// Project Settings → API: Project URL + public client key for browser use.
+// Prefer VITE_SUPABASE_PUBLISHABLE_KEY (sb_publishable_…) per current Supabase + Vite docs;
+// VITE_SUPABASE_ANON_KEY (legacy JWT eyJ…) is still supported as fallback.
+const env = import.meta.env;
 const supabaseUrl =
-  (import.meta as any).env?.VITE_SUPABASE_URL ||
-  "https://your-project.supabase.co";
-const supabaseAnonKey =
-  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "your-anon-key";
+  env.VITE_SUPABASE_URL ?? "https://your-project.supabase.co";
+const supabaseKey =
+  env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  env.VITE_SUPABASE_ANON_KEY ||
+  "your-supabase-public-key";
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 let supabaseNetworkErrorLogged = false;
 
@@ -34,7 +38,7 @@ export function logSupabaseNetworkOnce(err: unknown): void {
   if (supabaseNetworkErrorLogged) return;
   supabaseNetworkErrorLogged = true;
   console.warn(
-    "[BarFest backend] Supabase unreachable (network/DNS). Check VITE_SUPABASE_URL and network. Details:",
+    "[BarFest backend] Supabase unreachable (network/DNS). Check VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY), and network. Details:",
     err
   );
 }
@@ -173,6 +177,12 @@ export const liveLocationService = {
         counts[location.venue_name] = 0;
       }
       counts[location.venue_name]++;
+    });
+
+    liveLocLog("Supabase fetchVenueCounts", {
+      rowCount: data?.length ?? 0,
+      counts,
+      freshAfter,
     });
 
     return counts;

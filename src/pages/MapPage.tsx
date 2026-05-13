@@ -22,10 +22,14 @@ import {
 } from "@/lib/locationService";
 import { cn } from "@/lib/utils";
 import MapLocationPermissionPrompt from "@/components/MapLocationPermissionPrompt";
+import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
 
 export default function MapPage() {
   const navigate = useNavigate();
-  const { locationToggleRef, mapUserLocation } = useLocationTrackingOutlet();
+  const { locationToggleRef, mapUserLocation, setMapUserLocation } =
+    useLocationTrackingOutlet();
+  /** True when this page started a map-only watch (no persisted live tracking). Cleanup clears pin only in that case. */
+  const mapOnlyLocationRef = useRef(false);
   const { useMockCheckIns } = useTestMode();
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(() =>
@@ -91,6 +95,7 @@ export default function MapPage() {
     const evaluate = async () => {
       const granted = await locationService.checkPermissions();
       if (cancelled) return;
+      liveLocLog("MapPage permission evaluate", { granted });
       setMapAllowed(granted);
       if (granted) {
         setShowWebLocationHelp(false);
@@ -109,19 +114,107 @@ export default function MapPage() {
     };
   }, []);
 
-  // When allowed, resume tracking only if the user had left live tracking on (deferred restore).
+  // When allowed: restore persisted live tracking, or start a map-only watch so the user pin appears
+  // (browser permission alone does not start the hidden LocationToggle).
   useEffect(() => {
+    if (mapAllowed === false) {
+      liveLocLog("MapPage mapUserLocation cleared", { reason: "mapAllowed false" });
+      setMapUserLocation(null);
+      return;
+    }
     if (mapAllowed !== true) return;
+
+    mapOnlyLocationRef.current = false;
     let cancelled = false;
+    let watchId: string | null = null;
+
     (async () => {
-      if (cancelled) return;
+      liveLocLog("MapPage location effect start", {
+        persistedTracking: getLocationTrackingEnabled(),
+      });
       await locationToggleRef.current?.restorePersistedTrackingIfNeeded();
+      if (cancelled) return;
+
+      const trackingOn = getLocationTrackingEnabled();
+      if (trackingOn) {
+        liveLocLog("MapPage after restore", {
+          path: "persisted live tracking — map pin from LocationToggle onLocationUpdate",
+          trackingOn,
+        });
+        return;
+      }
+
+      mapOnlyLocationRef.current = true;
+      liveLocLog("MapPage map-only path", {
+        note: "No persisted tracking; starting watch for pin only (no live_locations writes)",
+      });
+
+      try {
+        const initial = await locationService.getCurrentLocation();
+        if (cancelled) return;
+        if (initial) {
+          liveLocLog("MapPage map-only initial fix", {
+            lat: Math.round(initial.latitude * 1e4) / 1e4,
+            lon: Math.round(initial.longitude * 1e4) / 1e4,
+          });
+          setMapUserLocation({
+            latitude: initial.latitude,
+            longitude: initial.longitude,
+          });
+        } else {
+          liveLocLog("MapPage map-only initial fix failed", {
+            hint: "getCurrentLocation returned null — see [BarFest location] logs",
+          });
+        }
+      } catch (e) {
+        liveLocLog("MapPage map-only initial fix error", {
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+
+      if (cancelled) return;
+      try {
+        watchId = await locationService.watchPosition(
+          (location, watchErr) => {
+            if (cancelled || watchErr || !location) {
+              if (watchErr && !cancelled) {
+                liveLocLogThrottle(
+                  "map-only-watch-err",
+                  20_000,
+                  "MapPage map-only watch error",
+                  { kind: watchErr?.kind, message: watchErr?.message }
+                );
+              }
+              return;
+            }
+            setMapUserLocation({
+              latitude: location.latitude,
+              longitude: location.longitude,
+            });
+          },
+          { enableHighAccuracy: false, timeout: 20000, maximumAge: 15000 }
+        );
+        liveLocLog("MapPage map-only watch started", { watchId });
+      } catch (e) {
+        liveLocLog("MapPage map-only watch failed to start", {
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
     })();
+
     return () => {
       cancelled = true;
+      if (watchId != null) {
+        void locationService.clearWatch(watchId);
+        liveLocLog("MapPage map-only watch cleared", { watchId });
+      }
+      if (mapOnlyLocationRef.current) {
+        setMapUserLocation(null);
+        mapOnlyLocationRef.current = false;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref stable
-  }, [mapAllowed]);
+  }, [mapAllowed, setMapUserLocation]);
 
   const handleAllowLocation = async () => {
     setNativeSettingsError(null);
@@ -202,7 +295,7 @@ export default function MapPage() {
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden">
-      {/* Top chrome: logo + date pill; expanded panel fills the row. Location is handled by the map permission flow. */}
+      {/* Top chrome: logo + date pill; expanded panel fills the row. User pin: live tracking restore or map-only watch when permission is granted. */}
       <div
         className={cn(
           "pointer-events-none absolute left-3 right-3 z-[55] flex gap-2",

@@ -4,6 +4,7 @@ import { OHIO_STATE_VENUES } from "@/data/venues";
 import { isCheckInActiveAt } from "@/lib/timeUtils";
 import { locationService } from "@/lib/locationService";
 import { loadMapKit } from "@/lib/mapkitLoader";
+import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
 
 const MAP_REGION_KEY = "activities_map_region";
 
@@ -253,6 +254,16 @@ export default function MapViewMapKit({
     }
 
     if (userLocation) {
+      liveLocLogThrottle(
+        "mapkit-user-pin",
+        12_000,
+        "MapKit user pin",
+        {
+          mapReady,
+          lat: Math.round(userLocation.latitude * 1e4) / 1e4,
+          lon: Math.round(userLocation.longitude * 1e4) / 1e4,
+        }
+      );
       const coord = new mapkit.Coordinate(
         userLocation.latitude,
         userLocation.longitude
@@ -265,6 +276,8 @@ export default function MapViewMapKit({
       } as any);
       map.addAnnotation(marker);
       userLocationAnnotationRef.current = marker;
+    } else {
+      liveLocLog("MapKit user pin removed", { mapReady });
     }
   }, [userLocation, mapReady]);
 

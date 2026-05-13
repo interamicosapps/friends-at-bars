@@ -22,6 +22,7 @@ import {
   isNativePlatform,
   openNativeAppLocationSettings,
 } from "@/lib/locationService";
+import { liveLocLog } from "@/lib/liveLocationDebug";
 
 const CHECKIN_OVERLAY_KEY = "activities_checkin_overlay_collapsed";
 
@@ -108,6 +109,11 @@ export default function Activities() {
   const [liveVenueCounts, setLiveVenueCounts] = useState<VenueCounts | null>(
     null
   );
+  const lastGateLogRef = useRef<{
+    permission: boolean;
+    tracking: boolean;
+    unlocked: boolean;
+  } | null>(null);
 
   /** OS permission + in-app live toggle — required to show live bar attendance. */
   const [attendanceUnlocked, setAttendanceUnlocked] = useState(false);
@@ -154,7 +160,25 @@ export default function Activities() {
     const refresh = async () => {
       const permission = await locationService.checkPermissions();
       if (cancelled) return;
-      setAttendanceUnlocked(permission && getLocationTrackingEnabled());
+      const tracking = getLocationTrackingEnabled();
+      const unlocked = permission && tracking;
+      const prev = lastGateLogRef.current;
+      if (
+        !prev ||
+        prev.permission !== permission ||
+        prev.tracking !== tracking ||
+        prev.unlocked !== unlocked
+      ) {
+        lastGateLogRef.current = { permission, tracking, unlocked };
+        liveLocLog("Activities attendance gate", {
+          browserPermission: permission,
+          persistedLiveTracking: tracking,
+          attendanceUnlocked: unlocked,
+          liveCountsNeed:
+            "browser permission + localStorage location_tracking_enabled; counts need slider 'live now' + within 100m of a venue for your row in live_locations",
+        });
+      }
+      setAttendanceUnlocked(unlocked);
     };
     void refresh();
     const onFocus = () => void refresh();
@@ -182,13 +206,27 @@ export default function Activities() {
       setLiveVenueCounts(null);
       return;
     }
+    liveLocLog("Activities live venue counts polling", {
+      isLiveNow,
+      attendanceUnlocked,
+      useMockCheckIns,
+    });
     let cancelled = false;
     const load = async () => {
       try {
         const v = await fetchLiveVenueCountsForDisplay(useMockCheckIns);
-        if (!cancelled) setLiveVenueCounts(v);
+        if (!cancelled) {
+          liveLocLog("Activities live venue counts result", {
+            useMockCheckIns,
+            venues: v,
+          });
+          setLiveVenueCounts(v);
+        }
       } catch {
-        if (!cancelled) setLiveVenueCounts({});
+        if (!cancelled) {
+          liveLocLog("Activities live venue counts fetch threw", {});
+          setLiveVenueCounts({});
+        }
       }
     };
     load();

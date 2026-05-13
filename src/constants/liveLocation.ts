@@ -17,7 +17,8 @@ export const LIVE_LOCATION_MAX_AGE_MS =
 export const VENUE_LOCATION_POLL_INTERVAL_MS = 10 * 1000;
 
 /**
- * cleanupStaleLocations deactivates rows whose last_updated is older than this.
- * Matches count window so ghosts are cleared server-side as well.
+ * Threshold for client `cleanupMyStaleLocation`: deactivate **own** row when `last_updated`
+ * is older than this. Matches live count window ({@link LIVE_LOCATION_MAX_AGE_MS}).
+ * Global stale cleanup for all users belongs in Supabase (cron / Edge Function), not the client.
  */
 export const LIVE_LOCATION_STALE_MS = LIVE_LOCATION_MAX_AGE_MS;

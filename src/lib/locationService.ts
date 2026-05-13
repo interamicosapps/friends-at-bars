@@ -25,6 +25,7 @@ import {
   VENUE_LIVE_SUPABASE_HEARTBEAT_MS,
 } from "@/constants/liveLocation";
 import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
+import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
 
 interface LocationData {
   latitude: number;
@@ -905,6 +906,16 @@ export const locationService = {
     // Only update backend if at a venue
     // If not at venue, do nothing (no backend effect)
     if (!venueMatch) {
+      liveLocLogThrottle(
+        "updateLiveLocation-skip-no-venue",
+        60_000,
+        "updateLiveLocation skipped",
+        {
+          reason: "not_within_100m_of_any_venue",
+          lat: Math.round(location.latitude * 1e4) / 1e4,
+          lon: Math.round(location.longitude * 1e4) / 1e4,
+        }
+      );
       return; // No backend update when not at venue
     }
 
@@ -931,7 +942,16 @@ export const locationService = {
         return;
       }
       console.error("Error updating live location:", error);
+      liveLocLog("updateLiveLocation supabase error", {
+        code: error.code,
+        message: error.message,
+      });
+      return;
     }
+    liveLocLog("updateLiveLocation upsert ok", {
+      venue: venueMatch.venue.name,
+      userIdPrefix: userId.slice(0, 12),
+    });
   },
 
   // Deactivate user's location in database (when tracking stops)
@@ -1038,8 +1058,15 @@ export const locationService = {
     };
   },
 
-  // Cleanup: deactivate rows with stale last_updated (matches live count window)
-  async cleanupStaleLocations(): Promise<void> {
+/**
+ * Deactivates this client's own `live_locations` row when `last_updated` is older than
+ * {@link LIVE_LOCATION_STALE_MS} (same window as live counts). Safe under typical RLS
+ * ("user may update own row"). Does not touch other users' rows — run global stale
+ * cleanup in Supabase (pg_cron / Edge Function + service role), never from the browser.
+ */
+async cleanupMyStaleLocation(): Promise<void> {
+    if (typeof localStorage === "undefined") return;
+    const userId = getUserId();
     const staleBefore = new Date(
       Date.now() - LIVE_LOCATION_STALE_MS
     ).toISOString();
@@ -1050,11 +1077,16 @@ export const locationService = {
         is_active: false,
         last_updated: new Date().toISOString(),
       })
+      .eq("user_id", userId)
       .lt("last_updated", staleBefore)
       .eq("is_active", true);
 
     if (error) {
-      console.error("Error cleaning up stale locations:", error);
+      if (isSupabaseNetworkError(error)) {
+        logSupabaseNetworkOnce(error);
+        return;
+      }
+      console.error("Error cleaning up my stale location:", error);
     }
   },
 

@@ -11,8 +11,8 @@ import { shellHeightImmersive } from "@/constants/layoutHeights";
 
 export default function Layout() {
   useEffect(() => {
-    void locationService.cleanupStaleLocations().catch(() => {
-      /* non-blocking; counts also filter by last_updated */
+    void locationService.cleanupMyStaleLocation().catch(() => {
+      /* non-blocking; live counts also filter by last_updated */
     });
   }, []);
 

@@ -9,6 +9,7 @@ import {
 import LocationToggle, {
   type LocationToggleRef,
 } from "@/components/LocationToggle";
+import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
 
 export type MapUserLocation = { latitude: number; longitude: number } | null;
 
@@ -37,7 +38,22 @@ export function LocationTrackingProvider({ children }: { children: ReactNode }) 
         <LocationToggle
           ref={locationToggleRef}
           variant="compact"
-          onLocationUpdate={(loc) => setMapUserLocation(loc)}
+          onLocationUpdate={(loc) => {
+            if (loc) {
+              liveLocLogThrottle(
+                "hidden-toggle-map-user",
+                15_000,
+                "hidden LocationToggle → mapUserLocation",
+                {
+                  lat: Math.round(loc.latitude * 1e4) / 1e4,
+                  lon: Math.round(loc.longitude * 1e4) / 1e4,
+                }
+              );
+            } else {
+              liveLocLog("hidden LocationToggle → mapUserLocation cleared", {});
+            }
+            setMapUserLocation(loc);
+          }}
         />
       </div>
       {children}

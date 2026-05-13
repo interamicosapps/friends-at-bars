@@ -15,6 +15,7 @@ import {
   VENUE_LIVE_SUPABASE_HEARTBEAT_MS,
   VENUE_LOCATION_POLL_INTERVAL_MS,
 } from "@/constants/liveLocation";
+import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
 
 export interface LocationToggleRef {
   requestEnable: () => Promise<void>;
@@ -183,6 +184,15 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         );
         const now = Date.now();
         if (!venueName) {
+          liveLocLogThrottle(
+            "toggle-outside-venue",
+            45_000,
+            "GPS sample not within 100m of any venue — live_locations not updated (need to be near a venue, e.g. Test Location 1)",
+            {
+              lat: Math.round(loc.latitude * 1e4) / 1e4,
+              lon: Math.round(loc.longitude * 1e4) / 1e4,
+            }
+          );
           if (lastSupabaseVenueRef.current !== null) {
             await locationService.deactivateUserLocation();
             lastSupabaseVenueRef.current = null;
@@ -195,6 +205,11 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           now - lastSupabaseWriteAtRef.current >=
           VENUE_LIVE_SUPABASE_HEARTBEAT_MS;
         if (venueChanged || heartbeatDue) {
+          liveLocLog("live_locations upsert from poll", {
+            venueName,
+            venueChanged,
+            heartbeatDue,
+          });
           await locationService.updateLiveLocation({
             latitude: loc.latitude,
             longitude: loc.longitude,
@@ -282,8 +297,15 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       setIsEnabled(true);
       setLocationTrackingEnabled(true);
       console.log("Location tracking started successfully");
+      liveLocLog("LocationToggle startTracking complete", {
+        watchId: watchIdRef.current,
+        skipSupabase,
+      });
     } catch (err) {
       console.error("Error starting location tracking:", err);
+      liveLocLog("LocationToggle startTracking failed", {
+        message: err instanceof Error ? err.message : String(err),
+      });
       const errorMessage = err instanceof Error 
         ? `Failed to start location tracking: ${err.message}`
         : "Failed to start location tracking. Please try again.";
@@ -349,14 +371,33 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     ref,
     () => ({
       requestEnable: async () => {
-        if (!isEnabled && !isLoading) {
-          await checkPermissions();
-          await startTracking();
-        }
+        if (isLoadingRef.current) return;
+        if (watchIdRef.current != null) return;
+        await checkPermissions();
+        liveLocLog("LocationToggle requestEnable → startTracking");
+        await startTracking();
       },
       restorePersistedTrackingIfNeeded: async () => {
-        if (!getLocationTrackingEnabled()) return;
-        if (isEnabledRef.current || isLoadingRef.current) return;
+        if (!getLocationTrackingEnabled()) {
+          liveLocLog("restorePersistedTracking skipped", {
+            reason: "localStorage location_tracking_enabled is not true",
+          });
+          return;
+        }
+        if (isLoadingRef.current) {
+          liveLocLog("restorePersistedTracking skipped", { reason: "already loading" });
+          return;
+        }
+        if (watchIdRef.current != null) {
+          liveLocLog("restorePersistedTracking skipped", {
+            reason: "watch already active",
+            watchId: watchIdRef.current,
+          });
+          return;
+        }
+        liveLocLog("restorePersistedTracking → startTracking", {
+          isEnabledUi: isEnabledRef.current,
+        });
         await checkPermissions();
         await startTracking();
       },
