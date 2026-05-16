@@ -17,7 +17,8 @@
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
     "cap:build": "npm run build && npx cap sync",
-    "cap:build:ios": "npm run build && npx cap sync ios"
+    "cap:build:ios": "npm run build:native-plugin && npm run build && npx cap sync ios",
+    "build:native-plugin": "npm install --prefix packages/capacitor-barfest-native-live-location && npm run build --prefix packages/capacitor-barfest-native-live-location"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",
@@ -29,6 +30,7 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@supabase/supabase-js": "^2.76.1",
     "@types/react-router-dom": "^5.3.3",
+    "capacitor-barfest-native-live-location": "file:./packages/capacitor-barfest-native-live-location",
     "capacitor-native-settings": "^7.0.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",

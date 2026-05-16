@@ -1,4 +1,5 @@
 import NativeSettingsPlugin
+import BarFestNativeLiveLocationPlugin
 
 public let isCapacitorApp = true
 
@@ -7,3 +8,5 @@ public let isCapacitorApp = true
 // concrete reference here, the runtime bridge reports "NativeSettings plugin is not
 // implemented on ios" even though the NativeSettingsPlugin SPM product is linked.
 private let _capacitorForceLoadNativeSettings: NativeSettingsPlugin.Type = NativeSettingsPlugin.self
+private let _capacitorForceLoadBarFestNativeLiveLocation: BarFestNativeLiveLocationPlugin.Type =
+    BarFestNativeLiveLocationPlugin.self

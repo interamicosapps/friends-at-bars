@@ -6,10 +6,16 @@ import {
   setLocationTrackingEnabled,
   getBackgroundLocationPreferred,
   isNativePlatform,
+  usesIosNativeLiveLocation,
   isFatalLocationWatchError,
   subscribeNativeAppResume,
   subscribeLocationPermissionLost,
 } from "@/lib/locationService";
+import {
+  configureNativeLiveTracking,
+  startNativeLiveTracking,
+  stopNativeLiveTracking,
+} from "@/lib/iosNativeLiveLocation";
 import { Button } from "@/components/ui/Button";
 import {
   VENUE_LIVE_SUPABASE_HEARTBEAT_MS,
@@ -172,6 +178,51 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         console.log("Permission granted and verified");
       }
 
+      // iOS: native Core Location + Supabase REST (no WebView callbacks while locked).
+      if (usesIosNativeLiveLocation()) {
+        const initialLocation = await locationService.getCurrentLocation();
+        if (initialLocation) {
+          const loc = {
+            latitude: initialLocation.latitude,
+            longitude: initialLocation.longitude,
+          };
+          onLocationUpdate?.(loc);
+        } else {
+          setError(
+            "Unable to get your current location. Confirm Always location permission in Settings."
+          );
+          setIsLoading(false);
+          return;
+        }
+
+        await configureNativeLiveTracking(
+          locationService.getUserId(),
+          skipSupabase,
+          () => {
+            setError(
+              "Always location access is required for live tracking in the background."
+            );
+            void stopTracking();
+          },
+          (message) => {
+            liveLocLog("native Supabase write error", { message });
+          }
+        );
+
+        await startNativeLiveTracking((loc) => {
+          setError(null);
+          onLocationUpdate?.(loc);
+        });
+
+        setIsEnabled(true);
+        setLocationTrackingEnabled(true);
+        liveLocLog("LocationToggle startTracking complete (iOS native)", {
+          skipSupabase,
+        });
+        setIsLoading(false);
+        return;
+      }
+
       const syncLiveRowFromSample = async (loc: {
         latitude: number;
         longitude: number;
@@ -320,33 +371,36 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
 
   const stopTracking = async () => {
     try {
-      if (watchIdRef.current) {
-        await locationService.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
+      if (usesIosNativeLiveLocation()) {
+        await stopNativeLiveTracking();
+      } else {
+        if (watchIdRef.current) {
+          await locationService.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+        }
 
-      if (updateIntervalRef.current) {
-        clearInterval(updateIntervalRef.current);
-        updateIntervalRef.current = null;
-      }
+        if (updateIntervalRef.current) {
+          clearInterval(updateIntervalRef.current);
+          updateIntervalRef.current = null;
+        }
 
-      if (backgroundWatcherIdRef.current) {
-        await locationService.stopBackgroundWatcher(backgroundWatcherIdRef.current);
-        backgroundWatcherIdRef.current = null;
+        if (backgroundWatcherIdRef.current) {
+          await locationService.stopBackgroundWatcher(backgroundWatcherIdRef.current);
+          backgroundWatcherIdRef.current = null;
+        }
+
+        if (!skipSupabase) {
+          try {
+            await locationService.deactivateUserLocation();
+          } catch (err) {
+            console.error("Error deactivating location:", err);
+          }
+        }
       }
 
       venuePresenceRef.current = "outside";
       lastSupabaseVenueRef.current = null;
       lastSupabaseWriteAtRef.current = 0;
-
-      // Deactivate user's location in database (only if Supabase updates are enabled)
-      if (!skipSupabase) {
-        try {
-          await locationService.deactivateUserLocation();
-        } catch (err) {
-          console.error("Error deactivating location:", err);
-        }
-      }
 
       // Clear current location
       onLocationUpdate?.(null);
@@ -372,7 +426,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     () => ({
       requestEnable: async () => {
         if (isLoadingRef.current) return;
-        if (watchIdRef.current != null) return;
+        if (isEnabledRef.current) return;
         await checkPermissions();
         liveLocLog("LocationToggle requestEnable → startTracking");
         await startTracking();
@@ -388,10 +442,9 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           liveLocLog("restorePersistedTracking skipped", { reason: "already loading" });
           return;
         }
-        if (watchIdRef.current != null) {
+        if (isEnabledRef.current) {
           liveLocLog("restorePersistedTracking skipped", {
-            reason: "watch already active",
-            watchId: watchIdRef.current,
+            reason: "tracking already active",
           });
           return;
         }

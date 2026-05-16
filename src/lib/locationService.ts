@@ -26,6 +26,9 @@ import {
 } from "@/constants/liveLocation";
 import { LiveLocationInsert, VenueCounts, Venue } from "@/types/checkin";
 import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
+import { usesIosNativeLiveLocation } from "@/lib/iosNativeLiveLocation";
+
+export { usesIosNativeLiveLocation };
 
 interface LocationData {
   latitude: number;
@@ -800,6 +803,7 @@ export const locationService = {
    */
   async startBackgroundWatcher(skipSupabase: boolean): Promise<string | null> {
     if (!isNative) return null;
+    if (usesIosNativeLiveLocation()) return null;
     backgroundVenuePresence = "unknown";
     lastBackgroundSupabaseWriteAt = 0;
     lastBackgroundWrittenVenueName = null;

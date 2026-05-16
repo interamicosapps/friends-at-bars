@@ -1,0 +1,36 @@
+{
+  "name": "capacitor-barfest-native-live-location",
+  "version": "1.0.0",
+  "description": "iOS native Core Location + Supabase REST for Bar Fest live venue tracking",
+  "main": "dist/esm/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "files": [
+    "dist/",
+    "ios/",
+    "Package.swift"
+  ],
+  "author": "Bar Fest",
+  "license": "MIT",
+  "peerDependencies": {
+    "@capacitor/core": ">=7.0.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "scripts": {
+    "build": "npm run clean && tsc",
+    "clean": "rimraf dist",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^7.0.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "campus-nightlife-map": "file:../.."
+  }
+}
