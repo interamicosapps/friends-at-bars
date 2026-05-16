@@ -70,7 +70,7 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         let venuesData = try JSONEncoder().encode(venues)
         defaults.set(String(data: venuesData, encoding: .utf8), forKey: Keys.venuesJson)
 
-        queue.sync {
+        try queue.sync {
             self.userId = userId
             self.venues = venues
             self.heartbeatMs = heartbeatMs
