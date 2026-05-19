@@ -480,11 +480,23 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           const nativeState = usesIosNativeLiveLocation()
             ? await getNativeTrackingState()
             : null;
-          liveLocLog("restorePersistedTracking skipped", {
-            reason: "live session already running",
-            nativeEngine: nativeState,
-          });
-          return;
+          const nativeRunningWithoutJsSession =
+            usesIosNativeLiveLocation() &&
+            nativeState?.isRunning === true &&
+            !sessionActiveRef.current;
+          const nativeRunningWithoutSuccessfulWrite =
+            nativeState?.isRunning === true && nativeState.lastWriteAtMs === 0;
+          if (nativeRunningWithoutJsSession || nativeRunningWithoutSuccessfulWrite) {
+            liveLocLog("restorePersistedTracking: re-syncing native (Swift-only or no writes yet)", {
+              nativeEngine: nativeState,
+            });
+          } else {
+            liveLocLog("restorePersistedTracking skipped", {
+              reason: "live session already running",
+              nativeEngine: nativeState,
+            });
+            return;
+          }
         }
         if (isEnabledRef.current && !sessionActiveRef.current) {
           setIsEnabled(false);

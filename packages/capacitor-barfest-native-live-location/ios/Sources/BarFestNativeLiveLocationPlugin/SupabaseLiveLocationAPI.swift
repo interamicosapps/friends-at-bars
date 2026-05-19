@@ -54,8 +54,12 @@ final class SupabaseLiveLocationAPI {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         applyHeaders(&request)
-        request.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
-        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        // Single Prefer value — a second setValue(forHTTPHeaderField: "Prefer") overwrites the first
+        // and causes plain INSERT → HTTP 409 on existing user_id.
+        request.setValue(
+            "return=minimal, resolution=merge-duplicates",
+            forHTTPHeaderField: "Prefer"
+        )
 
         do {
             request.httpBody = try JSONEncoder().encode(body)
