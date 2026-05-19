@@ -1,15 +1,13 @@
 /**
- * Dev-only test UI (bottom bar “Test Mode” + “Log” + mock check-ins on Activities/Map).
+ * Dev-only test UI (bottom bar “Test Mode” + “Log” + in-app diagnostic logs).
  *
- * Enable via `.env.local`:
- *   VITE_ENABLE_DEV_TEST_MODE_UI=true
+ * Toggle here so iOS/device builds from GitHub include the Log screen without
+ * relying on `.env.local` (which is not committed).
  *
- * For merges to `main`: leave unset/false and remove TestModeProvider if desired
- * (see comments in `App.tsx` / `BottomNav.tsx`).
+ * Set to `false` before production releases to end users.
  */
-export function isDevTestModeUiEnabled(): boolean {
-  return import.meta.env.VITE_ENABLE_DEV_TEST_MODE_UI === "true";
-}
+export const ENABLE_DEV_TEST_MODE_UI = true;
 
-/** @deprecated Use `isDevTestModeUiEnabled()` — kept for existing imports. */
-export const ENABLE_DEV_TEST_MODE_UI = isDevTestModeUiEnabled();
+export function isDevTestModeUiEnabled(): boolean {
+  return ENABLE_DEV_TEST_MODE_UI;
+}

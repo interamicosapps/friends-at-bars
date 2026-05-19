@@ -3,7 +3,7 @@ import { appendDiagnosticLog, isDiagnosticLogEnabled } from "@/lib/diagnosticLog
 /**
  * Structured logs for diagnosing map pin + `live_locations` + Activities live counts.
  * Console: run `npm run dev`, or `VITE_DEBUG_LIVE_LOCATION=true`.
- * In-app Log screen: `VITE_ENABLE_DEV_TEST_MODE_UI=true` (see diagnosticLog).
+ * In-app Log screen: `ENABLE_DEV_TEST_MODE_UI` in `src/config/devTestMode.ts`.
  */
 export function isLiveLocationDebugEnabled(): boolean {
   return (
