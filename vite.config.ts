@@ -15,8 +15,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: (id) => {
-          // Map libraries - separate chunk for heavy map dependencies
-          if (id.includes("maplibre-gl") || id.includes("react-map-gl")) {
+          // MapLibre GL only — react-map-gl must stay with React (splitting it causes createContext errors)
+          if (id.includes("node_modules/maplibre-gl")) {
             return "map-libs";
           }
           // React and React Router
