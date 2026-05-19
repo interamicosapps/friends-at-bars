@@ -13,6 +13,7 @@ import {
 } from "@/lib/locationService";
 import {
   configureNativeLiveTracking,
+  getNativeTrackingState,
   startNativeLiveTracking,
   stopNativeLiveTracking,
 } from "@/lib/iosNativeLiveLocation";
@@ -22,12 +23,9 @@ import {
   VENUE_LOCATION_POLL_INTERVAL_MS,
 } from "@/constants/liveLocation";
 import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
+import type { LocationToggleRef } from "@/contexts/locationTrackingContext";
 
-export interface LocationToggleRef {
-  requestEnable: () => Promise<void>;
-  /** When tracking was left on, resume only after user opens Activities or Map (see autoRestoreTracking). */
-  restorePersistedTrackingIfNeeded: () => Promise<void>;
-}
+export type { LocationToggleRef };
 
 interface LocationToggleProps {
   onLocationUpdate?: (location: { latitude: number; longitude: number } | null) => void;
@@ -68,6 +66,8 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
   const isEnabledRef = useRef(isEnabled);
   const isLoadingRef = useRef(false);
   const hasAutoRestoredRef = useRef(false);
+  /** True only while watch / poll / native engine is actually running. */
+  const sessionActiveRef = useRef(false);
   const [backgroundPreferred] = useState(() => getBackgroundLocationPreferred());
 
   // Keep ref in sync with state and notify parent
@@ -137,6 +137,17 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     };
   }, []);
 
+  const isLiveSessionActive = async (): Promise<boolean> => {
+    if (sessionActiveRef.current) return true;
+    if (watchIdRef.current || updateIntervalRef.current) return true;
+    if (backgroundWatcherIdRef.current) return true;
+    if (usesIosNativeLiveLocation()) {
+      const nativeState = await getNativeTrackingState();
+      return nativeState?.isRunning ?? false;
+    }
+    return false;
+  };
+
   const checkPermissions = async () => {
     const granted = await locationService.checkPermissions();
     console.log("Permission check result:", granted);
@@ -180,6 +191,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
 
       // iOS: native Core Location + Supabase REST (no WebView callbacks while locked).
       if (usesIosNativeLiveLocation()) {
+        liveLocLog("LocationToggle iOS native path starting");
         const initialLocation = await locationService.getCurrentLocation();
         if (initialLocation) {
           const loc = {
@@ -188,12 +200,27 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           };
           onLocationUpdate?.(loc);
         } else {
+          liveLocLog(
+            "LocationToggle iOS initial fix failed",
+            { hasPermission: currentPermissionStatus },
+            "warn"
+          );
           setError(
             "Unable to get your current location. Confirm Always location permission in Settings."
           );
           setIsLoading(false);
           return;
         }
+
+        liveLocLog("LocationToggle iOS initial fix ok", {
+          lat: initialLocation.latitude,
+          lon: initialLocation.longitude,
+          accuracy: initialLocation.accuracy,
+          nearestVenue: locationService.getVenueNameIfAtVenue(
+            initialLocation.latitude,
+            initialLocation.longitude
+          ),
+        });
 
         await configureNativeLiveTracking(
           locationService.getUserId(),
@@ -214,6 +241,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           onLocationUpdate?.(loc);
         });
 
+        sessionActiveRef.current = true;
         setIsEnabled(true);
         setLocationTrackingEnabled(true);
         liveLocLog("LocationToggle startTracking complete (iOS native)", {
@@ -345,6 +373,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
         }
       }, VENUE_LOCATION_POLL_INTERVAL_MS);
 
+      sessionActiveRef.current = true;
       setIsEnabled(true);
       setLocationTrackingEnabled(true);
       console.log("Location tracking started successfully");
@@ -360,6 +389,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
       const errorMessage = err instanceof Error 
         ? `Failed to start location tracking: ${err.message}`
         : "Failed to start location tracking. Please try again.";
+      sessionActiveRef.current = false;
       setError(errorMessage);
       setIsEnabled(false);
       setLocationTrackingEnabled(false);
@@ -408,6 +438,7 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     } catch (err) {
       console.error("Error stopping location tracking:", err);
     } finally {
+      sessionActiveRef.current = false;
       setIsEnabled(false);
     }
   };
@@ -426,7 +457,10 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
     () => ({
       requestEnable: async () => {
         if (isLoadingRef.current) return;
-        if (isEnabledRef.current) return;
+        if (await isLiveSessionActive()) {
+          liveLocLog("requestEnable skipped", { reason: "session already active" });
+          return;
+        }
         await checkPermissions();
         liveLocLog("LocationToggle requestEnable → startTracking");
         await startTracking();
@@ -442,11 +476,19 @@ const LocationToggle = forwardRef<LocationToggleRef, LocationToggleProps>(functi
           liveLocLog("restorePersistedTracking skipped", { reason: "already loading" });
           return;
         }
-        if (isEnabledRef.current) {
+        if (await isLiveSessionActive()) {
+          const nativeState = usesIosNativeLiveLocation()
+            ? await getNativeTrackingState()
+            : null;
           liveLocLog("restorePersistedTracking skipped", {
-            reason: "tracking already active",
+            reason: "live session already running",
+            nativeEngine: nativeState,
           });
           return;
+        }
+        if (isEnabledRef.current && !sessionActiveRef.current) {
+          setIsEnabled(false);
+          liveLocLog("restorePersistedTracking: UI was enabled without active session, resuming", {});
         }
         liveLocLog("restorePersistedTracking → startTracking", {
           isEnabledUi: isEnabledRef.current,

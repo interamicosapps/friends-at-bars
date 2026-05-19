@@ -7,7 +7,7 @@ import {
   isNativePlatform,
   openNativeAppLocationSettings,
 } from "@/lib/locationService";
-import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
+import { useLocationTrackingOutlet } from "@/contexts/locationTrackingContext";
 
 const LAUNCH_GATE_SKIPPED_KEY = "barfest_location_launch_gate_skipped";
 

@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ENABLE_DEV_TEST_MODE_UI } from "@/config/devTestMode";
+import { isDevTestModeUiEnabled } from "@/config/devTestMode";
 
 const STORAGE_KEY = "barfest_dev_test_mock_data";
 
@@ -45,7 +45,7 @@ export function TestModeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<TestModeContextValue>(() => {
-    if (!ENABLE_DEV_TEST_MODE_UI) {
+    if (!isDevTestModeUiEnabled()) {
       return {
         devTestModeUiEnabled: false,
         useMockCheckIns: false,

@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { List, MapPin, Gamepad2 } from "lucide-react";
+import { List, MapPin, Gamepad2, ScrollText } from "lucide-react";
 import { useTestMode } from "@/contexts/TestModeContext";
 import { ENABLE_DEV_TEST_MODE_UI } from "@/config/devTestMode";
 
@@ -12,6 +12,7 @@ export default function BottomNav() {
   const isActivities = pathname === "/";
   const isGames = pathname === "/games" || pathname.startsWith("/games/");
   const isMap = pathname === "/map";
+  const isLog = pathname === "/log";
 
   return (
     <nav
@@ -49,6 +50,18 @@ export default function BottomNav() {
             <span className="block">Test</span>
             <span className="block">Mode</span>
           </button>
+        ) : null}
+        {ENABLE_DEV_TEST_MODE_UI ? (
+          <Link
+            to="/log"
+            className={cn(
+              "flex flex-col items-center justify-center gap-0.5 px-2 py-2 text-xs font-medium transition-colors sm:px-4",
+              isLog ? "text-primary" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <ScrollText className="h-5 w-5" />
+            <span>Log</span>
+          </Link>
         ) : null}
         <Link
           to="/map"

@@ -21,9 +21,9 @@ export default defineConfig({
           }
           // React and React Router
           if (
-            id.includes("react") ||
-            id.includes("react-dom") ||
-            id.includes("react-router")
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/react-router")
           ) {
             return "react-vendor";
           }

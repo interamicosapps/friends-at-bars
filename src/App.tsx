@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import Layout from "./components/Layout";
 import { GameImmersiveProvider } from "./contexts/GameImmersiveContext";
 import { TestModeProvider } from "./contexts/TestModeContext";
+import { LocationTrackingProvider } from "./contexts/LocationTrackingProvider";
 
 const Activities = lazy(() => import("./pages/Activities"));
 const MapPage = lazy(() => import("./pages/MapPage"));
@@ -10,6 +11,7 @@ const Test = lazy(() => import("./pages/Test"));
 const Games = lazy(() => import("./pages/Games"));
 const SwitchSearch = lazy(() => import("./pages/SwitchSearch"));
 const MegaToe = lazy(() => import("./pages/MegaToe"));
+const LogPage = lazy(() => import("./pages/LogPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Loading fallback component
@@ -27,6 +29,7 @@ function App() {
     <GameImmersiveProvider>
       {/* Remove <TestModeProvider> wrapper to fully strip dev test mode from the tree. */}
       <TestModeProvider>
+        <LocationTrackingProvider>
         <Router>
           <Routes>
             <Route path="/" element={<Layout />}>
@@ -52,6 +55,14 @@ function App() {
                 element={
                   <Suspense fallback={<LoadingFallback />}>
                     <Test />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="log"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <LogPage />
                   </Suspense>
                 }
               />
@@ -90,6 +101,7 @@ function App() {
             </Route>
           </Routes>
         </Router>
+        </LocationTrackingProvider>
       </TestModeProvider>
     </GameImmersiveProvider>
   );

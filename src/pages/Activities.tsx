@@ -15,7 +15,7 @@ import { fetchCheckInsForDisplay } from "@/lib/fetchCheckInsForDisplay";
 import { fetchLiveVenueCountsForDisplay } from "@/lib/fetchLiveVenueCounts";
 import type { VenueCounts } from "@/types/checkin";
 import { useTestMode } from "@/contexts/TestModeContext";
-import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
+import { useLocationTrackingOutlet } from "@/contexts/locationTrackingContext";
 import {
   locationService,
   getLocationTrackingEnabled,

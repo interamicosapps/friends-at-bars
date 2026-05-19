@@ -6,7 +6,7 @@ import { Calendar as CalendarIcon } from "lucide-react";
 import MapView from "@/components/MapView";
 import MapFloatingLogo from "@/components/MapFloatingLogo";
 import ActiveCheckInsPanel from "@/components/ActiveCheckInsPanel";
-import { useLocationTrackingOutlet } from "@/contexts/LocationTrackingContext";
+import { useLocationTrackingOutlet } from "@/contexts/locationTrackingContext";
 import { CheckIn } from "@/types/checkin";
 import {
   buildNightlifeTimeOptionsForSlider,

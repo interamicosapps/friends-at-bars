@@ -618,17 +618,25 @@ export const locationService = {
       if (isNative) {
         const status = await CapacitorGeolocation.checkPermissions();
         const granted = status.location === "granted";
-        console.log(
-          "Native location permission check:",
-          status.location,
-          "Granted:",
-          granted
-        );
+        liveLocLog("checkPermissions (Capacitor)", {
+          platform: Capacitor.getPlatform(),
+          locationAlias: status.location,
+          granted,
+          usesIosNativeLiveLocation: usesIosNativeLiveLocation(),
+          note:
+            "iOS native engine also needs Always in Settings; alias granted can mean When In Use only",
+        });
         return granted;
       }
-      return await webGeolocation.checkPermissions();
+      const granted = await webGeolocation.checkPermissions();
+      liveLocLog("checkPermissions (web Permissions API)", { granted });
+      return granted;
     } catch (error) {
-      console.warn("Permission check failed:", error);
+      liveLocLog(
+        "checkPermissions failed",
+        { message: error instanceof Error ? error.message : String(error) },
+        "error"
+      );
       return false;
     }
   },
@@ -803,7 +811,10 @@ export const locationService = {
    */
   async startBackgroundWatcher(skipSupabase: boolean): Promise<string | null> {
     if (!isNative) return null;
-    if (usesIosNativeLiveLocation()) return null;
+    if (usesIosNativeLiveLocation()) {
+      liveLocLog("startBackgroundWatcher skipped (iOS uses native plugin)");
+      return null;
+    }
     backgroundVenuePresence = "unknown";
     lastBackgroundSupabaseWriteAt = 0;
     lastBackgroundWrittenVenueName = null;
@@ -952,7 +963,7 @@ export const locationService = {
       });
       return;
     }
-    liveLocLog("updateLiveLocation upsert ok", {
+    liveLocLog("updateLiveLocation upsert ok (JS path)", {
       venue: venueMatch.venue.name,
       userIdPrefix: userId.slice(0, 12),
     });
@@ -975,10 +986,15 @@ export const locationService = {
         return;
       }
       if (error.code !== "PGRST116") {
-        // PGRST116 means no rows matched, which is fine
         console.error("Error deactivating live location:", error);
+        liveLocLog("deactivateUserLocation error", {
+          code: error.code,
+          message: error.message,
+        }, "error");
       }
+      return;
     }
+    liveLocLog("deactivateUserLocation ok", { userIdPrefix: userId.slice(0, 12) });
   },
 
   // Check if location is at a venue (exposed for LocationToggle to check before backend updates)

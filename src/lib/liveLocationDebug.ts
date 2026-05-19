@@ -1,6 +1,9 @@
+import { appendDiagnosticLog, isDiagnosticLogEnabled } from "@/lib/diagnosticLog";
+
 /**
  * Structured logs for diagnosing map pin + `live_locations` + Activities live counts.
- * Enable: run `npm run dev`, or set `VITE_DEBUG_LIVE_LOCATION=true` in `.env.local` for production builds.
+ * Console: run `npm run dev`, or `VITE_DEBUG_LIVE_LOCATION=true`.
+ * In-app Log screen: `VITE_ENABLE_DEV_TEST_MODE_UI=true` (see diagnosticLog).
  */
 export function isLiveLocationDebugEnabled(): boolean {
   return (
@@ -11,8 +14,11 @@ export function isLiveLocationDebugEnabled(): boolean {
 
 export function liveLocLog(
   event: string,
-  detail?: Record<string, unknown>
+  detail?: Record<string, unknown>,
+  level: "info" | "warn" | "error" = "info"
 ): void {
+  appendDiagnosticLog("liveLoc", event, detail, level);
+
   if (!isLiveLocationDebugEnabled()) return;
   if (detail !== undefined) {
     console.log(`[BarFest liveLoc] ${event}`, detail);
@@ -30,7 +36,9 @@ export function liveLocLogThrottle(
   event: string,
   detail?: Record<string, unknown>
 ): void {
-  if (!isLiveLocationDebugEnabled()) return;
+  if (!isLiveLocationDebugEnabled() && !isDiagnosticLogEnabled()) {
+    return;
+  }
   const now = Date.now();
   const until = throttleUntil.get(key) ?? 0;
   if (now < until) return;

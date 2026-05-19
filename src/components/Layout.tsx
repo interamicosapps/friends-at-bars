@@ -1,16 +1,20 @@
 import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
+import { appendDiagnosticLog } from "@/lib/diagnosticLog";
 import { locationService } from "@/lib/locationService";
 import Navbar from "./Navbar";
 import BottomNav from "./BottomNav";
 import LocationLaunchGate from "@/components/LocationLaunchGate";
-import { LocationTrackingProvider } from "@/contexts/LocationTrackingContext";
 import { useGameImmersive } from "@/contexts/GameImmersiveContext";
 import { shellHeightImmersive } from "@/constants/layoutHeights";
 
 export default function Layout() {
   useEffect(() => {
+    appendDiagnosticLog("system", "app layout mounted", {
+      platform: Capacitor.getPlatform(),
+      isNative: Capacitor.isNativePlatform(),
+    });
     void locationService.cleanupMyStaleLocation().catch(() => {
       /* non-blocking; live counts also filter by last_updated */
     });
@@ -21,6 +25,7 @@ export default function Layout() {
   const { immersive } = useGameImmersive();
   const isActivities = pathname === "/";
   const isMap = pathname === "/map";
+  const isLog = pathname === "/log";
   const isGames = pathname === "/games" || pathname.startsWith("/games/");
   const isSwitchSearch = pathname.includes("switch-search");
   const isMegaToe = pathname.includes("mega-toe");
@@ -30,15 +35,15 @@ export default function Layout() {
   const showBottomNav =
     isActivities ||
     isMap ||
+    isLog ||
     (isGames && !(isSwitchSearch && immersive) && !isMegaToe);
   const fullHeightMain =
-    isActivities || isMap || isSwitchSearch || isMegaToe;
+    isActivities || isMap || isLog || isSwitchSearch || isMegaToe;
 
   const bottomNavPad = "calc(3.5rem + var(--safe-area-inset-bottom))";
   const immersiveShell = shellHeightImmersive();
 
   return (
-    <LocationTrackingProvider>
     <div className="flex min-h-screen flex-col bg-background">
       {/* Keep only the iOS status/safe-area strip dark; app header remains white. */}
       {isNativeIos && (
@@ -94,6 +99,5 @@ export default function Layout() {
       {showBottomNav && <BottomNav />}
       <LocationLaunchGate />
     </div>
-    </LocationTrackingProvider>
   );
 }

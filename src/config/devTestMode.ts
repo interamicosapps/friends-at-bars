@@ -1,8 +1,15 @@
 /**
- * Dev-only test UI (bottom bar “Test Mode” + mock check-ins on Activities/Map).
+ * Dev-only test UI (bottom bar “Test Mode” + “Log” + mock check-ins on Activities/Map).
  *
- * For merges to `main`: keep this `false` or comment out the `TestModeProvider`
- * wrapper and the `ENABLE_DEV_TEST_MODE_UI` import in `App.tsx` / `BottomNav.tsx`
- * (see comments in those files).
+ * Enable via `.env.local`:
+ *   VITE_ENABLE_DEV_TEST_MODE_UI=true
+ *
+ * For merges to `main`: leave unset/false and remove TestModeProvider if desired
+ * (see comments in `App.tsx` / `BottomNav.tsx`).
  */
-export const ENABLE_DEV_TEST_MODE_UI = false;
+export function isDevTestModeUiEnabled(): boolean {
+  return import.meta.env.VITE_ENABLE_DEV_TEST_MODE_UI === "true";
+}
+
+/** @deprecated Use `isDevTestModeUiEnabled()` — kept for existing imports. */
+export const ENABLE_DEV_TEST_MODE_UI = isDevTestModeUiEnabled();
