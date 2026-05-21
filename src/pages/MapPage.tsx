@@ -17,9 +17,12 @@ import { useTestMode } from "@/contexts/TestModeContext";
 import {
   locationService,
   getLocationTrackingEnabled,
-  isNativePlatform,
-  openNativeAppLocationSettings,
+  subscribeNativeAppResume,
 } from "@/lib/locationService";
+import {
+  promptForLocationAndSyncLive,
+  syncLiveLocationWithPermission,
+} from "@/lib/ensureLiveLocationWhenPermitted";
 import { cn } from "@/lib/utils";
 import MapLocationPermissionPrompt from "@/components/MapLocationPermissionPrompt";
 import { liveLocLog, liveLocLogThrottle } from "@/lib/liveLocationDebug";
@@ -52,11 +55,12 @@ export default function MapPage() {
   const [nativeSettingsError, setNativeSettingsError] = useState<string | null>(
     null
   );
+  /** Bumped when live tracking is enabled so map effect leaves map-only watch. */
+  const [liveTrackingEpoch, setLiveTrackingEpoch] = useState(0);
 
   const nativeSettingsShortcut =
-    isNativePlatform &&
-    (Capacitor.getPlatform() === "ios" ||
-      Capacitor.getPlatform() === "android");
+    Capacitor.isNativePlatform() &&
+    (Capacitor.getPlatform() === "ios" || Capacitor.getPlatform() === "android");
 
   const nightlifeTimeOptions = useMemo(
     () =>
@@ -95,6 +99,15 @@ export default function MapPage() {
     const evaluate = async () => {
       const granted = await locationService.checkPermissions();
       if (cancelled) return;
+      if (granted) {
+        const { tracking } = await syncLiveLocationWithPermission(
+          locationToggleRef.current
+        );
+        if (cancelled) return;
+        if (tracking) {
+          setLiveTrackingEpoch((n) => n + 1);
+        }
+      }
       liveLocLog("MapPage permission evaluate", { granted });
       setMapAllowed(granted);
       if (granted) {
@@ -108,11 +121,15 @@ export default function MapPage() {
       void evaluate();
     };
     window.addEventListener("focus", onFocus);
+    const unsubResume = subscribeNativeAppResume(() => {
+      void evaluate();
+    });
     return () => {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
+      unsubResume();
     };
-  }, []);
+  }, [locationToggleRef]);
 
   // When allowed: restore persisted live tracking, or start a map-only watch so the user pin appears
   // (browser permission alone does not start the hidden LocationToggle).
@@ -214,32 +231,27 @@ export default function MapPage() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref stable
-  }, [mapAllowed, setMapUserLocation]);
+  }, [mapAllowed, liveTrackingEpoch, setMapUserLocation]);
 
   const handleAllowLocation = async () => {
     setNativeSettingsError(null);
     setLocationPromptBusy(true);
     try {
-      if (nativeSettingsShortcut) {
-        const result = await openNativeAppLocationSettings();
-        if (!result.ok) {
-          setNativeSettingsError(result.displayText);
-        }
-        return;
-      }
-      await locationToggleRef.current?.requestEnable();
-      const granted = await locationService.checkPermissions();
-      const trackingOn = getLocationTrackingEnabled();
-      if (granted && trackingOn) {
+      const { granted, tracking } = await promptForLocationAndSyncLive(
+        locationToggleRef.current
+      );
+      if (granted && tracking) {
         setMapAllowed(true);
+        setLiveTrackingEpoch((n) => n + 1);
         setShowWebLocationHelp(false);
+      } else if (granted) {
+        setMapAllowed(true);
+        setShowWebLocationHelp(true);
       } else {
         setShowWebLocationHelp(true);
       }
     } catch {
-      if (!nativeSettingsShortcut) {
-        setShowWebLocationHelp(true);
-      }
+      setShowWebLocationHelp(true);
     } finally {
       setLocationPromptBusy(false);
     }

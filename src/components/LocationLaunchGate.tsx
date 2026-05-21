@@ -3,10 +3,12 @@ import { Capacitor } from "@capacitor/core";
 import MapLocationPermissionPrompt from "@/components/MapLocationPermissionPrompt";
 import {
   locationService,
-  getLocationTrackingEnabled,
-  isNativePlatform,
-  openNativeAppLocationSettings,
+  subscribeNativeAppResume,
 } from "@/lib/locationService";
+import {
+  promptForLocationAndSyncLive,
+  syncLiveLocationWithPermission,
+} from "@/lib/ensureLiveLocationWhenPermitted";
 import { useLocationTrackingOutlet } from "@/contexts/locationTrackingContext";
 
 const LAUNCH_GATE_SKIPPED_KEY = "barfest_location_launch_gate_skipped";
@@ -19,12 +21,6 @@ function readLaunchSkipped(): boolean {
 function setLaunchSkipped(): void {
   if (typeof sessionStorage === "undefined") return;
   sessionStorage.setItem(LAUNCH_GATE_SKIPPED_KEY, "1");
-}
-
-function useNativeSettingsShortcut(): boolean {
-  if (!isNativePlatform) return false;
-  const p = Capacitor.getPlatform();
-  return p === "ios" || p === "android";
 }
 
 type LaunchOverlay = "checking" | "prompt" | "hidden";
@@ -41,7 +37,9 @@ export default function LocationLaunchGate() {
   const [nativeSettingsError, setNativeSettingsError] = useState<string | null>(
     null
   );
-  const nativeSettingsShortcut = useNativeSettingsShortcut();
+  const nativeSettingsShortcut =
+    Capacitor.isNativePlatform() &&
+    (Capacitor.getPlatform() === "ios" || Capacitor.getPlatform() === "android");
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +48,10 @@ export default function LocationLaunchGate() {
       const granted = await locationService.checkPermissions();
       if (cancelled) return;
       const skipped = readLaunchSkipped();
+      if (granted) {
+        await syncLiveLocationWithPermission(locationToggleRef.current);
+      }
+      if (cancelled) return;
       if (granted || skipped) {
         setOverlay("hidden");
         setShowWebLocationHelp(false);
@@ -64,50 +66,34 @@ export default function LocationLaunchGate() {
       void evaluate();
     };
     window.addEventListener("focus", onFocus);
+    const unsubResume = subscribeNativeAppResume(() => {
+      void evaluate();
+    });
     return () => {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
+      unsubResume();
     };
-  }, []);
-
-  useEffect(() => {
-    if (overlay !== "hidden") return;
-    let cancelled = false;
-    (async () => {
-      const granted = await locationService.checkPermissions();
-      if (cancelled || !granted) return;
-      await locationToggleRef.current?.restorePersistedTrackingIfNeeded();
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- locationToggleRef is stable
-  }, [overlay]);
+  }, [locationToggleRef]);
 
   const handleAllow = async () => {
     setNativeSettingsError(null);
     setBusy(true);
     try {
-      if (nativeSettingsShortcut) {
-        const result = await openNativeAppLocationSettings();
-        if (!result.ok) {
-          setNativeSettingsError(result.displayText);
-        }
-        return;
-      }
-      await locationToggleRef.current?.requestEnable();
-      const granted = await locationService.checkPermissions();
-      const trackingOn = getLocationTrackingEnabled();
-      if (granted && trackingOn) {
+      const { granted, tracking } = await promptForLocationAndSyncLive(
+        locationToggleRef.current
+      );
+      if (granted && tracking) {
         setOverlay("hidden");
         setShowWebLocationHelp(false);
+      } else if (granted) {
+        setOverlay("hidden");
+        setShowWebLocationHelp(true);
       } else {
         setShowWebLocationHelp(true);
       }
     } catch {
-      if (!nativeSettingsShortcut) {
-        setShowWebLocationHelp(true);
-      }
+      setShowWebLocationHelp(true);
     } finally {
       setBusy(false);
     }

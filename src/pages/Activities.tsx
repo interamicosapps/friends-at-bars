@@ -19,9 +19,12 @@ import { useLocationTrackingOutlet } from "@/contexts/locationTrackingContext";
 import {
   locationService,
   getLocationTrackingEnabled,
-  isNativePlatform,
-  openNativeAppLocationSettings,
+  subscribeNativeAppResume,
 } from "@/lib/locationService";
+import {
+  promptForLocationAndSyncLive,
+  syncLiveLocationWithPermission,
+} from "@/lib/ensureLiveLocationWhenPermitted";
 import { liveLocLog } from "@/lib/liveLocationDebug";
 
 const CHECKIN_OVERLAY_KEY = "activities_checkin_overlay_collapsed";
@@ -122,34 +125,26 @@ export default function Activities() {
     null
   );
 
-  const nativeSettingsShortcut =
-    isNativePlatform &&
-    (Capacitor.getPlatform() === "ios" ||
-      Capacitor.getPlatform() === "android");
-
   const handleLocationCtaClick = async () => {
     setLocationCtaMessage(null);
     setLocationCtaBusy(true);
     try {
-      if (nativeSettingsShortcut) {
-        const result = await openNativeAppLocationSettings();
-        if (!result.ok) {
-          setLocationCtaMessage(result.displayText);
-        }
-        return;
-      }
-      await locationToggleRef.current?.requestEnable();
-      const granted = await locationService.checkPermissions();
-      const trackingOn = getLocationTrackingEnabled();
-      if (!granted || !trackingOn) {
+      const { granted, tracking } = await promptForLocationAndSyncLive(
+        locationToggleRef.current
+      );
+      if (!granted) {
         setLocationCtaMessage(
-          "If the browser did not ask for location: use the site icon in the address bar, set Location to Allow, then try again."
+          Capacitor.getPlatform() === "ios" || Capacitor.getPlatform() === "android"
+            ? "Set Location to Always (recommended) or While Using in Settings, then return to the app."
+            : "If the browser did not ask for location: use the site icon in the address bar, set Location to Allow, then try again."
+        );
+      } else if (!tracking) {
+        setLocationCtaMessage(
+          "Location is allowed but live tracking could not start. Try again or set Location to Always in Settings."
         );
       }
     } catch {
-      if (!nativeSettingsShortcut) {
-        setLocationCtaMessage("Something went wrong. Please try again.");
-      }
+      setLocationCtaMessage("Something went wrong. Please try again.");
     } finally {
       setLocationCtaBusy(false);
     }
@@ -159,6 +154,10 @@ export default function Activities() {
     let cancelled = false;
     const refresh = async () => {
       const permission = await locationService.checkPermissions();
+      if (cancelled) return;
+      if (permission) {
+        await syncLiveLocationWithPermission(locationToggleRef.current);
+      }
       if (cancelled) return;
       const tracking = getLocationTrackingEnabled();
       const unlocked = permission && tracking;
@@ -188,13 +187,17 @@ export default function Activities() {
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVis);
     const poll = window.setInterval(refresh, 2000);
+    const unsubResume = subscribeNativeAppResume(() => {
+      void refresh();
+    });
     return () => {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVis);
       window.clearInterval(poll);
+      unsubResume();
     };
-  }, []);
+  }, [locationToggleRef]);
 
   useEffect(() => {
     void locationToggleRef.current?.restorePersistedTrackingIfNeeded();
