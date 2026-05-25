@@ -29,6 +29,7 @@ export default function Layout() {
   const isGames = pathname === "/games" || pathname.startsWith("/games/");
   const isSwitchSearch = pathname.includes("switch-search");
   const isMegaToe = pathname.includes("mega-toe");
+  const isRideTheBus = pathname.includes("ride-the-bus");
   const isNativeIos =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
   /** Hide bottom bar during Switch Search gameplay / end, or on Mega Toe (full screen). */
@@ -36,9 +37,9 @@ export default function Layout() {
     isActivities ||
     isMap ||
     isLog ||
-    (isGames && !(isSwitchSearch && immersive) && !isMegaToe);
+    (isGames && !(isSwitchSearch && immersive) && !isMegaToe && !isRideTheBus);
   const fullHeightMain =
-    isActivities || isMap || isLog || isSwitchSearch || isMegaToe;
+    isActivities || isMap || isLog || isSwitchSearch || isMegaToe || isRideTheBus;
 
   const bottomNavPad = "calc(3.5rem + var(--safe-area-inset-bottom))";
   const immersiveShell = shellHeightImmersive();
@@ -85,7 +86,7 @@ export default function Layout() {
                     height: immersiveShell,
                     maxHeight: immersiveShell,
                   }
-                : isMegaToe
+                : isMegaToe || isRideTheBus
                   ? {
                       height: immersiveShell,
                       maxHeight: immersiveShell,

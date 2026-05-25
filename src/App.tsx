@@ -11,6 +11,7 @@ const Test = lazy(() => import("./pages/Test"));
 const Games = lazy(() => import("./pages/Games"));
 const SwitchSearch = lazy(() => import("./pages/SwitchSearch"));
 const MegaToe = lazy(() => import("./pages/MegaToe"));
+const RideTheBus = lazy(() => import("./pages/RideTheBus"));
 const LogPage = lazy(() => import("./pages/LogPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -87,6 +88,14 @@ function App() {
                 element={
                   <Suspense fallback={<LoadingFallback />}>
                     <MegaToe />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="games/ride-the-bus"
+                element={
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RideTheBus />
                   </Suspense>
                 }
               />

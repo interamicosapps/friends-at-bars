@@ -13,7 +13,7 @@ type GameTile = {
 const games: GameTile[] = [
   { id: 1, title: "Switch Search", path: "/games/switch-search", image: "/images/games/switchsearchpic.png" },
   { id: 2, title: "Mega Toe", path: "/games/mega-toe" },
-  { id: 3, title: "Game 3" },
+  { id: 3, title: "Ride the Bus", path: "/games/ride-the-bus" },
   { id: 4, title: "Game 4" },
   { id: 5, title: "Game 5" },
   { id: 6, title: "Game 6" },
