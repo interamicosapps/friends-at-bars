@@ -8,14 +8,14 @@ export const OHIO_STATE_VENUES: Venue[] = [
     coordinates: [40.0051, -83.00845],
   }, // 40°00'18"N 83°00'30"W
   { name: "Horseshoe", area: "North Campus", coordinates: [40.0064, -83.0095] }, // 40°00'22"N 83°00'34"W
-  {
-    name: "Little Bar",
-    area: "North Campus",
-    coordinates: [40.0068, -83.0097], // 40°00'24"N 83°00'35"W
-  },
   { name: "Library", area: "North Campus", coordinates: [40.0066, -83.0095] }, // 40°00'23"N 83°00'34"W
   { name: "Three's", area: "North Campus", coordinates: [40.0072, -83.0097] }, // 40°00'25"N 83°00'34"W
   { name: "Five's", area: "North Campus", coordinates: [40.0106, -83.0105] }, // 40°00'38"N 83°00'37"W
+  {
+    name: "Varsity Club",
+    area: "North Campus",
+    coordinates: [40.0065, -83.017003],
+  },
 
   // South Campus
   {
@@ -39,7 +39,22 @@ export const OHIO_STATE_VENUES: Venue[] = [
 
   // Short North
   { name: "Standard", area: "Short North", coordinates: [39.9848, -83.0048] }, // 39°59'05"N 83°00'17"W
-  { name: "Brother's", area: "Short North", coordinates: [39.9717, -83.0051] }, // 39°58'18"N 83°00'18"W
+  { name: "Brother's", area: "Short North", coordinates: [39.97163, -83.0051] }, // 39°58'18"N 83°00'18"W
+  {
+    name: "Gaswerks",
+    area: "Short North",
+    coordinates: [39.971993, -83.005109],
+  },
+  {
+    name: "Astra Rooftop",
+    area: "Short North",
+    coordinates: [39.972723, -83.004937],
+  },
+  {
+    name: "Short North Tavern",
+    area: "Short North",
+    coordinates: [39.97615, -83.00315],
+  },
   { name: "TownHall", area: "Short North", coordinates: [39.9788, -83.0035] }, // 39°58'43"N 83°00'12"W
   {
     name: "Good Night John Boy",
@@ -72,6 +87,13 @@ export const OHIO_STATE_VENUES: Venue[] = [
     coordinates: [39.98065, -83.00397],
   }, // 39°58'50"N 83°00'14"W
 
+  // Grandview
+  {
+    name: "Yogi's",
+    area: "Grandview",
+    coordinates: [39.987346, -83.031681],
+  },
+
   // Test Locations
   {
     name: "Test Location 1",
@@ -84,5 +106,6 @@ export const CAMPUS_AREAS = [
   "North Campus",
   "South Campus",
   "Short North",
+  "Grandview",
   "Test Locations",
 ] as const;
