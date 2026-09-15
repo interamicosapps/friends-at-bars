@@ -179,7 +179,7 @@ workflows:
           # Hardcoded marketing / build (bump these in Info.plist + here before each TestFlight upload).
           # Keep in sync with BarFest/Info.plist CFBundleShortVersionString / CFBundleVersion.
           NATIVE_MARKETING_VERSION=1.0.1
-          NATIVE_BUILD_NUMBER=30
+          NATIVE_BUILD_NUMBER=31
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NATIVE_MARKETING_VERSION}" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${NATIVE_MARKETING_VERSION}" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NATIVE_BUILD_NUMBER}" "$PLIST" || \
@@ -245,6 +245,8 @@ workflows:
           cd native/ios/BarFest
           # Point the generated project at Bar Fest Test before xcodegen runs.
           sed -i.bak 's/PRODUCT_BUNDLE_IDENTIFIER: com.barfest.app$/PRODUCT_BUNDLE_IDENTIFIER: com.barfest.app.test/' project.yml
+          # Green home-screen icon for TestFlight test app (prod keeps AppIcon / black).
+          sed -i.bak 's/ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon$/ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Test/' project.yml
           rm -f project.yml.bak
           xcodegen generate
           git checkout HEAD -- BarFest/Info.plist
@@ -257,15 +259,18 @@ workflows:
           # Ensure generated project uses test bundle id (xcodegen already did; re-assert if needed)
           if [ -f "$PBX" ]; then
             sed -i.bak "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]*/PRODUCT_BUNDLE_IDENTIFIER = ${BUNDLE_ID}/g" "$PBX"
+            sed -i.bak "s/ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;/ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Test;/g" "$PBX"
             rm -f "${PBX}.bak"
           fi
           NATIVE_MARKETING_VERSION=1.0.1
           # Independent of production Bar Fest build numbers — keep in sync with Info.plist
-          NATIVE_BUILD_NUMBER=30
+          NATIVE_BUILD_NUMBER=31
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NATIVE_MARKETING_VERSION}" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${NATIVE_MARKETING_VERSION}" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NATIVE_BUILD_NUMBER}" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${NATIVE_BUILD_NUMBER}" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIconName AppIcon-Test" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon-Test" "$PLIST"
           /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
           /usr/libexec/PlistBuddy -c "Delete :ENABLE_DEV_TEST_MODE_UI" "$PLIST" 2>/dev/null || true
@@ -277,9 +282,11 @@ workflows:
             /usr/libexec/PlistBuddy -c "Add :VITE_SUPABASE_PUBLISHABLE_KEY string ${VITE_SUPABASE_PUBLISHABLE_KEY}" "$PLIST"
           echo "BUNDLE_ID=${BUNDLE_ID}"
           echo "Info.plist CFBundleVersion=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          echo "CFBundleIconName=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$PLIST")"
           echo "ENABLE_DEV_TEST_MODE_UI=$(/usr/libexec/PlistBuddy -c 'Print :ENABLE_DEV_TEST_MODE_UI' "$PLIST")"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "${NATIVE_BUILD_NUMBER}"
           grep -m1 PRODUCT_BUNDLE_IDENTIFIER "$PBX" || true
+          grep -m1 ASSETCATALOG_COMPILER_APPICON_NAME "$PBX" || true
       - name: Set up code signing settings on Xcode project
         script: |
           xcode-project use-profiles

@@ -30,7 +30,12 @@ Shown when `bundleId` contains `.test` **or** Info.plist `ENABLE_DEV_TEST_MODE_U
 
 ## App icon
 
-`BarFest/Assets.xcassets/AppIcon.appiconset` (generated from Cap’s 1024 app icon). Wired via `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` and `CFBundleIconName` in Info.plist.
+- **Production** (`com.barfest.app`): `BarFest/Assets.xcassets/AppIcon.appiconset` — black “BF” beer-mug mark (from `temporary/new_logos/Bar Fest Logo 7 black.png`).
+- **Test** (`com.barfest.app.test`): `AppIcon-Test.appiconset` — green background variant. Codemagic `native-ios-test-workflow` sets `ASSETCATALOG_COMPILER_APPICON_NAME` / `CFBundleIconName` to `AppIcon-Test`.
+- **Splash** (both): `LaunchLogo.imageset` — no-background mark on the black splash screen.
+- White variant is kept unused under `temporary/new_logos/` for later.
+
+Wired via `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml` (default `AppIcon`) and `CFBundleIconName` in Info.plist.
 
 ## Version / build numbers (hardcoded)
 

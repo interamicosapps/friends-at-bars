@@ -134,16 +134,18 @@ struct WaitTimeCheckInPopup: View {
                 HStack(spacing: 6) {
                     Text(selectedVenueName)
                         .font(.title3.bold())
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(.white)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.7))
                 }
             }
+            .tint(.white)
         } else {
             Text(selectedVenueName)
                 .font(.title3.bold())
+                .foregroundStyle(.white)
         }
     }
 }
@@ -243,13 +245,14 @@ struct MockWaitReportOverlay: View {
             HStack(spacing: 6) {
                 Text(selectedVenue?.name ?? "Choose a bar")
                     .font(.title3.bold())
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.7))
             }
         }
+        .tint(.white)
         .disabled(isSubmitting)
     }
 
