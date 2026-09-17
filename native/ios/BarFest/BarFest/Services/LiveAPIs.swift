@@ -176,6 +176,43 @@ enum LiveLocationService {
         }
         return counts
     }
+
+    /// CMS-managed mock headcounts for Test Mode (`mock_venue_attendance`).
+    static func mockVenueCounts() async throws -> [String: Int] {
+        struct Row: Decodable {
+            let venue_name: String
+            let attendance: Int
+        }
+        let rows: [Row]
+        do {
+            rows = try await SupabaseClient.shared.get(
+                path: "rest/v1/mock_venue_attendance",
+                query: [
+                    URLQueryItem(name: "select", value: "venue_name,attendance"),
+                ]
+            )
+        } catch {
+            await MainActor.run {
+                DiagnosticLog.shared.append(
+                    category: "location",
+                    message: "mockVenueCounts fetch failed: \(error.localizedDescription)",
+                    level: "error"
+                )
+            }
+            throw error
+        }
+        var counts: [String: Int] = [:]
+        for row in rows where row.attendance > 0 {
+            counts[row.venue_name] = row.attendance
+        }
+        await MainActor.run {
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "mockVenueCounts rows=\(rows.count) withPeople=\(counts.count)"
+            )
+        }
+        return counts
+    }
 }
 
 enum CheckInService {

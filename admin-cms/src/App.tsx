@@ -6,8 +6,15 @@ import { ListingsPanel } from "./ListingsPanel";
 import { GameContentPanel } from "./GameContentPanel";
 import { GeographiesPanel } from "./GeographiesPanel";
 import { MapPanel, type MapCoords } from "./MapPanel";
+import { MockAttendancePanel } from "./MockAttendancePanel";
 
-type Tab = "venues" | "listings" | "games" | "geographies" | "map";
+type Tab =
+  | "venues"
+  | "listings"
+  | "games"
+  | "geographies"
+  | "mock"
+  | "map";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -78,7 +85,7 @@ export default function App() {
   const shellClass =
     tab === "map"
       ? "app-shell map-mode"
-      : tab === "listings"
+      : tab === "listings" || tab === "mock"
         ? "app-shell wide"
         : "app-shell";
 
@@ -101,6 +108,7 @@ export default function App() {
             ["listings", "Deals / Events", "Deals"],
             ["games", "Game content", "Games"],
             ["geographies", "Geographies", "Geos"],
+            ["mock", "Mock live", "Mock"],
             ["map", "Map", "Map"],
           ] as const
         ).map(([id, label, shortLabel]) => (
@@ -131,6 +139,7 @@ export default function App() {
             onSeedConsumed={() => setGeoSeed(null)}
           />
         )}
+        {tab === "mock" && <MockAttendancePanel />}
         {tab === "map" && (
           <MapPanel
             onStartVenue={(coords) => {

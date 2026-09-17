@@ -531,6 +531,80 @@ tr.row-selected {
   background: rgba(26, 26, 26, 0.45);
 }
 
+.mock-attendance-toolbar {
+  align-items: flex-end;
+}
+
+.mock-attendance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.mock-attendance-help {
+  margin: 0 0 0.85rem;
+}
+
+.mock-attendance-table .mock-attendance-count {
+  width: 5rem;
+}
+
+.mock-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid #c7c2b8;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.mock-stepper input {
+  width: 3.25rem;
+  border: none;
+  border-left: 1px solid #e4ddd2;
+  border-right: 1px solid #e4ddd2;
+  border-radius: 0;
+  text-align: center;
+  padding: 0.35rem 0.25rem;
+}
+
+.mock-stepper button {
+  border: none;
+  border-radius: 0;
+  min-width: 2rem;
+  padding: 0.35rem 0.55rem;
+  background: #f6f4f1;
+}
+
+.mock-stepper button:hover:not(:disabled) {
+  background: #ebe7df;
+}
+
+.mock-select-cell {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.mock-select-cell input {
+  width: 1.15rem;
+  height: 1.15rem;
+  cursor: pointer;
+}
+
+.mock-clear-selection {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.mock-clear-selection.has-selection {
+  border-color: #3b82f6;
+  box-shadow:
+    0 0 0 2px rgba(59, 130, 246, 0.35),
+    0 0 12px rgba(59, 130, 246, 0.55);
+}
+
 .confirm-dialog {
   width: min(100%, 24rem);
   border: 1px solid #ddd6cb;

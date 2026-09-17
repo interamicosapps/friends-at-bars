@@ -405,13 +405,12 @@ final class AppModel: ObservableObject {
 
     /// Lightweight headcount refresh after our own upsert/deactivate (avoids full catalog round-trip).
     func refreshLiveCountsOnly(source: String) async {
-        if TestModeStore.shared.useMockCheckIns {
-            venueCounts = mockVenueCounts(from: venuesInVisibleGeographies)
-            await logHeadcountSnapshot(source: source)
-            return
-        }
         do {
-            venueCounts = try await LiveLocationService.venueCounts()
+            if TestModeStore.shared.useMockCheckIns {
+                venueCounts = try await LiveLocationService.mockVenueCounts()
+            } else {
+                venueCounts = try await LiveLocationService.venueCounts()
+            }
             await logHeadcountSnapshot(source: source)
         } catch {
             DiagnosticLog.shared.append(
@@ -453,10 +452,10 @@ final class AppModel: ObservableObject {
             let wordPack = await CatalogStore.shared.wordPack
             wordPackReady = cmsLibrary != nil || !wordPack.isEmpty
             if TestModeStore.shared.useMockCheckIns {
-                venueCounts = mockVenueCounts(from: venuesInVisibleGeographies)
+                venueCounts = try await LiveLocationService.mockVenueCounts()
                 DiagnosticLog.shared.append(
                     category: "location",
-                    message: "venueCounts using Test Mode mock (\(venueCounts.count) venues)"
+                    message: "venueCounts using CMS mock_venue_attendance (\(venueCounts.count) venues)"
                 )
             } else {
                 venueCounts = try await LiveLocationService.venueCounts()
@@ -539,13 +538,6 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func mockVenueCounts(from venues: [CatalogVenue]) -> [String: Int] {
-        var counts: [String: Int] = [:]
-        for (i, v) in venues.prefix(12).enumerated() {
-            counts[v.name] = (i % 5) + 1
-        }
-        return counts
-    }
 }
 
 /// Wires catalog venues into VenueLiveLocationEngine.
