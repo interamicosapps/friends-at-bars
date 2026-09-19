@@ -53,7 +53,7 @@ struct GamesHubView: View {
     }
 }
 
-/// Tappable game card — full black body, optional preview image, white title at bottom.
+/// Tappable game card — square preview on top, title bar underneath (taller rectangle overall).
 private struct GameHubCard: View {
     let title: String
     let imageName: String?
@@ -75,16 +75,17 @@ private struct GameHubCardLabel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Square image slot: full asset visible (letterboxed if not square). Title sits below — not overlaid.
             ZStack {
                 Color.black
                 if let imageName {
                     Image(imageName)
                         .resizable()
-                        .scaledToFill()
+                        .scaledToFit()
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 280)
+            .aspectRatio(1, contentMode: .fit)
             .clipped()
 
             Text(title)
