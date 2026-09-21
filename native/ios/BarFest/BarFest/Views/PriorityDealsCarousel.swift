@@ -15,9 +15,28 @@ struct PriorityDealsCarousel: View {
         "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
     ]
 
-    private static let cardFill = Color(red: 0.18, green: 0.16, blue: 0.12)
-    private static let cardStroke = Color(red: 0.45, green: 0.38, blue: 0.22).opacity(0.6)
-    private static let gold = Color(red: 0.85, green: 0.72, blue: 0.45)
+    private static let gold = Color(red: 0.95, green: 0.72, blue: 0.28)
+    private static let cardStroke = Color(red: 1.0, green: 0.78, blue: 0.35).opacity(0.55)
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.48, green: 0.32, blue: 0.08),
+                        Color(red: 0.28, green: 0.14, blue: 0.05),
+                        Color(red: 0.14, green: 0.08, blue: 0.04),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Self.cardStroke, lineWidth: 1)
+            )
+            .shadow(color: Self.gold.opacity(0.22), radius: 12, y: 3)
+    }
 
     var body: some View {
         ZStack {
@@ -74,14 +93,7 @@ struct PriorityDealsCarousel: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 118, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Self.cardFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Self.cardStroke, lineWidth: 1)
-                )
-        )
+        .background(cardBackground)
         .accessibilityLabel("Hot Deals loading")
     }
 
@@ -101,7 +113,7 @@ struct PriorityDealsCarousel: View {
                                 .font(.caption2.weight(.semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
-                                .background(badgeColor(for: label).opacity(0.25))
+                                .background(badgeColor(for: label).opacity(0.28))
                                 .foregroundStyle(badgeColor(for: label))
                                 .clipShape(Capsule())
                         }
@@ -109,13 +121,14 @@ struct PriorityDealsCarousel: View {
                 }
                 Spacer(minLength: 8)
                 if items.count > 1 {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 6) {
                         ForEach(0 ..< items.count, id: \.self) { i in
                             Circle()
-                                .fill(i == index ? Color(red: 0.78, green: 0.62, blue: 0.35) : Color.white.opacity(0.25))
-                                .frame(width: 6, height: 6)
+                                .fill(i == index ? Self.gold : Color.white.opacity(0.45))
+                                .frame(width: i == index ? 8 : 7, height: i == index ? 8 : 7)
                         }
                     }
+                    .padding(.top, 2)
                 }
             }
 
@@ -135,14 +148,7 @@ struct PriorityDealsCarousel: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 118, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Self.cardFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Self.cardStroke, lineWidth: 1)
-                )
-        )
+        .background(cardBackground)
         .contentShape(Rectangle())
         .onTapGesture {
             detailItem = current
@@ -188,9 +194,9 @@ struct PriorityDealsCarousel: View {
 
     private func badgeColor(for label: String) -> Color {
         if label.localizedCaseInsensitiveContains("event") {
-            return .purple
+            return Color(red: 0.78, green: 0.58, blue: 0.95)
         }
-        return Color(red: 0.9, green: 0.75, blue: 0.35)
+        return Self.gold
     }
 
     private func dayTimeLabel(_ item: CatalogListing) -> String? {

@@ -114,8 +114,10 @@ struct ActivitiesView: View {
                     }
 
                     HStack(alignment: .center, spacing: 8) {
-                        Text(areaFilter == nil ? "Bars" : areaFilter!)
-                            .font(.headline)
+                        Text((areaFilter == nil ? "Bars" : areaFilter!).uppercased())
+                            .font(.caption.weight(.semibold))
+                            .tracking(1.1)
+                            .foregroundStyle(.white.opacity(0.55))
                         Spacer(minLength: 8)
                         if showBarAttendance, !filteredVenues.isEmpty {
                             Button {
@@ -179,48 +181,72 @@ struct ActivitiesView: View {
                                     .padding(.vertical, 36)
                             }
                         } else {
+                            let maxCount = filteredVenues
+                                .map { appModel.venueCounts[$0.name, default: 0] }
+                                .max() ?? 0
                             LazyVStack(spacing: 0) {
-                                ForEach(filteredVenues) { venue in
+                                ForEach(Array(filteredVenues.enumerated()), id: \.element.id) { idx, venue in
                                     let count = appModel.venueCounts[venue.name, default: 0]
+                                    let intensity = Self.busynessIntensity(
+                                        count: count,
+                                        maxCount: maxCount
+                                    )
                                     Button {
                                         searchFocused = false
                                         selectedVenue = venue
                                     } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
+                                        HStack(alignment: .center, spacing: 10) {
+                                            VStack(alignment: .leading, spacing: 3) {
                                                 Text(venue.name)
-                                                    .font(.body.weight(.medium))
-                                                    .foregroundStyle(.primary)
+                                                    .font(.body.weight(.semibold))
+                                                    .foregroundStyle(.white)
                                                 Text(venue.area)
                                                     .font(.caption2)
-                                                    .foregroundStyle(.secondary)
+                                                    .foregroundStyle(.white.opacity(0.45))
                                                 WaitTimeLabel(
                                                     summary: appModel.waitSummary(for: venue.name),
                                                     hidesWhenEmpty: true
                                                 )
                                             }
                                             Spacer(minLength: 8)
-                                            Text(count == 0 ? "No Live Users" : "\(count)")
-                                                .font(count == 0
-                                                      ? .caption.weight(.semibold)
-                                                      : .body.monospacedDigit().weight(.semibold))
-                                                .foregroundStyle(.secondary)
-                                                .multilineTextAlignment(.trailing)
+                                            if count == 0 {
+                                                Text("No Live Users")
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.white.opacity(0.4))
+                                                    .multilineTextAlignment(.trailing)
+                                            } else {
+                                                HStack(spacing: 8) {
+                                                    VenueBusynessMeter(intensity: intensity)
+                                                    Text("\(count)")
+                                                        .font(.title3.monospacedDigit().weight(.bold))
+                                                        .foregroundStyle(Self.busynessColor(intensity: intensity))
+                                                        .accessibilityLabel("\(count) live users")
+                                                }
+                                            }
                                             Image(systemName: "chevron.right")
-                                                .font(.caption.weight(.semibold))
-                                                .foregroundStyle(.tertiary)
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(.white.opacity(0.22))
                                         }
-                                        .padding(.vertical, 12)
+                                        .padding(.vertical, 14)
                                         .padding(.horizontal, 14)
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    Divider().opacity(0.35)
+                                    if idx < filteredVenues.count - 1 {
+                                        Rectangle()
+                                            .fill(Color.white.opacity(0.06))
+                                            .frame(height: 1)
+                                            .padding(.leading, 14)
+                                    }
                                 }
                             }
                             .background(
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                                    .fill(Color.white.opacity(0.07))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
                             )
                             .dismissKeyboardOnTap()
                         }
@@ -446,6 +472,41 @@ struct ActivitiesView: View {
             await appModel.refreshCatalog()
         }
         await appModel.refreshWaitTimes()
+    }
+
+    /// 0…1 relative to the busiest venue in the currently filtered list.
+    static func busynessIntensity(count: Int, maxCount: Int) -> Double {
+        guard count > 0, maxCount > 0 else { return 0 }
+        return min(1, Double(count) / Double(maxCount))
+    }
+
+    /// Nightlife-friendly quiet → medium → hot scale (desaturated, readable on black).
+    static func busynessColor(intensity: Double) -> Color {
+        if intensity < 0.34 {
+            return Color(red: 0.42, green: 0.78, blue: 0.58)
+        }
+        if intensity < 0.67 {
+            return Color(red: 0.95, green: 0.72, blue: 0.32)
+        }
+        return Color(red: 0.96, green: 0.42, blue: 0.34)
+    }
+}
+
+/// Short relative-busyness bar next to the headcount (color + fill length).
+private struct VenueBusynessMeter: View {
+    let intensity: Double
+
+    var body: some View {
+        let color = ActivitiesView.busynessColor(intensity: intensity)
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(Color.white.opacity(0.12))
+            Capsule()
+                .fill(color)
+                .frame(width: max(4, 28 * intensity))
+        }
+        .frame(width: 28, height: 5)
+        .accessibilityHidden(true)
     }
 }
 
