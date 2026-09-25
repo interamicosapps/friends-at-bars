@@ -131,7 +131,11 @@ final class SwitchSearchEngine: ObservableObject {
 
         // Second tap in point-to-point mode.
         if selectionMode == .awaitingEnd, let start = selectionStart {
-            if start.0 == row, start.1 == col { return }
+            // Same cell again → cancel the pending selection.
+            if start.0 == row, start.1 == col {
+                resetSelection(clearHighlightsOnly: true)
+                return
+            }
             let p = path(from: start, to: (row, col))
             selectedPath = p
             checkSelection(p)

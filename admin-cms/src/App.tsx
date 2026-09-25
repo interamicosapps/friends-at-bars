@@ -7,6 +7,7 @@ import { GameContentPanel } from "./GameContentPanel";
 import { GeographiesPanel } from "./GeographiesPanel";
 import { MapPanel, type MapCoords } from "./MapPanel";
 import { MockAttendancePanel } from "./MockAttendancePanel";
+import { CatalogFeedbackPanel } from "./CatalogFeedbackPanel";
 
 type Tab =
   | "venues"
@@ -14,6 +15,7 @@ type Tab =
   | "games"
   | "geographies"
   | "mock"
+  | "tips"
   | "map";
 
 export default function App() {
@@ -85,7 +87,7 @@ export default function App() {
   const shellClass =
     tab === "map"
       ? "app-shell map-mode"
-      : tab === "listings" || tab === "mock"
+      : tab === "listings" || tab === "mock" || tab === "tips"
         ? "app-shell wide"
         : "app-shell";
 
@@ -109,6 +111,7 @@ export default function App() {
             ["games", "Game content", "Games"],
             ["geographies", "Geographies", "Geos"],
             ["mock", "Mock live", "Mock"],
+            ["tips", "Tips", "Tips"],
             ["map", "Map", "Map"],
           ] as const
         ).map(([id, label, shortLabel]) => (
@@ -140,6 +143,7 @@ export default function App() {
           />
         )}
         {tab === "mock" && <MockAttendancePanel />}
+        {tab === "tips" && <CatalogFeedbackPanel />}
         {tab === "map" && (
           <MapPanel
             onStartVenue={(coords) => {

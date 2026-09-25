@@ -6,6 +6,8 @@ struct VenueBarSheet: View {
     let venue: CatalogVenue
     let listings: [CatalogListing]
     var waitSummary: WaitTimeSummary = .none
+    var geographyId: UUID? = nil
+    var onReport: ((CatalogFeedbackContext) -> Void)? = nil
     @State private var index = 0
     private let rotateSeconds: TimeInterval = 4
 
@@ -69,6 +71,31 @@ struct VenueBarSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
+
+                if onReport != nil {
+                    Button {
+                        let item = current
+                        onReport?(
+                            CatalogFeedbackContext(
+                                category: item == nil ? .missingDeal : .outdatedListing,
+                                venueName: venue.name,
+                                listingId: item?.id,
+                                listingTitle: item?.title.isEmpty == false
+                                    ? item?.title
+                                    : item?.venue_name,
+                                sourceScreen: "venue-sheet",
+                                geographyId: geographyId
+                            )
+                        )
+                    } label: {
+                        Text("Report this listing")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding()
             .navigationBarTitleDisplayMode(.inline)

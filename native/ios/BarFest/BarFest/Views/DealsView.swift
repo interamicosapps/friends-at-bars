@@ -7,6 +7,10 @@ struct DealsView: View {
     @State private var areaFilter: String?
     @State private var venueSearch = ""
     @FocusState private var searchFocused: Bool
+    @State private var feedbackContext: CatalogFeedbackContext?
+
+    private static let dealGold = Color(red: 0.95, green: 0.72, blue: 0.28)
+    private static let eventLilac = Color(red: 0.78, green: 0.58, blue: 0.95)
 
     init(searchFocusedForChrome: Binding<Bool> = .constant(false)) {
         _searchFocusedForChrome = searchFocusedForChrome
@@ -91,11 +95,18 @@ struct DealsView: View {
                             .fill(Color.white.opacity(0.08))
                     )
 
-                    dayFilterMenu
+                    HStack(alignment: .center, spacing: 8) {
+                        Text("DEALS")
+                            .font(.caption.weight(.semibold))
+                            .tracking(1.1)
+                            .foregroundStyle(.white.opacity(0.55))
+                        Spacer(minLength: 8)
+                        dayFilterMenu
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.top, 4)
-                .padding(.bottom, 6)
+                .padding(.bottom, 10)
 
                 if filteredListings.isEmpty {
                     if !searchQuery.isEmpty {
@@ -106,6 +117,13 @@ struct DealsView: View {
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .dismissKeyboardOnTap()
+                        .safeAreaInset(edge: .bottom) {
+                            CatalogFeedbackLinkButton(title: "Missing a deal? Tell us") {
+                                openFeedback(category: .missingDeal, source: "deals-search-empty")
+                            }
+                            .padding(.horizontal)
+                            .padding(.bottom, 8)
+                        }
                     } else {
                         ContentUnavailableView(
                             "No deals",
@@ -114,51 +132,44 @@ struct DealsView: View {
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .dismissKeyboardOnTap()
+                        .safeAreaInset(edge: .bottom) {
+                            CatalogFeedbackLinkButton(title: "Something missing?") {
+                                openFeedback(category: .missingDeal, source: "deals-empty")
+                            }
+                            .padding(.horizontal)
+                            .padding(.bottom, 8)
+                        }
                     }
                 } else {
-                    List(filteredListings) { item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(item.venue_name)
-                                    .font(.headline)
-                                Spacer()
-                                if !item.area.isEmpty {
-                                    Text(item.area)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            if !item.title.isEmpty {
-                                Text(item.title).font(.subheadline.weight(.semibold))
-                            }
-                            if !item.time_label.isEmpty {
-                                Text(item.time_label)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if !item.details.isEmpty {
-                                Text(item.details).font(.body)
-                            }
-                            HStack(spacing: 6) {
-                                ForEach(item.type_labels, id: \.self) { label in
-                                    Text(label)
-                                        .font(.caption2)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(Color.white.opacity(0.12))
-                                        .clipShape(Capsule())
-                                }
-                                if !item.days_of_week.isEmpty {
-                                    Text(dayNames(item.days_of_week))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(filteredListings.enumerated()), id: \.element.id) { idx, item in
+                                dealRow(item)
+                                if idx < filteredListings.count - 1 {
+                                    Rectangle()
+                                        .fill(Color.white.opacity(0.06))
+                                        .frame(height: 1)
+                                        .padding(.leading, 14)
                                 }
                             }
                         }
-                        .padding(.vertical, 4)
-                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                        )
+                        .padding(.horizontal)
+
+                        CatalogFeedbackLinkButton(title: "Something missing?") {
+                            openFeedback(category: nil, source: "deals-list")
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
                     }
-                    .listStyle(.plain)
                     .scrollDismissesKeyboard(.interactively)
                     .dismissKeyboardOnTap()
                 }
@@ -166,6 +177,9 @@ struct DealsView: View {
             .background(Color.black.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await appModel.refreshCatalog() }
+            .sheet(item: $feedbackContext) { ctx in
+                CatalogFeedbackSheet(context: ctx)
+            }
             .onAppear { logDealsDiagnostics(event: "appear") }
             .onChange(of: appModel.listings.count) { _, _ in
                 logDealsDiagnostics(event: "listings-changed")
@@ -184,6 +198,101 @@ struct DealsView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func dealRow(_ item: CatalogListing) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(item.venue_name)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 8)
+                if !item.area.isEmpty {
+                    Text(item.area)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+            }
+
+            if !item.title.isEmpty {
+                Text(item.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.92))
+            }
+
+            if !item.time_label.isEmpty {
+                Text(item.time_label)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+
+            if !item.details.isEmpty {
+                Text(item.details)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+
+            HStack(spacing: 6) {
+                ForEach(item.type_labels, id: \.self) { label in
+                    let accent = typeAccent(for: label)
+                    Text(label)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(accent.opacity(0.28))
+                        .foregroundStyle(accent)
+                        .clipShape(Capsule())
+                }
+                if !item.days_of_week.isEmpty {
+                    Text(dayNames(item.days_of_week))
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+                Spacer(minLength: 4)
+                Button {
+                    openFeedback(
+                        category: .outdatedListing,
+                        source: "deals-row",
+                        venueName: item.venue_name,
+                        listingId: item.id,
+                        listingTitle: item.title.isEmpty ? item.venue_name : item.title
+                    )
+                } label: {
+                    Text("Report")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func openFeedback(
+        category: CatalogFeedbackCategory?,
+        source: String,
+        venueName: String? = nil,
+        listingId: UUID? = nil,
+        listingTitle: String? = nil
+    ) {
+        feedbackContext = CatalogFeedbackContext(
+            category: category,
+            venueName: venueName,
+            listingId: listingId,
+            listingTitle: listingTitle,
+            sourceScreen: source,
+            geographyId: appModel.resolvedGeography?.id
+        )
+    }
+
+    private func typeAccent(for label: String) -> Color {
+        if label.localizedCaseInsensitiveContains("event") {
+            return Self.eventLilac
+        }
+        return Self.dealGold
     }
 
     private func dismissDealsSearch() {
@@ -216,20 +325,21 @@ struct DealsView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityLabel("Day filter, \(dayFilter.label)")
     }
 
     private var dayFilterLabel: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             Text(dayFilter.label)
-                .font(.callout.weight(.bold))
+                .font(.caption.weight(.semibold))
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.bold))
         }
-        .foregroundStyle(.white)
-        .padding(.top, 2)
-        .padding(.bottom, 4)
+        .foregroundStyle(.white.opacity(0.85))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.white.opacity(0.1))
+        .clipShape(Capsule())
     }
 
     private func logDealsDiagnostics(event: String) {

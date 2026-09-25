@@ -17,6 +17,7 @@ struct ActivitiesView: View {
     /// After splash, first unreported check-in waits 0.5s so Activities is visible first.
     @State private var allowCheckInOverlay = false
     @State private var checkInRevealTask: Task<Void, Never>?
+    @State private var feedbackContext: CatalogFeedbackContext?
 
     private var searchQuery: String {
         venueSearch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,7 +177,12 @@ struct ActivitiesView: View {
                                 .padding(.vertical, 24)
                                 .dismissKeyboardOnTap()
                             } else {
-                                ActivitiesNoActivityEmptyState(areaName: areaFilter)
+                                ActivitiesNoActivityEmptyState(areaName: areaFilter) {
+                                    openFeedback(
+                                        category: .missingBar,
+                                        source: "activities-empty"
+                                    )
+                                }
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 36)
                             }
@@ -249,6 +255,11 @@ struct ActivitiesView: View {
                                     .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
                             )
                             .dismissKeyboardOnTap()
+
+                            CatalogFeedbackLinkButton(title: "Something missing?") {
+                                openFeedback(category: nil, source: "activities-list")
+                            }
+                            .padding(.top, 4)
                         }
                     } else {
                         ActivitiesLocationInlineGate()
@@ -330,11 +341,36 @@ struct ActivitiesView: View {
                 VenueBarSheet(
                     venue: venue,
                     listings: todaysListings(for: venue),
-                    waitSummary: appModel.waitSummary(for: venue.name)
+                    waitSummary: appModel.waitSummary(for: venue.name),
+                    geographyId: appModel.resolvedGeography?.id,
+                    onReport: { ctx in
+                        selectedVenue = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            feedbackContext = ctx
+                        }
+                    }
                 )
                 .presentationDetents([.medium, .large])
             }
+            .sheet(item: $feedbackContext) { ctx in
+                CatalogFeedbackSheet(context: ctx)
+            }
         }
+    }
+
+    private func openFeedback(
+        category: CatalogFeedbackCategory?,
+        source: String,
+        venueName: String? = nil
+    ) {
+        feedbackContext = CatalogFeedbackContext(
+            category: category,
+            venueName: venueName,
+            listingId: nil,
+            listingTitle: nil,
+            sourceScreen: source,
+            geographyId: appModel.resolvedGeography?.id
+        )
     }
 
     private var checkInVenueOptions: [String] {
@@ -513,6 +549,7 @@ private struct VenueBusynessMeter: View {
 /// Empty state when no bars currently have live attendance (optionally scoped to an area).
 private struct ActivitiesNoActivityEmptyState: View {
     var areaName: String?
+    var onMissingTip: (() -> Void)?
 
     private var message: String {
         if let areaName, !areaName.isEmpty {
@@ -531,6 +568,12 @@ private struct ActivitiesNoActivityEmptyState: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
+            if let onMissingTip {
+                CatalogFeedbackLinkButton(
+                    title: "Missing a bar? Tell us",
+                    action: onMissingTip
+                )
+            }
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)

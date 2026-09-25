@@ -605,6 +605,37 @@ tr.row-selected {
     0 0 12px rgba(59, 130, 246, 0.55);
 }
 
+.catalog-feedback-table .feedback-when {
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.catalog-feedback-table .feedback-message {
+  max-width: 22rem;
+  white-space: pre-wrap;
+}
+
+.catalog-feedback-table .feedback-context {
+  font-size: 0.85rem;
+  max-width: 12rem;
+}
+
+.catalog-feedback-table tr.row-new {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.feedback-note-cell {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 10rem;
+}
+
+.feedback-note-cell textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 2.5rem;
+}
+
 .confirm-dialog {
   width: min(100%, 24rem);
   border: 1px solid #ddd6cb;

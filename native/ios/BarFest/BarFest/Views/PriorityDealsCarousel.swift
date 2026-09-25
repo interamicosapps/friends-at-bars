@@ -23,9 +23,9 @@ struct PriorityDealsCarousel: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        Color(red: 0.48, green: 0.32, blue: 0.08),
-                        Color(red: 0.28, green: 0.14, blue: 0.05),
-                        Color(red: 0.14, green: 0.08, blue: 0.04),
+                        Color(red: 0.58, green: 0.40, blue: 0.14),
+                        Color(red: 0.42, green: 0.28, blue: 0.12),
+                        Color(red: 0.30, green: 0.20, blue: 0.10),
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -35,7 +35,7 @@ struct PriorityDealsCarousel: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(Self.cardStroke, lineWidth: 1)
             )
-            .shadow(color: Self.gold.opacity(0.22), radius: 12, y: 3)
+            .shadow(color: Self.gold.opacity(0.14), radius: 10, y: 2)
     }
 
     var body: some View {
