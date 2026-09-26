@@ -179,7 +179,7 @@ workflows:
           # Hardcoded marketing / build (bump these in Info.plist + here before each TestFlight upload).
           # Keep in sync with BarFest/Info.plist CFBundleShortVersionString / CFBundleVersion.
           NATIVE_MARKETING_VERSION=1.0.1
-          NATIVE_BUILD_NUMBER=35
+          NATIVE_BUILD_NUMBER=36
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NATIVE_MARKETING_VERSION}" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${NATIVE_MARKETING_VERSION}" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NATIVE_BUILD_NUMBER}" "$PLIST" || \
@@ -264,7 +264,7 @@ workflows:
           fi
           NATIVE_MARKETING_VERSION=1.0.1
           # Independent of production Bar Fest build numbers — keep in sync with Info.plist
-          NATIVE_BUILD_NUMBER=35
+          NATIVE_BUILD_NUMBER=36
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NATIVE_MARKETING_VERSION}" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${NATIVE_MARKETING_VERSION}" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NATIVE_BUILD_NUMBER}" "$PLIST" || \

@@ -1,19 +1,12 @@
 import SwiftUI
+import UIKit
 
 struct GamesHubView: View {
     @ObservedObject private var testMode = TestModeStore.shared
     @State private var showSwitchSearch = false
     @State private var showRideTheBus = false
-    @State private var scrollContentFrame: CGRect = .zero
-    @State private var scrollViewportHeight: CGFloat = 0
-
     /// How far the scroll view is pulled past the bottom (rubber-band only).
-    private var bottomOverscroll: CGFloat {
-        guard scrollViewportHeight > 0, scrollContentFrame.height > 0 else { return 0 }
-        let maxScroll = max(0, scrollContentFrame.height - scrollViewportHeight)
-        let scrolled = -scrollContentFrame.minY
-        return max(0, scrolled - maxScroll)
-    }
+    @State private var bottomOverscroll: CGFloat = 0
 
     private let overscrollFadeDistance: CGFloat = 48
 
@@ -54,26 +47,12 @@ struct GamesHubView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                // Anchors a UIKit probe inside the SwiftUI ScrollView so we can read real bounce offsets.
                 .background {
-                    GeometryReader { contentGeo in
-                        Color.clear.preference(
-                            key: GamesHubScrollContentFrameKey.self,
-                            value: contentGeo.frame(in: .named("gameHubScroll"))
-                        )
-                    }
+                    GamesHubBottomOverscrollReader(bottomOverscroll: $bottomOverscroll)
+                        .frame(width: 0, height: 0)
                 }
             }
-            .coordinateSpace(name: "gameHubScroll")
-            .background {
-                GeometryReader { viewportGeo in
-                    Color.clear.preference(
-                        key: GamesHubScrollViewportHeightKey.self,
-                        value: viewportGeo.size.height
-                    )
-                }
-            }
-            .onPreferenceChange(GamesHubScrollContentFrameKey.self) { scrollContentFrame = $0 }
-            .onPreferenceChange(GamesHubScrollViewportHeightKey.self) { scrollViewportHeight = $0 }
             .overlay(alignment: .bottom) {
                 Text("More Games to Come")
                     .font(.subheadline.weight(.semibold))
@@ -100,17 +79,115 @@ struct GamesHubView: View {
 
 // MARK: - Bottom rubber-band “More Games” peek
 
-private struct GamesHubScrollContentFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
+/// Observes the enclosing `UIScrollView` content offset so rubber-band overscroll is tracked reliably.
+private struct GamesHubBottomOverscrollReader: UIViewRepresentable {
+    @Binding var bottomOverscroll: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(bottomOverscroll: $bottomOverscroll)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.binding = $bottomOverscroll
+        context.coordinator.attach(from: uiView)
+    }
+
+    final class Coordinator {
+        var binding: Binding<CGFloat>
+        private weak var scrollView: UIScrollView?
+        private var offsetObservation: NSKeyValueObservation?
+        private var sizeObservation: NSKeyValueObservation?
+        private var insetObservation: NSKeyValueObservation?
+
+        init(bottomOverscroll: Binding<CGFloat>) {
+            binding = bottomOverscroll
+        }
+
+        func attach(from view: UIView, attempt: Int = 0) {
+            // Scroll view is only in the hierarchy after SwiftUI finishes embedding.
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let view else { return }
+                guard let found = view.bf_enclosingScrollView() else {
+                    if attempt < 12 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak view] in
+                            guard let self, let view else { return }
+                            self.attach(from: view, attempt: attempt + 1)
+                        }
+                    }
+                    return
+                }
+                if scrollView === found { return }
+                detach()
+                scrollView = found
+                observe(found)
+                publishOverscroll(from: found)
+            }
+        }
+
+        private func observe(_ scrollView: UIScrollView) {
+            offsetObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
+                self?.publishOverscroll(from: sv)
+            }
+            sizeObservation = scrollView.observe(\.contentSize, options: [.new]) { [weak self] sv, _ in
+                self?.publishOverscroll(from: sv)
+            }
+            insetObservation = scrollView.observe(\.contentInset, options: [.new]) { [weak self] sv, _ in
+                self?.publishOverscroll(from: sv)
+            }
+        }
+
+        private func publishOverscroll(from scrollView: UIScrollView) {
+            let next = Self.bottomOverscroll(in: scrollView)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if abs(self.binding.wrappedValue - next) > 0.5 || (next == 0 && self.binding.wrappedValue != 0) {
+                    self.binding.wrappedValue = next
+                }
+            }
+        }
+
+        private static func bottomOverscroll(in scrollView: UIScrollView) -> CGFloat {
+            let inset = scrollView.adjustedContentInset
+            let bottomRestOffset = max(
+                -inset.top,
+                scrollView.contentSize.height - scrollView.bounds.height + inset.bottom
+            )
+            return max(0, scrollView.contentOffset.y - bottomRestOffset)
+        }
+
+        private func detach() {
+            offsetObservation?.invalidate()
+            sizeObservation?.invalidate()
+            insetObservation?.invalidate()
+            offsetObservation = nil
+            sizeObservation = nil
+            insetObservation = nil
+            scrollView = nil
+        }
+
+        deinit {
+            detach()
+        }
     }
 }
 
-private struct GamesHubScrollViewportHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+private extension UIView {
+    func bf_enclosingScrollView() -> UIScrollView? {
+        var node: UIView? = self
+        while let current = node {
+            if let scroll = current as? UIScrollView {
+                return scroll
+            }
+            node = current.superview
+        }
+        return nil
     }
 }
 

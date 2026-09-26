@@ -119,6 +119,14 @@ struct ActivitiesView: View {
                             .font(.caption.weight(.semibold))
                             .tracking(1.1)
                             .foregroundStyle(.white.opacity(0.55))
+                        Button {
+                            openFeedback(category: .missingBar, source: "activities-header")
+                        } label: {
+                            Text("Missing Bar?")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
                         Spacer(minLength: 8)
                         if showBarAttendance, !filteredVenues.isEmpty {
                             Button {
@@ -255,11 +263,6 @@ struct ActivitiesView: View {
                                     .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
                             )
                             .dismissKeyboardOnTap()
-
-                            CatalogFeedbackLinkButton(title: "Something missing?") {
-                                openFeedback(category: nil, source: "activities-list")
-                            }
-                            .padding(.top, 4)
                         }
                     } else {
                         ActivitiesLocationInlineGate()
@@ -570,7 +573,7 @@ private struct ActivitiesNoActivityEmptyState: View {
                 .padding(.horizontal, 16)
             if let onMissingTip {
                 CatalogFeedbackLinkButton(
-                    title: "Missing a bar? Tell us",
+                    title: "Missing Bar?",
                     action: onMissingTip
                 )
             }

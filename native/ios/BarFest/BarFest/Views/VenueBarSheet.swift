@@ -88,7 +88,7 @@ struct VenueBarSheet: View {
                             )
                         )
                     } label: {
-                        Text("Report this listing")
+                        Text("Report")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)

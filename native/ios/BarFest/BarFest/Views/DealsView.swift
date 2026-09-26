@@ -100,6 +100,14 @@ struct DealsView: View {
                             .font(.caption.weight(.semibold))
                             .tracking(1.1)
                             .foregroundStyle(.white.opacity(0.55))
+                        Button {
+                            openFeedback(category: .missingDeal, source: "deals-header")
+                        } label: {
+                            Text("Missing Deal?")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
                         Spacer(minLength: 8)
                         dayFilterMenu
                     }
@@ -118,7 +126,7 @@ struct DealsView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .dismissKeyboardOnTap()
                         .safeAreaInset(edge: .bottom) {
-                            CatalogFeedbackLinkButton(title: "Missing a deal? Tell us") {
+                            CatalogFeedbackLinkButton(title: "Missing Deal?") {
                                 openFeedback(category: .missingDeal, source: "deals-search-empty")
                             }
                             .padding(.horizontal)
@@ -133,7 +141,7 @@ struct DealsView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .dismissKeyboardOnTap()
                         .safeAreaInset(edge: .bottom) {
-                            CatalogFeedbackLinkButton(title: "Something missing?") {
+                            CatalogFeedbackLinkButton(title: "Missing Deal?") {
                                 openFeedback(category: .missingDeal, source: "deals-empty")
                             }
                             .padding(.horizontal)
@@ -141,37 +149,35 @@ struct DealsView: View {
                         }
                     }
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(filteredListings.enumerated()), id: \.element.id) { idx, item in
-                                dealRow(item)
-                                if idx < filteredListings.count - 1 {
-                                    Rectangle()
-                                        .fill(Color.white.opacity(0.06))
-                                        .frame(height: 1)
-                                        .padding(.leading, 14)
+                    List {
+                        ForEach(filteredListings) { item in
+                            dealRow(item)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 0, trailing: 0, bottom: 0))
+                                .listRowSeparatorTint(Color.white.opacity(0.08))
+                                .listRowBackground(Color.white.opacity(0.07))
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button {
+                                        openFeedback(
+                                            category: .outdatedListing,
+                                            source: "deals-swipe",
+                                            venueName: item.venue_name,
+                                            listingId: item.id,
+                                            listingTitle: item.title.isEmpty
+                                                ? item.venue_name
+                                                : item.title
+                                        )
+                                    } label: {
+                                        Label("Report", systemImage: "flag")
+                                    }
+                                    .tint(.orange)
                                 }
-                            }
                         }
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.white.opacity(0.07))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-                        )
-                        .padding(.horizontal)
-
-                        CatalogFeedbackLinkButton(title: "Something missing?") {
-                            openFeedback(category: nil, source: "deals-list")
-                        }
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        .padding(.bottom, 12)
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                     .scrollDismissesKeyboard(.interactively)
                     .dismissKeyboardOnTap()
+                    .padding(.bottom, 4)
                 }
             }
             .background(Color.black.ignoresSafeArea())
@@ -249,21 +255,6 @@ struct DealsView: View {
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.45))
                 }
-                Spacer(minLength: 4)
-                Button {
-                    openFeedback(
-                        category: .outdatedListing,
-                        source: "deals-row",
-                        venueName: item.venue_name,
-                        listingId: item.id,
-                        listingTitle: item.title.isEmpty ? item.venue_name : item.title
-                    )
-                } label: {
-                    Text("Report")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.45))
-                }
-                .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 14)
