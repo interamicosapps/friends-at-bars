@@ -50,134 +50,11 @@ struct DealsView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HorizontalChipScroll {
-                        ForEach(appModel.scopedAreas) { area in
-                            AreaFilterChip(
-                                title: area.short_name,
-                                accent: area.accentColor,
-                                selected: areaFilter == area.long_name
-                            ) {
-                                if areaFilter == area.long_name {
-                                    areaFilter = nil
-                                } else {
-                                    areaFilter = area.long_name
-                                }
-                            }
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search bars", text: $venueSearch)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .submitLabel(.search)
-                            .focused($searchFocused)
-                            .onSubmit { searchFocused = false }
-                        if !venueSearch.isEmpty {
-                            Button {
-                                venueSearch = ""
-                                searchFocused = false
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Clear search")
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.08))
-                    )
-
-                    HStack(alignment: .center, spacing: 8) {
-                        Text("DEALS")
-                            .font(.caption.weight(.semibold))
-                            .tracking(1.1)
-                            .foregroundStyle(.white.opacity(0.55))
-                        Button {
-                            openFeedback(category: .missingDeal, source: "deals-header")
-                        } label: {
-                            Text("Missing Deal?")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                        Spacer(minLength: 8)
-                        dayFilterMenu
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.top, 4)
-                .padding(.bottom, 10)
-
+                filtersHeader
                 if filteredListings.isEmpty {
-                    if !searchQuery.isEmpty {
-                        ContentUnavailableView(
-                            "No Deals Found From That Search",
-                            systemImage: "magnifyingglass",
-                            description: Text("Try another bar name, day, or area.")
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .dismissKeyboardOnTap()
-                        .safeAreaInset(edge: .bottom) {
-                            CatalogFeedbackLinkButton(title: "Missing Deal?") {
-                                openFeedback(category: .missingDeal, source: "deals-search-empty")
-                            }
-                            .padding(.horizontal)
-                            .padding(.bottom, 8)
-                        }
-                    } else {
-                        ContentUnavailableView(
-                            "No deals",
-                            systemImage: "tag",
-                            description: Text("Try another day or area, or pull to refresh.")
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .dismissKeyboardOnTap()
-                        .safeAreaInset(edge: .bottom) {
-                            CatalogFeedbackLinkButton(title: "Missing Deal?") {
-                                openFeedback(category: .missingDeal, source: "deals-empty")
-                            }
-                            .padding(.horizontal)
-                            .padding(.bottom, 8)
-                        }
-                    }
+                    emptyState
                 } else {
-                    List {
-                        ForEach(filteredListings) { item in
-                            dealRow(item)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 0, trailing: 0, bottom: 0))
-                                .listRowSeparatorTint(Color.white.opacity(0.08))
-                                .listRowBackground(Color.white.opacity(0.07))
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button {
-                                        openFeedback(
-                                            category: .outdatedListing,
-                                            source: "deals-swipe",
-                                            venueName: item.venue_name,
-                                            listingId: item.id,
-                                            listingTitle: item.title.isEmpty
-                                                ? item.venue_name
-                                                : item.title
-                                        )
-                                    } label: {
-                                        Label("Report", systemImage: "flag")
-                                    }
-                                    .tint(.orange)
-                                }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .scrollDismissesKeyboard(.interactively)
-                    .dismissKeyboardOnTap()
-                    .padding(.bottom, 4)
+                    dealsList
                 }
             }
             .background(Color.black.ignoresSafeArea())
@@ -204,6 +81,151 @@ struct DealsView: View {
                 }
             }
         }
+    }
+
+    private var filtersHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            areaChips
+            searchField
+            dealsSectionHeader
+        }
+        .padding(.horizontal)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+    }
+
+    private var areaChips: some View {
+        HorizontalChipScroll {
+            ForEach(appModel.scopedAreas) { area in
+                AreaFilterChip(
+                    title: area.short_name,
+                    accent: area.accentColor,
+                    selected: areaFilter == area.long_name
+                ) {
+                    if areaFilter == area.long_name {
+                        areaFilter = nil
+                    } else {
+                        areaFilter = area.long_name
+                    }
+                }
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search bars", text: $venueSearch)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchFocused)
+                .onSubmit { searchFocused = false }
+            if !venueSearch.isEmpty {
+                Button {
+                    venueSearch = ""
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+    }
+
+    private var dealsSectionHeader: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text("DEALS")
+                .font(.caption.weight(.semibold))
+                .tracking(1.1)
+                .foregroundStyle(.white.opacity(0.55))
+            Button {
+                openFeedback(category: .missingDeal, source: "deals-header")
+            } label: {
+                Text("Missing Deal?")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 8)
+            dayFilterMenu
+        }
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if !searchQuery.isEmpty {
+            ContentUnavailableView(
+                "No Deals Found From That Search",
+                systemImage: "magnifyingglass",
+                description: Text("Try another bar name, day, or area.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .dismissKeyboardOnTap()
+            .safeAreaInset(edge: .bottom) {
+                CatalogFeedbackLinkButton(title: "Missing Deal?") {
+                    openFeedback(category: .missingDeal, source: "deals-search-empty")
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+        } else {
+            ContentUnavailableView(
+                "No deals",
+                systemImage: "tag",
+                description: Text("Try another day or area, or pull to refresh.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .dismissKeyboardOnTap()
+            .safeAreaInset(edge: .bottom) {
+                CatalogFeedbackLinkButton(title: "Missing Deal?") {
+                    openFeedback(category: .missingDeal, source: "deals-empty")
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    private var dealsList: some View {
+        List {
+            ForEach(filteredListings) { item in
+                dealRow(item)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, trailing: 0, bottom: 0))
+                    .listRowSeparatorTint(Color.white.opacity(0.08))
+                    .listRowBackground(Color.white.opacity(0.07))
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            openFeedback(
+                                category: .outdatedListing,
+                                source: "deals-swipe",
+                                venueName: item.venue_name,
+                                listingId: item.id,
+                                listingTitle: item.title.isEmpty
+                                    ? item.venue_name
+                                    : item.title
+                            )
+                        } label: {
+                            Label("Report", systemImage: "flag")
+                        }
+                        .tint(.orange)
+                    }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .dismissKeyboardOnTap()
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder

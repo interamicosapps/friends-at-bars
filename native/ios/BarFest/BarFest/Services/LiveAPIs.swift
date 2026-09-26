@@ -205,10 +205,12 @@ enum LiveLocationService {
         for row in rows where row.attendance > 0 {
             counts[row.venue_name] = row.attendance
         }
+        let withPeople = counts.count
+        let rowCount = rows.count
         await MainActor.run {
             DiagnosticLog.shared.append(
                 category: "location",
-                message: "mockVenueCounts rows=\(rows.count) withPeople=\(counts.count)"
+                message: "mockVenueCounts rows=\(rowCount) withPeople=\(withPeople)"
             )
         }
         return counts
