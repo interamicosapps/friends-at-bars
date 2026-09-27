@@ -59,6 +59,7 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
   const centerEditRef = useRef<mapkit.MarkerAnnotation | null>(null);
   const venuesRef = useRef<CatalogVenue[]>([]);
   const editingIdRef = useRef<string | null>(null);
+  const pageGestureLockedRef = useRef(false);
   /** Custom pointer-drag target (MapKit built-in drag loses to map pan). */
   const activeDragRef = useRef<{
     marker: mapkit.MarkerAnnotation;
@@ -293,6 +294,42 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
     map.isScrollEnabled = enabled;
   }, []);
 
+  const lockPageGesture = useCallback(() => {
+    if (pageGestureLockedRef.current) return;
+    pageGestureLockedRef.current = true;
+    const html = document.documentElement;
+    const body = document.body;
+    html.dataset.bfOverflow = html.style.overflow;
+    body.dataset.bfOverflow = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+    body.style.overscrollBehavior = "none";
+    const mapEl = mapRef.current?.element;
+    if (mapEl) {
+      mapEl.style.touchAction = "none";
+      mapEl.style.overscrollBehavior = "none";
+    }
+  }, []);
+
+  const unlockPageGesture = useCallback(() => {
+    if (!pageGestureLockedRef.current) return;
+    pageGestureLockedRef.current = false;
+    const html = document.documentElement;
+    const body = document.body;
+    html.style.overflow = html.dataset.bfOverflow ?? "";
+    body.style.overflow = body.dataset.bfOverflow ?? "";
+    delete html.dataset.bfOverflow;
+    delete body.dataset.bfOverflow;
+    html.style.overscrollBehavior = "";
+    body.style.overscrollBehavior = "";
+    const mapEl = mapRef.current?.element;
+    if (mapEl) {
+      mapEl.style.touchAction = "";
+      mapEl.style.overscrollBehavior = "";
+    }
+  }, []);
+
   const stopFootprintEdit = useCallback(() => {
     activeDragRef.current = null;
     clearCornerEditors();
@@ -301,6 +338,7 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
     setEditCenter(null);
     setVenuePinsInteractive(true);
     setMapPanEnabled(true);
+    unlockPageGesture();
     syncFootprintOverlays(venuesRef.current, showFootprints, null);
   }, [
     clearCornerEditors,
@@ -308,6 +346,7 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
     syncFootprintOverlays,
     setVenuePinsInteractive,
     setMapPanEnabled,
+    unlockPageGesture,
   ]);
 
   const beginFootprintEdit = useCallback(
@@ -321,6 +360,7 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
       setVenuePinsInteractive(false);
       // Lock map pan for the edit session; vertices are moved via pointer handlers.
       map.isScrollEnabled = false;
+      lockPageGesture();
 
       const corners = normalizeFootprint(
         venue.footprint,
@@ -377,6 +417,7 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
       showFootprints,
       syncFootprintOverlays,
       setVenuePinsInteractive,
+      lockPageGesture,
     ]
   );
 
@@ -586,9 +627,14 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
         };
 
         const mapEl = map.element ?? el;
+        const onTouchMove = (e: TouchEvent) => {
+          if (!editingIdRef.current) return;
+          e.preventDefault();
+        };
         mapEl.addEventListener("pointerdown", onPointerDown, {
           capture: true,
         });
+        mapEl.addEventListener("touchmove", onTouchMove, { passive: false });
         window.addEventListener("pointermove", onPointerMove);
         window.addEventListener("pointerup", onPointerUp);
         window.addEventListener("pointercancel", onPointerUp);
@@ -665,9 +711,11 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
           }
         ).__bfPointerCleanup = () => {
           mapEl.removeEventListener("pointerdown", onPointerDown, true);
+          mapEl.removeEventListener("touchmove", onTouchMove);
           window.removeEventListener("pointermove", onPointerMove);
           window.removeEventListener("pointerup", onPointerUp);
           window.removeEventListener("pointercancel", onPointerUp);
+          unlockPageGesture();
         };
       } catch (e) {
         const message =
@@ -769,7 +817,9 @@ export function MapPanel({ onStartVenue, onStartGeography }: MapPanelProps) {
   const editingVenue = venues.find((v) => v.id === editingVenueId) ?? null;
 
   return (
-    <div className="map-panel-root">
+    <div
+      className={`map-panel-root${editingVenue ? " is-editing-footprint" : ""}`}
+    >
       <div className="map-toolbar">
         {(error || status) && (
           <div className={`map-banner-inline ${error ? "error" : "muted"}`}>

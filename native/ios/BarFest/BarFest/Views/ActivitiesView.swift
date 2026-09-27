@@ -119,15 +119,19 @@ struct ActivitiesView: View {
                             .font(.caption.weight(.semibold))
                             .tracking(1.1)
                             .foregroundStyle(.white.opacity(0.55))
+                        Spacer(minLength: 8)
                         Button {
                             openFeedback(category: .missingBar, source: "activities-header")
                         } label: {
                             Text("Missing Bar?")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        Spacer(minLength: 8)
                         if showBarAttendance, !filteredVenues.isEmpty {
                             Button {
                                 searchFocused = false

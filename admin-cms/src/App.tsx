@@ -95,7 +95,10 @@ export default function App() {
     <div className={shellClass}>
       <header>
         <div>
-          <h1>Bar Fest CMS</h1>
+          <div className="cms-title-row">
+            <h1>Bar Fest CMS</h1>
+            <span className="cms-version">v1.0.1</span>
+          </div>
           <p className="muted">{session.user.email}</p>
         </div>
         <button type="button" onClick={() => supabase.auth.signOut()}>

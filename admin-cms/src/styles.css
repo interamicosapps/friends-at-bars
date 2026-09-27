@@ -36,6 +36,18 @@ h1 {
   margin: 0;
 }
 
+.cms-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.cms-version {
+  color: #6b6560;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .tabs {
   display: flex;
   gap: 0.5rem;
@@ -170,6 +182,12 @@ select {
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+.map-panel-root.is-editing-footprint,
+.map-panel-root.is-editing-footprint * {
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .map-fill {
