@@ -1,49 +1,25 @@
 -- =============================================================================
--- Catalog feedback / tips ("what's missing" reports from the app)
--- Run in Supabase SQL Editor.
+-- Bar-report categories for an existing catalog_feedback table.
+-- Run in the Supabase SQL Editor if catalog_feedback.sql was already applied.
 -- =============================================================================
 
-CREATE TABLE IF NOT EXISTS catalog_feedback (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  category TEXT NOT NULL
-    CHECK (category IN (
-      'missing_bar',
-      'missing_deal',
-      'outdated_listing',
-      'closed_bar',
-      'bar_permanently_closed',
-      'bar_temporarily_closed',
-      'bar_moved',
-      'bar_renamed',
-      'incorrect_attendance',
-      'other'
-    )),
-  message TEXT NOT NULL
-    CHECK (char_length(trim(message)) > 0 AND char_length(message) <= 500),
-  geography_id UUID REFERENCES catalog_geographies(id) ON DELETE SET NULL,
-  venue_name TEXT,
-  listing_id UUID,
-  listing_title TEXT,
-  source_screen TEXT,
-  reporter_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'new'
-    CHECK (status IN ('new', 'triaged', 'done', 'dismissed')),
-  admin_note TEXT,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+ALTER TABLE catalog_feedback
+  DROP CONSTRAINT IF EXISTS catalog_feedback_category_check;
 
-CREATE INDEX IF NOT EXISTS idx_catalog_feedback_created
-  ON catalog_feedback (created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_catalog_feedback_status
-  ON catalog_feedback (status, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_catalog_feedback_reporter_day
-  ON catalog_feedback (reporter_id, created_at DESC);
-
-COMMENT ON TABLE catalog_feedback IS
-  'In-app tips about missing bars/deals or outdated catalog content for CMS triage.';
+ALTER TABLE catalog_feedback
+  ADD CONSTRAINT catalog_feedback_category_check
+  CHECK (category IN (
+    'missing_bar',
+    'missing_deal',
+    'outdated_listing',
+    'closed_bar',
+    'bar_permanently_closed',
+    'bar_temporarily_closed',
+    'bar_moved',
+    'bar_renamed',
+    'incorrect_attendance',
+    'other'
+  ));
 
 CREATE OR REPLACE FUNCTION submit_catalog_feedback(
   p_reporter_id TEXT,
@@ -120,20 +96,6 @@ BEGIN
 END;
 $$;
 
-ALTER TABLE catalog_feedback ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "catalog_feedback_admin_select" ON catalog_feedback;
-CREATE POLICY "catalog_feedback_admin_select"
-  ON catalog_feedback FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "catalog_feedback_admin_update" ON catalog_feedback;
-CREATE POLICY "catalog_feedback_admin_update"
-  ON catalog_feedback FOR UPDATE
-  USING (auth.role() = 'authenticated')
-  WITH CHECK (auth.role() = 'authenticated');
-
-GRANT SELECT, UPDATE ON catalog_feedback TO authenticated;
 GRANT EXECUTE ON FUNCTION submit_catalog_feedback(
   TEXT, TEXT, TEXT, UUID, TEXT, UUID, TEXT, TEXT
 ) TO anon, authenticated;

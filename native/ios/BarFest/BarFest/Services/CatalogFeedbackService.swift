@@ -5,9 +5,23 @@ enum CatalogFeedbackCategory: String, CaseIterable, Identifiable {
     case missingDeal = "missing_deal"
     case outdatedListing = "outdated_listing"
     case closedBar = "closed_bar"
+    case permanentlyClosed = "bar_permanently_closed"
+    case temporarilyClosed = "bar_temporarily_closed"
+    case moved = "bar_moved"
+    case renamed = "bar_renamed"
+    case incorrectAttendance = "incorrect_attendance"
     case other = "other"
 
     var id: String { rawValue }
+
+    /// Reasons shown when someone reports a specific bar.
+    static let barReportCases: [CatalogFeedbackCategory] = [
+        .permanentlyClosed,
+        .temporarilyClosed,
+        .moved,
+        .renamed,
+        .incorrectAttendance,
+    ]
 
     var title: String {
         switch self {
@@ -15,13 +29,27 @@ enum CatalogFeedbackCategory: String, CaseIterable, Identifiable {
         case .missingDeal: return "Missing deal"
         case .outdatedListing: return "Outdated listing"
         case .closedBar: return "Closed / remove"
+        case .permanentlyClosed: return "Bar Permanently Closed"
+        case .temporarilyClosed: return "Bar Temporarily Closed"
+        case .moved: return "Bar Has Moved"
+        case .renamed: return "Bar Has Changed Names"
+        case .incorrectAttendance: return "Incorrect Attendance Level Shown"
         case .other: return "Other"
         }
     }
 }
 
+/// Which fields the report sheet asks for. The rest is taken from the button they tapped.
+enum CatalogFeedbackPrompt {
+    case missingBar
+    case missingDeal
+    case reportedDeal
+    case reportedBar
+}
+
 struct CatalogFeedbackContext: Identifiable {
     let id = UUID()
+    var prompt: CatalogFeedbackPrompt
     var category: CatalogFeedbackCategory?
     var venueName: String?
     var listingId: UUID?

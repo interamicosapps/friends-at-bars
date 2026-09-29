@@ -49,6 +49,8 @@ export type CatalogVenue = {
   is_test: boolean;
   is_active: boolean;
   sort_order: number;
+  /** Shared building key. Same value in one geography combines the Activities card and map pin. */
+  location_group: string | null;
 };
 
 export type CatalogListing = {

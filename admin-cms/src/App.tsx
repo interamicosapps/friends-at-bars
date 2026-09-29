@@ -97,7 +97,7 @@ export default function App() {
         <div>
           <div className="cms-title-row">
             <h1>Bar Fest CMS</h1>
-            <span className="cms-version">v1.0.1</span>
+            <span className="cms-version">v1.0.2</span>
           </div>
           <p className="muted">{session.user.email}</p>
         </div>

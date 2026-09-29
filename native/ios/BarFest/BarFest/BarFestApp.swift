@@ -261,11 +261,14 @@ final class AppModel: ObservableObject {
             )
         }
 
-        await CatalogStore.shared.loadCachedVenuesIfNeeded()
+        await CatalogStore.shared.loadCachedCatalogIfNeeded()
         venues = await CatalogStore.shared.venues
+        listings = await CatalogStore.shared.listings
+        geographies = await CatalogStore.shared.geographies
+        areas = await CatalogStore.shared.areas
         DiagnosticLog.shared.append(
             category: "system",
-            message: "Bootstrap cache loaded venues=\(venues.count) t=\(String(format: "%.2fs", CFAbsoluteTimeGetCurrent() - t0))"
+            message: "Bootstrap cache loaded venues=\(venues.count) listings=\(listings.count) geos=\(geographies.count) areas=\(areas.count) t=\(String(format: "%.2fs", CFAbsoluteTimeGetCurrent() - t0))"
         )
 
         if let raw = UserDefaults.standard.string(forKey: manualGeographyKey) {
@@ -509,7 +512,9 @@ final class AppModel: ObservableObject {
         let withPriority = listings.filter { $0.priority > 0 }.count
         let venuesSample = listings.prefix(8).map(\.venue_name).joined(separator: ", ")
         let hint: String
-        if listings.count <= 6 {
+        if source.contains("failed") {
+            hint = "HINT: catalog refresh failed — showing the last saved catalog"
+        } else if listings.count <= 6 {
             hint = "HINT: only \(listings.count) rows in Supabase — re-run catalog_seed.sql or CMS Import web listings (47)"
         } else if listings.count < 40 {
             hint = "HINT: partial catalog (\(listings.count)/47 expected) — check Supabase catalog_listings"

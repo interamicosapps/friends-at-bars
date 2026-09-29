@@ -12,7 +12,8 @@ struct MapScreen: View {
             span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
         )
     )
-    @State private var selectedVenue: CatalogVenue?
+    @State private var selectedCard: VenueLocationCard?
+    @State private var mapPage: UUID?
     @State private var venueSearch = ""
     @FocusState private var searchFocused: Bool
 
@@ -39,11 +40,15 @@ struct MapScreen: View {
         return locationAuth.isAuthorized
     }
 
-    /// Highest live headcount among currently shown venues (for relative heat).
+    /// Highest live headcount among location pins. Shared bars use one count.
     private var maxAttendance: Int {
-        appModel.scopedVenues.reduce(0) { partial, venue in
-            max(partial, appModel.venueCounts[venue.name, default: 0])
+        mapPins.reduce(0) { partial, card in
+            max(partial, card.attendance(in: appModel.venueCounts))
         }
+    }
+
+    private var mapPins: [VenueLocationCard] {
+        VenueLocationGrouping.cards(from: appModel.scopedVenues)
     }
 
     private var mapRegion: MKCoordinateRegion {
@@ -64,18 +69,18 @@ struct MapScreen: View {
         NavigationStack {
             ZStack {
                 Map(position: $position) {
-                    ForEach(appModel.scopedVenues) { venue in
-                        let count = appModel.venueCounts[venue.name, default: 0]
-                        let isSelected = selectedVenue?.id == venue.id
+                    ForEach(mapPins) { card in
+                        let count = card.attendance(in: appModel.venueCounts)
+                        let isSelected = selectedCard?.id == card.id
                         Annotation(
-                            venue.name,
+                            card.title,
                             coordinate: CLLocationCoordinate2D(
-                                latitude: venue.latitude,
-                                longitude: venue.longitude
+                                latitude: card.primary.latitude,
+                                longitude: card.primary.longitude
                             )
                         ) {
                             Button {
-                                selectVenue(venue)
+                                cyclePin(card)
                             } label: {
                                 Image(systemName: "mappin.circle.fill")
                                     .font(isSelected ? .system(size: 44) : .title2)
@@ -107,11 +112,6 @@ struct MapScreen: View {
                     }
                 }
 
-                if let venue = selectedVenue, !showSearchResults {
-                    venuePopup(venue)
-                        .zIndex(4)
-                }
-
                 if mapUnlocked {
                     ZStack(alignment: .top) {
                         if showSearchResults {
@@ -141,6 +141,13 @@ struct MapScreen: View {
                         .padding(.top, 8)
                     }
                     .zIndex(5)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if let card = selectedCard, !showSearchResults {
+                    venuePopup(card)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 12)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -316,12 +323,35 @@ struct MapScreen: View {
 
     private func selectVenue(_ venue: CatalogVenue) {
         dismissSearch()
-        selectedVenue = venue
-        snapCamera(to: venue)
+        guard let card = VenueLocationGrouping.card(
+            containing: venue,
+            in: appModel.scopedVenues
+        ) else { return }
+        selectCard(card, focus: venue)
+    }
+
+    private func selectCard(_ card: VenueLocationCard, focus: CatalogVenue) {
+        selectedCard = card
+        mapPage = focus.id
+        snapCamera(to: focus)
+    }
+
+    /// First tap opens the location. Further taps on the same pin step through its bars.
+    private func cyclePin(_ card: VenueLocationCard) {
+        if selectedCard?.id == card.id,
+           let current = mapPage,
+           let idx = card.venues.firstIndex(where: { $0.id == current }),
+           card.venues.count > 1 {
+            let next = card.venues[(idx + 1) % card.venues.count]
+            mapPage = next.id
+            return
+        }
+        selectCard(card, focus: card.primary)
     }
 
     private func dismissSelection() {
-        selectedVenue = nil
+        selectedCard = nil
+        mapPage = nil
         dismissSearch()
     }
 
@@ -382,68 +412,80 @@ struct MapScreen: View {
     }
 
     @ViewBuilder
-    private func venuePopup(_ venue: CatalogVenue) -> some View {
-        let count = appModel.venueCounts[venue.name, default: 0]
-        let deals = todaysDeals(for: venue)
-        ZStack {
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-                .onTapGesture { selectedVenue = nil }
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(venue.name)
-                            .font(.title3.bold())
-                            .foregroundStyle(.primary)
-                        if !venue.area.isEmpty {
-                            Text(venue.area.uppercased())
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .tracking(0.6)
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    Button {
-                        selectedVenue = nil
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(6)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                dealsSection(deals)
-
-                WaitTimeLabel(summary: appModel.waitSummary(for: venue.name))
-
-                Text(count == 0 ? "No Users at This Time" : "\(count) Users")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(count == 0 ? .secondary : .primary)
-
-                Button {
-                    openDirections(to: venue)
-                } label: {
-                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.accentColor)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
+    private func venuePopup(_ card: VenueLocationCard) -> some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            Button {
+                selectedCard = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(6)
             }
-            .padding(18)
-            .frame(maxWidth: 360)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
-            )
-            .padding(.horizontal, 24)
+            .buttonStyle(.plain)
+            .padding(.trailing, 8)
+            .padding(.top, 8)
+
+            TabView(selection: $mapPage) {
+                ForEach(card.venues) { venue in
+                    mapVenuePage(venue, in: card)
+                        .tag(Optional(venue.id))
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: card.venues.count > 1 ? .automatic : .never))
+            .frame(height: 360)
         }
+        .frame(maxWidth: 360)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+    }
+
+    private func mapVenuePage(_ venue: CatalogVenue, in card: VenueLocationCard) -> some View {
+        let count = card.attendance(in: appModel.venueCounts)
+        let deals = todaysDeals(for: venue)
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(venue.name)
+                    .font(.title3.bold())
+                    .foregroundStyle(.primary)
+                if !venue.area.isEmpty {
+                    Text(venue.area.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .tracking(0.6)
+                }
+            }
+
+            dealsSection(deals)
+
+            WaitTimeLabel(summary: appModel.waitSummary(for: venue.name))
+
+            Text(count == 0 ? "No Users at This Time" : "\(count) Users")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(count == 0 ? .secondary : .primary)
+            if card.isShared {
+                Text("Live at this location")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                openDirections(to: venue)
+            } label: {
+                Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 18)
     }
 
     @ViewBuilder

@@ -23,6 +23,8 @@ struct StartupSplashView: View {
     @State private var logoOpacity: Double = 1
     @State private var backdropOpacity: Double = 1
     @State private var minimumElapsed = false
+    /// Mirrors `isBootstrapComplete` so long-running tasks see the updated value.
+    @State private var bootstrapComplete = false
     @State private var appearedAt = Date()
     @State private var copyFlash: String?
 
@@ -71,14 +73,24 @@ struct StartupSplashView: View {
         .task { await runMinimumTimer() }
         .task { await splashWatchdog() }
         .onChange(of: isBootstrapComplete) { _, complete in
+            bootstrapComplete = complete
             DiagnosticLog.shared.append(
                 category: "system",
                 message: "Splash bootstrapComplete=\(complete) phase=\(phase.rawValue) minElapsed=\(minimumElapsed) waited=\(elapsedLabel())"
             )
             if complete { tryBeginExit() }
         }
+        .onChange(of: minimumElapsed) { _, elapsed in
+            guard elapsed else { return }
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: "Splash minimumVisible elapsed bootstrapComplete=\(isBootstrapComplete) phase=\(phase.rawValue)"
+            )
+            tryBeginExit()
+        }
         .onAppear {
             appearedAt = Date()
+            bootstrapComplete = isBootstrapComplete
             DiagnosticLog.shared.append(
                 category: "system",
                 message: "Splash appear bootstrapComplete=\(isBootstrapComplete) testUI=\(DevTestMode.isUIEnabled)"
@@ -113,7 +125,7 @@ struct StartupSplashView: View {
         copyFlash = "Copied \(count) log\(count == 1 ? "" : "s")"
         DiagnosticLog.shared.append(
             category: "system",
-            message: "Splash Copy Log tapped entries=\(count) waited=\(elapsedLabel()) bootstrapComplete=\(isBootstrapComplete) phase=\(phase.rawValue)"
+            message: "Splash Copy Log tapped entries=\(count) waited=\(elapsedLabel()) bootstrapComplete=\(bootstrapComplete) phase=\(phase.rawValue)"
         )
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             if copyFlash?.hasPrefix("Copied") == true { copyFlash = nil }
@@ -123,11 +135,6 @@ struct StartupSplashView: View {
     private func runMinimumTimer() async {
         try? await Task.sleep(nanoseconds: UInt64(minimumVisibleSeconds * 1_000_000_000))
         minimumElapsed = true
-        DiagnosticLog.shared.append(
-            category: "system",
-            message: "Splash minimumVisible elapsed bootstrapComplete=\(isBootstrapComplete) phase=\(phase.rawValue)"
-        )
-        tryBeginExit()
     }
 
     /// Heartbeat while splash is stuck waiting — helps diagnose force-kill cold starts.
@@ -142,7 +149,7 @@ struct StartupSplashView: View {
                 category: "system",
                 message: """
                 Splash watchdog #\(tick) waited=\(String(format: "%.1fs", waited)) \
-                bootstrapComplete=\(isBootstrapComplete) minElapsed=\(minimumElapsed) \
+                bootstrapComplete=\(bootstrapComplete) minElapsed=\(minimumElapsed) \
                 phase=\(phase.rawValue)
                 """,
                 level: waited >= 8 ? "warn" : "info"

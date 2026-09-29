@@ -14,8 +14,20 @@ actor CatalogStore {
 
     private let cacheURL: URL = {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("catalog_bundle.json")
+    }()
+
+    private let legacyVenueCacheURL: URL = {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         return dir.appendingPathComponent("catalog_venues.json")
     }()
+
+    private struct CatalogCache: Codable {
+        var venues: [CatalogVenue]
+        var listings: [CatalogListing]
+        var geographies: [CatalogGeography]
+        var areas: [CatalogArea]
+    }
 
     func refresh(includeTest: Bool = false) async throws {
         var query: [URLQueryItem] = [
@@ -32,19 +44,20 @@ actor CatalogStore {
             query: query
         )
         venues = fetched
-        try? saveCache(fetched)
 
         let listingQuery: [URLQueryItem] = [
             URLQueryItem(name: "is_active", value: "eq.true"),
             URLQueryItem(name: "order", value: "priority.desc"),
             URLQueryItem(name: "select", value: "*"),
         ]
-        listings = (try? await SupabaseClient.shared.get(
+        if let rows: [CatalogListing] = try? await SupabaseClient.shared.get(
             path: "rest/v1/catalog_listings",
             query: listingQuery
-        )) ?? []
+        ) {
+            listings = rows
+        }
 
-        geographies = (try? await SupabaseClient.shared.get(
+        if let rows: [CatalogGeography] = try? await SupabaseClient.shared.get(
             path: "rest/v1/catalog_geographies",
             query: {
                 var items = [
@@ -57,16 +70,22 @@ actor CatalogStore {
                 }
                 return items
             }()
-        )) ?? []
+        ) {
+            geographies = rows
+        }
 
-        areas = (try? await SupabaseClient.shared.get(
+        if let rows: [CatalogArea] = try? await SupabaseClient.shared.get(
             path: "rest/v1/catalog_areas",
             query: [
                 URLQueryItem(name: "is_active", value: "eq.true"),
                 URLQueryItem(name: "order", value: "sort_order.asc"),
                 URLQueryItem(name: "select", value: "*"),
             ]
-        )) ?? []
+        ) {
+            areas = rows
+        }
+
+        try? saveCache()
 
         struct ConfigRow: Decodable {
             struct Value: Decodable { let version: Int? }
@@ -85,13 +104,30 @@ actor CatalogStore {
         await loadWordPack()
     }
 
-    func loadCachedVenuesIfNeeded() {
-        guard venues.isEmpty, let data = try? Data(contentsOf: cacheURL) else { return }
-        venues = (try? JSONDecoder().decode([CatalogVenue].self, from: data)) ?? []
+    func loadCachedCatalogIfNeeded() {
+        guard venues.isEmpty, listings.isEmpty, geographies.isEmpty, areas.isEmpty else { return }
+        let decoder = JSONDecoder()
+        if let data = try? Data(contentsOf: cacheURL),
+           let bundle = try? decoder.decode(CatalogCache.self, from: data) {
+            venues = bundle.venues
+            listings = bundle.listings
+            geographies = bundle.geographies
+            areas = bundle.areas
+            return
+        }
+        if let data = try? Data(contentsOf: legacyVenueCacheURL) {
+            venues = (try? decoder.decode([CatalogVenue].self, from: data)) ?? []
+        }
     }
 
-    private func saveCache(_ venues: [CatalogVenue]) throws {
-        let data = try JSONEncoder().encode(venues)
+    private func saveCache() throws {
+        let bundle = CatalogCache(
+            venues: venues,
+            listings: listings,
+            geographies: geographies,
+            areas: areas
+        )
+        let data = try JSONEncoder().encode(bundle)
         try data.write(to: cacheURL, options: .atomic)
     }
 

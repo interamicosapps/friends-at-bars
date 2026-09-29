@@ -696,8 +696,156 @@ tr.row-selected {
   font-size: 0.95rem;
 }
 
-.venue-inline-edit-grid {
+.venue-form-actions {
+  margin-top: 0.85rem;
+}
+
+.venue-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.venue-form-section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.venue-form-section + .venue-form-section {
+  padding-top: 0.9rem;
+  border-top: 1px solid #e4ddd2;
+}
+
+.venue-form-section h3 {
   margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b6560;
+}
+
+.venue-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.venue-form-grid > .full,
+.venue-form-grid > .footprint-fields {
+  grid-column: 1 / -1;
+}
+
+.venue-form-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.venue-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  min-height: 2.4rem;
+  padding-top: 1.15rem;
+}
+
+.venue-checks input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+}
+
+.shared-bars {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.shared-bar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.shared-bar-card {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  border: 1px solid #e4ddd2;
+  border-radius: 8px;
+}
+
+.shared-bar-order {
+  width: 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #f3f0ea;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+.shared-bar-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.shared-bar-moves {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.shared-bar-moves button {
+  width: 2rem;
+  padding: 0.3rem 0;
+  line-height: 1;
+}
+
+.shared-bar-moves button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.shared-bar-remove {
+  padding: 0.3rem 0.55rem;
+  color: #6b6560;
+}
+
+.shared-add {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+}
+
+.shared-add-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+  padding: 0.7rem;
+  background: #fff;
+  border: 1px solid #c7c2b8;
+  border-radius: 8px;
+}
+
+.shared-add-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  min-width: 14rem;
+}
+
+.shared-add-panel .muted,
+.shared-add-panel .error {
+  flex: 1 1 100%;
 }
 
 .venue-inline-edit-actions {
@@ -747,7 +895,8 @@ tr.row-selected {
     padding: 0.75rem;
   }
 
-  form.grid {
+  form.grid,
+  .venue-form-grid {
     grid-template-columns: 1fr;
   }
 

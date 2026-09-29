@@ -24,6 +24,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   missing_deal: "Missing deal",
   outdated_listing: "Outdated listing",
   closed_bar: "Closed / remove",
+  bar_permanently_closed: "Bar permanently closed",
+  bar_temporarily_closed: "Bar temporarily closed",
+  bar_moved: "Bar has moved",
+  bar_renamed: "Bar has changed names",
+  incorrect_attendance: "Incorrect attendance level shown",
   other: "Other",
 };
 

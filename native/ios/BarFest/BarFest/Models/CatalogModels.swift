@@ -13,6 +13,8 @@ struct CatalogVenue: Codable, Identifiable, Hashable {
     let is_test: Bool
     let is_active: Bool
     let sort_order: Int
+    /// CMS key for bars that share a building. Empty means this bar stands alone.
+    let location_group: String?
     let updated_at: String?
 
     init(
@@ -27,6 +29,7 @@ struct CatalogVenue: Codable, Identifiable, Hashable {
         is_test: Bool,
         is_active: Bool,
         sort_order: Int,
+        location_group: String?,
         updated_at: String?
     ) {
         self.id = id
@@ -40,6 +43,7 @@ struct CatalogVenue: Codable, Identifiable, Hashable {
         self.is_test = is_test
         self.is_active = is_active
         self.sort_order = sort_order
+        self.location_group = location_group
         self.updated_at = updated_at
     }
 
@@ -56,12 +60,15 @@ struct CatalogVenue: Codable, Identifiable, Hashable {
         is_test = try c.decodeIfPresent(Bool.self, forKey: .is_test) ?? false
         is_active = try c.decodeIfPresent(Bool.self, forKey: .is_active) ?? true
         sort_order = try c.decodeIfPresent(Int.self, forKey: .sort_order) ?? 0
+        let rawGroup = try c.decodeIfPresent(String.self, forKey: .location_group)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        location_group = (rawGroup?.isEmpty == false) ? rawGroup : nil
         updated_at = try c.decodeIfPresent(String.self, forKey: .updated_at)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, area, geography_id, latitude, longitude, radius_m
-        case footprint, is_test, is_active, sort_order, updated_at
+        case footprint, is_test, is_active, sort_order, location_group, updated_at
     }
 }
 

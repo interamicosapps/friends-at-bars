@@ -6,7 +6,7 @@ struct ActivitiesView: View {
     @ObservedObject private var locationAuth = LocationAuthorizationStore.shared
     @State private var populationSort: PopulationSort = .mostPopulated
     @State private var areaFilter: String?
-    @State private var selectedVenue: CatalogVenue?
+    @State private var selectedCard: VenueLocationCard?
     @State private var venueSearch = ""
     @FocusState private var searchFocused: Bool
     @State private var showWaitCheckIn = false
@@ -31,26 +31,34 @@ struct ActivitiesView: View {
             .sorted { $0.priority < $1.priority }
     }
 
-    /// Default: bars with live attendance only. While searching: include zero-attendance matches.
-    private var filteredVenues: [CatalogVenue] {
-        var list = appModel.scopedVenues
-        if isSearching {
-            list = list.filter { $0.name.localizedCaseInsensitiveContains(searchQuery) }
-        } else {
-            list = list.filter { appModel.venueCounts[$0.name, default: 0] > 0 }
-        }
+    /// Default: locations with live attendance only. While searching: include zero-attendance matches.
+    /// Bars that share an explicit CMS location group appear as one row.
+    private var locationCards: [VenueLocationCard] {
+        var pool = appModel.scopedVenues
         if let areaFilter {
-            list = list.filter { $0.area == areaFilter }
+            pool = pool.filter { $0.area == areaFilter }
         }
-        list.sort { a, b in
-            let ca = appModel.venueCounts[a.name, default: 0]
-            let cb = appModel.venueCounts[b.name, default: 0]
+        if isSearching {
+            let matchedKeys = Set(
+                pool
+                    .filter { $0.name.localizedCaseInsensitiveContains(searchQuery) }
+                    .map { VenueLocationGrouping.key(for: $0) }
+            )
+            pool = pool.filter { matchedKeys.contains(VenueLocationGrouping.key(for: $0)) }
+        }
+        var cards = VenueLocationGrouping.cards(from: pool)
+        if !isSearching {
+            cards = cards.filter { $0.attendance(in: appModel.venueCounts) > 0 }
+        }
+        cards.sort { a, b in
+            let ca = a.attendance(in: appModel.venueCounts)
+            let cb = b.attendance(in: appModel.venueCounts)
             if ca != cb {
                 return populationSort == .mostPopulated ? ca > cb : ca < cb
             }
-            return a.sort_order < b.sort_order
+            return a.primary.sort_order < b.primary.sort_order
         }
-        return list
+        return cards
     }
 
     /// Live: OS location. Test Mode + mock: simulate-location toggle (Chat parity).
@@ -121,7 +129,7 @@ struct ActivitiesView: View {
                             .foregroundStyle(.white.opacity(0.55))
                         Spacer(minLength: 8)
                         Button {
-                            openFeedback(category: .missingBar, source: "activities-header")
+                            openFeedback(prompt: .missingBar, category: .missingBar, source: "activities-header")
                         } label: {
                             Text("Missing Bar?")
                                 .font(.caption.weight(.semibold))
@@ -132,7 +140,7 @@ struct ActivitiesView: View {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        if showBarAttendance, !filteredVenues.isEmpty {
+                        if showBarAttendance, !locationCards.isEmpty {
                             Button {
                                 searchFocused = false
                                 populationSort.toggle()
@@ -178,7 +186,7 @@ struct ActivitiesView: View {
                                 .fill(Color.white.opacity(0.08))
                         )
 
-                        if filteredVenues.isEmpty {
+                        if locationCards.isEmpty {
                             if isSearching {
                                 ContentUnavailableView(
                                     "No Bars Found From That Search",
@@ -191,6 +199,7 @@ struct ActivitiesView: View {
                             } else {
                                 ActivitiesNoActivityEmptyState(areaName: areaFilter) {
                                     openFeedback(
+                                        prompt: .missingBar,
                                         category: .missingBar,
                                         source: "activities-empty"
                                     )
@@ -199,32 +208,34 @@ struct ActivitiesView: View {
                                     .padding(.vertical, 36)
                             }
                         } else {
-                            let maxCount = filteredVenues
-                                .map { appModel.venueCounts[$0.name, default: 0] }
+                            let maxCount = locationCards
+                                .map { $0.attendance(in: appModel.venueCounts) }
                                 .max() ?? 0
                             LazyVStack(spacing: 0) {
-                                ForEach(Array(filteredVenues.enumerated()), id: \.element.id) { idx, venue in
-                                    let count = appModel.venueCounts[venue.name, default: 0]
+                                ForEach(Array(locationCards.enumerated()), id: \.element.id) { idx, card in
+                                    let count = card.attendance(in: appModel.venueCounts)
                                     let intensity = Self.busynessIntensity(
                                         count: count,
                                         maxCount: maxCount
                                     )
                                     Button {
                                         searchFocused = false
-                                        selectedVenue = venue
+                                        selectedCard = card
                                     } label: {
                                         HStack(alignment: .center, spacing: 10) {
                                             VStack(alignment: .leading, spacing: 3) {
-                                                Text(venue.name)
+                                                Text(card.title)
                                                     .font(.body.weight(.semibold))
                                                     .foregroundStyle(.white)
-                                                Text(venue.area)
+                                                Text(card.area)
                                                     .font(.caption2)
                                                     .foregroundStyle(.white.opacity(0.45))
-                                                WaitTimeLabel(
-                                                    summary: appModel.waitSummary(for: venue.name),
-                                                    hidesWhenEmpty: true
-                                                )
+                                                if !card.isShared {
+                                                    WaitTimeLabel(
+                                                        summary: appModel.waitSummary(for: card.primary.name),
+                                                        hidesWhenEmpty: true
+                                                    )
+                                                }
                                             }
                                             Spacer(minLength: 8)
                                             if count == 0 {
@@ -250,7 +261,7 @@ struct ActivitiesView: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    if idx < filteredVenues.count - 1 {
+                                    if idx < locationCards.count - 1 {
                                         Rectangle()
                                             .fill(Color.white.opacity(0.06))
                                             .frame(height: 1)
@@ -344,14 +355,17 @@ struct ActivitiesView: View {
                     updateCheckInVisibility()
                 }
             }
-            .sheet(item: $selectedVenue) { venue in
+            .sheet(item: $selectedCard) { card in
                 VenueBarSheet(
-                    venue: venue,
-                    listings: todaysListings(for: venue),
-                    waitSummary: appModel.waitSummary(for: venue.name),
+                    venues: card.venues,
+                    listingsByVenueId: Dictionary(
+                        uniqueKeysWithValues: card.venues.map { venue in
+                            (venue.id, todaysListings(for: venue))
+                        }
+                    ),
                     geographyId: appModel.resolvedGeography?.id,
                     onReport: { ctx in
-                        selectedVenue = nil
+                        selectedCard = nil
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                             feedbackContext = ctx
                         }
@@ -366,11 +380,13 @@ struct ActivitiesView: View {
     }
 
     private func openFeedback(
+        prompt: CatalogFeedbackPrompt,
         category: CatalogFeedbackCategory?,
         source: String,
         venueName: String? = nil
     ) {
         feedbackContext = CatalogFeedbackContext(
+            prompt: prompt,
             category: category,
             venueName: venueName,
             listingId: nil,

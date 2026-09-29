@@ -1,13 +1,59 @@
 import MapKit
 import SwiftUI
 
-/// Sheet shown when a user taps a bar on Activities — today’s deals/events + Directions.
+/// Sheet shown when a user taps a location on Activities.
+/// One page per bar; swipe sideways when several bars share a location group.
 struct VenueBarSheet: View {
+    let venues: [CatalogVenue]
+    let listingsByVenueId: [UUID: [CatalogListing]]
+    var geographyId: UUID? = nil
+    var initialVenueId: UUID? = nil
+    var onReport: ((CatalogFeedbackContext) -> Void)? = nil
+
+    @State private var page: UUID
+
+    init(
+        venues: [CatalogVenue],
+        listingsByVenueId: [UUID: [CatalogListing]],
+        geographyId: UUID? = nil,
+        initialVenueId: UUID? = nil,
+        onReport: ((CatalogFeedbackContext) -> Void)? = nil
+    ) {
+        self.venues = venues
+        self.listingsByVenueId = listingsByVenueId
+        self.geographyId = geographyId
+        self.initialVenueId = initialVenueId
+        self.onReport = onReport
+        let start = initialVenueId ?? venues.first?.id ?? UUID()
+        _page = State(initialValue: start)
+    }
+
+    var body: some View {
+        NavigationStack {
+            TabView(selection: $page) {
+                ForEach(venues) { venue in
+                    VenueBarPage(
+                        venue: venue,
+                        listings: listingsByVenueId[venue.id] ?? [],
+                        geographyId: geographyId,
+                        onReport: onReport
+                    )
+                    .tag(venue.id)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: venues.count > 1 ? .automatic : .never))
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct VenueBarPage: View {
     let venue: CatalogVenue
     let listings: [CatalogListing]
-    var waitSummary: WaitTimeSummary = .none
     var geographyId: UUID? = nil
     var onReport: ((CatalogFeedbackContext) -> Void)? = nil
+
+    @EnvironmentObject private var appModel: AppModel
     @State private var index = 0
     private let rotateSeconds: TimeInterval = 4
 
@@ -17,91 +63,87 @@ struct VenueBarSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(venue.name)
-                        .font(.title2.bold())
-                    if !venue.area.isEmpty {
-                        Text(venue.area)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    WaitTimeLabel(summary: waitSummary)
-                }
-
-                if listings.isEmpty {
-                    Text("No deals or events for today")
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(venue.name)
+                    .font(.title2.bold())
+                if !venue.area.isEmpty {
+                    Text(venue.area)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 24)
-                } else if let item = current {
-                    dealCard(item)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            guard listings.count > 1 else { return }
-                            withAnimation {
+                }
+                WaitTimeLabel(summary: appModel.waitSummary(for: venue.name))
+            }
+
+            if listings.isEmpty {
+                Text("No deals or events for today")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 24)
+            } else if let item = current {
+                dealCard(item)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard listings.count > 1 else { return }
+                        withAnimation {
+                            index = (index + 1) % listings.count
+                        }
+                    }
+                    .task(id: listings.count) {
+                        guard listings.count > 1 else { return }
+                        while !Task.isCancelled {
+                            try? await Task.sleep(nanoseconds: UInt64(rotateSeconds * 1_000_000_000))
+                            guard !Task.isCancelled, listings.count > 1 else { break }
+                            withAnimation(.easeInOut(duration: 0.25)) {
                                 index = (index + 1) % listings.count
                             }
                         }
-                        .task(id: listings.count) {
-                            guard listings.count > 1 else { return }
-                            while !Task.isCancelled {
-                                try? await Task.sleep(nanoseconds: UInt64(rotateSeconds * 1_000_000_000))
-                                guard !Task.isCancelled, listings.count > 1 else { break }
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    index = (index + 1) % listings.count
-                                }
-                            }
-                        }
-                }
+                    }
+            }
 
-                Spacer(minLength: 0)
+            Spacer(minLength: 0)
 
+            Button {
+                openDirections()
+            } label: {
+                Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            if onReport != nil {
                 Button {
-                    openDirections()
+                    onReport?(
+                        CatalogFeedbackContext(
+                            prompt: .reportedBar,
+                            category: .permanentlyClosed,
+                            venueName: venue.name,
+                            listingId: nil,
+                            listingTitle: nil,
+                            sourceScreen: "venue-sheet",
+                            geographyId: geographyId
+                        )
+                    )
                 } label: {
-                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                        .font(.headline)
+                    Text("Report")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.accentColor)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
-
-                if onReport != nil {
-                    Button {
-                        let item = current
-                        onReport?(
-                            CatalogFeedbackContext(
-                                category: item == nil ? .missingDeal : .outdatedListing,
-                                venueName: venue.name,
-                                listingId: item?.id,
-                                listingTitle: item?.title.isEmpty == false
-                                    ? item?.title
-                                    : item?.venue_name,
-                                sourceScreen: "venue-sheet",
-                                geographyId: geographyId
-                            )
-                        )
-                    } label: {
-                        Text("Report")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
-            .padding()
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear { index = 0 }
-            .onChange(of: listings.map(\.id)) { _, _ in index = 0 }
         }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { index = 0 }
+        .onChange(of: listings.map(\.id)) { _, _ in index = 0 }
     }
 
     private func dealCard(_ item: CatalogListing) -> some View {

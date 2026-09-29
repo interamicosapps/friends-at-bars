@@ -150,7 +150,7 @@ struct DealsView: View {
                 .foregroundStyle(.white.opacity(0.55))
             Spacer(minLength: 8)
             Button {
-                openFeedback(category: .missingDeal, source: "deals-header")
+                openFeedback(prompt: .missingDeal, category: .missingDeal, source: "deals-header")
             } label: {
                 Text("Missing Deal?")
                     .font(.caption.weight(.semibold))
@@ -177,7 +177,7 @@ struct DealsView: View {
             .dismissKeyboardOnTap()
             .safeAreaInset(edge: .bottom) {
                 CatalogFeedbackLinkButton(title: "Missing Deal?") {
-                    openFeedback(category: .missingDeal, source: "deals-search-empty")
+                    openFeedback(prompt: .missingDeal, category: .missingDeal, source: "deals-search-empty")
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 8)
@@ -192,7 +192,7 @@ struct DealsView: View {
             .dismissKeyboardOnTap()
             .safeAreaInset(edge: .bottom) {
                 CatalogFeedbackLinkButton(title: "Missing Deal?") {
-                    openFeedback(category: .missingDeal, source: "deals-empty")
+                    openFeedback(prompt: .missingDeal, category: .missingDeal, source: "deals-empty")
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 8)
@@ -210,6 +210,7 @@ struct DealsView: View {
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button {
                             openFeedback(
+                                prompt: .reportedDeal,
                                 category: .outdatedListing,
                                 source: "deals-swipe",
                                 venueName: item.venue_name,
@@ -289,6 +290,7 @@ struct DealsView: View {
     }
 
     private func openFeedback(
+        prompt: CatalogFeedbackPrompt,
         category: CatalogFeedbackCategory?,
         source: String,
         venueName: String? = nil,
@@ -296,6 +298,7 @@ struct DealsView: View {
         listingTitle: String? = nil
     ) {
         feedbackContext = CatalogFeedbackContext(
+            prompt: prompt,
             category: category,
             venueName: venueName,
             listingId: listingId,
@@ -375,10 +378,16 @@ struct DealsView: View {
                 message: "Deals listing areas: \(areaSummary)"
             )
         }
-        if appModel.listings.count <= 6 {
+        if appModel.initialBootstrapFinished, appModel.listings.count <= 6 {
+            let message: String
+            if let error = appModel.errorMessage, !error.isEmpty {
+                message = "Deals: catalog refresh failed (\(error)) — showing \(appModel.listings.count) saved listings"
+            } else {
+                message = "Deals: Supabase returned only \(appModel.listings.count) listings — UI cannot show more until DB is re-seeded"
+            }
             DiagnosticLog.shared.append(
                 category: "system",
-                message: "Deals: Supabase returned only \(appModel.listings.count) listings — UI cannot show more until DB is re-seeded"
+                message: message
             )
         }
     }

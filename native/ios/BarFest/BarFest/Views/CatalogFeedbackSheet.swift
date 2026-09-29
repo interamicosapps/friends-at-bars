@@ -19,9 +19,20 @@ struct CatalogFeedbackSheet: View {
     }
 
     private var canSubmit: Bool {
-        !busy
-            && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && message.count <= 500
+        let note = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = venueName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !busy, !note.isEmpty, note.count <= 500 else { return false }
+        if context.prompt == .missingBar, name.isEmpty { return false }
+        return true
+    }
+
+    private var navigationTitle: String {
+        switch context.prompt {
+        case .missingBar: return "Missing bar"
+        case .missingDeal: return "Missing deal"
+        case .reportedDeal: return "Report deal"
+        case .reportedBar: return "Report bar"
+        }
     }
 
     var body: some View {
@@ -33,60 +44,35 @@ struct CatalogFeedbackSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Section {
-                        Text("Tell us what’s missing or wrong. Keep it short — no account needed.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .listRowBackground(Color.clear)
-                    }
-
-                    Section("What’s up?") {
-                        ForEach(CatalogFeedbackCategory.allCases) { item in
-                            Button {
-                                category = item
-                            } label: {
-                                HStack {
-                                    Text(item.title)
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    if category == item {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(Color.accentColor)
+                    switch context.prompt {
+                    case .reportedDeal:
+                        detailsSection
+                    case .missingBar:
+                        barNameSection
+                        detailsSection
+                    case .missingDeal:
+                        barNameSection
+                        detailsSection
+                    case .reportedBar:
+                        Section("What’s wrong?") {
+                            ForEach(CatalogFeedbackCategory.barReportCases) { item in
+                                Button {
+                                    category = item
+                                } label: {
+                                    HStack {
+                                        Text(item.title)
+                                            .foregroundStyle(.primary)
+                                        Spacer()
+                                        if category == item {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(Color.accentColor)
+                                        }
                                     }
                                 }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
-                    }
-
-                    if category == .missingBar
-                        || category == .missingDeal
-                        || category == .outdatedListing
-                        || category == .closedBar
-                    {
-                        Section("Bar name (optional)") {
-                            TextField("e.g. Fourth Street Taproom", text: $venueName)
-                                .textInputAutocapitalization(.words)
-                        }
-                    }
-
-                    if let title = context.listingTitle, !title.isEmpty {
-                        Section("About") {
-                            Text(title)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Section("Details") {
-                        TextField(
-                            "What’s missing or wrong?",
-                            text: $message,
-                            axis: .vertical
-                        )
-                        .lineLimit(3 ... 6)
-                        Text("\(message.count)/500")
-                            .font(.caption2)
-                            .foregroundStyle(message.count > 500 ? .red : .secondary)
+                        detailsSection
                     }
 
                     if let errorMessage {
@@ -98,7 +84,7 @@ struct CatalogFeedbackSheet: View {
                     }
                 }
             }
-            .navigationTitle("Something missing?")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -113,6 +99,27 @@ struct CatalogFeedbackSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var barNameSection: some View {
+        Section("Bar Name") {
+            TextField("e.g. Fourth Street Taproom", text: $venueName)
+                .textInputAutocapitalization(.words)
+        }
+    }
+
+    private var detailsSection: some View {
+        Section("Details") {
+            TextField(
+                "What’s missing or wrong?",
+                text: $message,
+                axis: .vertical
+            )
+            .lineLimit(3 ... 6)
+            Text("\(message.count)/500")
+                .font(.caption2)
+                .foregroundStyle(message.count > 500 ? .red : .secondary)
+        }
     }
 
     private func submit() async {
