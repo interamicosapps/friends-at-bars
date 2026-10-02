@@ -65,17 +65,22 @@ struct MapScreen: View {
         )
     }
 
+    /// Opening frame. Caps a wide geography so the map starts at neighborhood scale
+    /// (~5 miles), not the whole city. Pinch out still reaches the metro.
     private var mapRegion: MKCoordinateRegion {
+        let center: CLLocationCoordinate2D
+        let fitted: Double
         if let geo = appModel.resolvedGeography {
-            let delta = max(0.04, geo.radius_miles / 69.0 * 2.1)
-            return MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: geo.latitude, longitude: geo.longitude),
-                span: MKCoordinateSpan(latitudeDelta: delta, longitudeDelta: delta)
-            )
+            center = CLLocationCoordinate2D(latitude: geo.latitude, longitude: geo.longitude)
+            fitted = geo.radius_miles / 69.0 * 2.1
+        } else {
+            center = CLLocationCoordinate2D(latitude: 39.981997, longitude: -83.004427)
+            fitted = 0.08
         }
+        let delta = min(0.08, max(0.04, fitted))
         return MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: 39.981997, longitude: -83.004427),
-            span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+            center: center,
+            span: MKCoordinateSpan(latitudeDelta: delta, longitudeDelta: delta)
         )
     }
 
@@ -84,11 +89,11 @@ struct MapScreen: View {
             ZStack {
                 Map(position: $position) {
                     ForEach(markerLayout.clusters) { cluster in
-                        let busiest = cluster.members.reduce(0) { partial, card in
-                            max(partial, card.attendance(in: appModel.venueCounts))
-                        }
+                        let counts = cluster.members.map { $0.attendance(in: appModel.venueCounts) }
+                        let busiest = counts.max() ?? 0
+                        let people = counts.reduce(0, +)
                         Annotation(
-                            "\(cluster.members.count) bars",
+                            "\(people) people, \(cluster.members.count) bars",
                             coordinate: cluster.coordinate,
                             anchor: .center
                         ) {
@@ -97,12 +102,13 @@ struct MapScreen: View {
                                 focusCluster(cluster.members)
                             } label: {
                                 BusynessCluster(
+                                    people: people,
                                     venueCount: cluster.members.count,
                                     color: Self.markerColor(count: busiest, maxCount: maxAttendance)
                                 )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("\(cluster.members.count) bars")
+                            .accessibilityLabel("\(people) people across \(cluster.members.count) bars")
                             .accessibilityHint("Zooms in to show each bar")
                         }
                         .annotationTitles(.hidden)
@@ -773,26 +779,35 @@ private struct BusynessPin: View {
     }
 }
 
-/// Overlapping venues collapsed into one bubble. The number is how many bars, not headcount.
+/// Overlapping bars collapsed into a pill. The large number is total people;
+/// the caption is how many bars, so it is not read as one venue's headcount.
 private struct BusynessCluster: View {
+    let people: Int
     let venueCount: Int
     let color: Color
 
+    private var barLabel: String {
+        venueCount == 1 ? "1 bar" : "\(venueCount) bars"
+    }
+
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(color)
-            Text("\(venueCount)")
-                .font(.system(size: 16, weight: .bold).monospacedDigit())
+        VStack(spacing: 0) {
+            Text("\(people)")
+                .font(.system(size: 15, weight: .bold).monospacedDigit())
                 .foregroundStyle(Color.black.opacity(0.88))
-                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+            Text(barLabel)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.black.opacity(0.7))
                 .lineLimit(1)
         }
-        .frame(width: 48, height: 48)
-        .overlay {
-            Circle()
-                .strokeBorder(Color.black.opacity(0.72), lineWidth: 3)
-        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(Capsule(style: .continuous).fill(color))
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.black.opacity(0.72), lineWidth: 2)
+        )
         .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
     }
 }
@@ -810,8 +825,8 @@ private struct BarCluster: Identifiable {
 
 /// Groups pins whose screen positions would overlap at the current zoom.
 private enum MapClustering {
-    /// Points closer than this (in screen points) share a cluster bubble.
-    private static let overlapDistance: CGFloat = 46
+    /// Points closer than this (in screen points) share a cluster pill.
+    private static let overlapDistance: CGFloat = 56
 
     static func layout(
         pins: [VenueLocationCard],
