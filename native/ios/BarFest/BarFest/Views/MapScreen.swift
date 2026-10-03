@@ -16,6 +16,10 @@ struct MapScreen: View {
     @State private var mapPage: UUID?
     @State private var venueSearch = ""
     @FocusState private var searchFocused: Bool
+    /// Search UI is open. Separate from keyboard focus so the field can appear before it is focused.
+    @State private var searchOpen = false
+    /// When the field was opened, so the opening tap does not immediately dismiss it.
+    @State private var searchOpenedAt = Date.distantPast
     /// Camera span used to decide which pins overlap. Updated as the user zooms.
     @State private var visibleSpan = MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
     /// Latest camera span, including small pinch changes that clustering ignores.
@@ -35,7 +39,7 @@ struct MapScreen: View {
     }
 
     private var showSearchResults: Bool {
-        searchFocused || !searchQuery.isEmpty
+        searchOpen
     }
 
     /// Live OS permission, or Test Mode mock + simulate-location toggle.
@@ -185,7 +189,7 @@ struct MapScreen: View {
                         if showSearchResults {
                             Color.black.opacity(0.45)
                                 .ignoresSafeArea()
-                                .onTapGesture { dismissSearch() }
+                                .onTapGesture { dismissSearchFromOverlay() }
                         }
 
                         VStack(spacing: 10) {
@@ -239,6 +243,24 @@ struct MapScreen: View {
             .onChange(of: testMode.simulateLocationAllowed) { _, allowed in
                 if !allowed { dismissSelection() }
             }
+            .onChange(of: searchFocused) { _, focused in
+                DiagnosticLog.shared.append(
+                    category: "map",
+                    message: "search focus=\(focused)"
+                )
+            }
+            .onChange(of: venueSearch) { _, query in
+                let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                let matches = trimmed.isEmpty
+                    ? 0
+                    : appModel.scopedVenues.filter {
+                        $0.name.localizedCaseInsensitiveContains(trimmed)
+                    }.count
+                DiagnosticLog.shared.append(
+                    category: "map",
+                    message: "search query=\"\(trimmed)\" matches=\(matches)"
+                )
+            }
             .onAppear {
                 locationAuth.refresh()
                 let region = mapRegion
@@ -268,12 +290,23 @@ struct MapScreen: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .focused($searchFocused)
-                .onAppear { searchFocused = true }
-                .onSubmit { searchFocused = false }
+                .onAppear {
+                    DiagnosticLog.shared.append(
+                        category: "map",
+                        message: "search bar appeared"
+                    )
+                    DispatchQueue.main.async {
+                        searchFocused = true
+                    }
+                }
+                .onSubmit {
+                    DiagnosticLog.shared.append(category: "map", message: "search submit")
+                    searchFocused = false
+                }
             if !venueSearch.isEmpty {
                 Button {
+                    DiagnosticLog.shared.append(category: "map", message: "search cleared")
                     venueSearch = ""
-                    searchFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -292,7 +325,10 @@ struct MapScreen: View {
 
     private var searchIconButton: some View {
         Button {
-            searchFocused = true
+            DiagnosticLog.shared.append(category: "map", message: "search icon tapped")
+            searchOpenedAt = Date()
+            searchOpen = true
+            DiagnosticLog.shared.append(category: "map", message: "search opened")
         } label: {
             Image(systemName: "magnifyingglass")
                 .font(.body.weight(.semibold))
@@ -421,11 +457,22 @@ struct MapScreen: View {
     // MARK: - Selection / camera
 
     private func selectVenue(_ venue: CatalogVenue) {
-        dismissSearch()
+        DiagnosticLog.shared.append(
+            category: "map",
+            message: "search selected \"\(venue.name)\""
+        )
+        dismissSearch(reason: "selected")
         guard let card = VenueLocationGrouping.card(
             containing: venue,
             in: appModel.scopedVenues
-        ) else { return }
+        ) else {
+            DiagnosticLog.shared.append(
+                category: "map",
+                level: "warn",
+                message: "search selected \"\(venue.name)\" but no map card"
+            )
+            return
+        }
         selectedCard = card
         mapPage = venue.id
     }
@@ -452,10 +499,28 @@ struct MapScreen: View {
     private func dismissSelection() {
         selectedCard = nil
         mapPage = nil
-        dismissSearch()
+        dismissSearch(reason: "dismiss selection")
     }
 
-    private func dismissSearch() {
+    private func dismissSearchFromOverlay() {
+        let age = Date().timeIntervalSince(searchOpenedAt)
+        guard age > 0.35 else {
+            DiagnosticLog.shared.append(
+                category: "map",
+                message: "search overlay tap ignored age=\(String(format: "%.2f", age))s"
+            )
+            return
+        }
+        dismissSearch(reason: "overlay")
+    }
+
+    private func dismissSearch(reason: String) {
+        guard searchOpen || searchFocused || !venueSearch.isEmpty else { return }
+        DiagnosticLog.shared.append(
+            category: "map",
+            message: "search dismiss reason=\(reason)"
+        )
+        searchOpen = false
         venueSearch = ""
         searchFocused = false
         KeyboardObserver.dismiss()
@@ -513,19 +578,24 @@ struct MapScreen: View {
         }
     }
 
-    /// Shifts the camera south so the pin sits in the open map above the venue card.
+    /// Shifts the camera so the pin sits in the upper open map, under the corner buttons.
     private func cameraCenterPlacingPinAboveCard(
         pin: CLLocationCoordinate2D,
         latitudeDelta: Double
     ) -> CLLocationCoordinate2D {
         let mapHeight = max(mapSize.height, 1)
-        // Search row and the venue card cover the top and bottom of the map.
-        let topChrome: CGFloat = 108
-        let bottomCover: CGFloat = 456
-        let fraction = (bottomCover - topChrome) / (2 * mapHeight)
-        let clamped = min(max(fraction, 0), 0.35)
+        let mapWidth = max(mapSize.width, 1)
+        // A square region on a tall phone shows more latitude than requested.
+        // Account for that, then place the pin about 17% down the map.
+        let targetFromTop = 0.17
+        let fractionAboveCenter = 0.5 - targetFromTop
+        let latRad = pin.latitude * .pi / 180
+        let metersPerPoint = (latitudeDelta * 111_320 * cos(latRad)) / Double(mapWidth)
+        let fittedLatitude = (metersPerPoint * Double(mapHeight)) / 111_320
+        let visibleLatitude = max(latitudeDelta, fittedLatitude)
+        let shift = fractionAboveCenter * visibleLatitude
         return CLLocationCoordinate2D(
-            latitude: pin.latitude - Double(clamped) * latitudeDelta,
+            latitude: pin.latitude - shift,
             longitude: pin.longitude
         )
     }
