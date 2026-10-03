@@ -18,6 +18,8 @@ struct MapScreen: View {
     @FocusState private var searchFocused: Bool
     /// Camera span used to decide which pins overlap. Updated as the user zooms.
     @State private var visibleSpan = MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+    /// Latest camera span, including small pinch changes that clustering ignores.
+    @State private var latestSpan = MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
     @State private var mapSize: CGSize = CGSize(width: 390, height: 700)
     @State private var didCaptureCamera = false
 
@@ -93,7 +95,9 @@ struct MapScreen: View {
                         let busiest = counts.max() ?? 0
                         let people = counts.reduce(0, +)
                         Annotation(
-                            "\(people) people, \(cluster.members.count) bars",
+                            people == 0
+                                ? "\(cluster.members.count) bars, no live users"
+                                : "\(people) people, \(cluster.members.count) bars",
                             coordinate: cluster.coordinate,
                             anchor: .center
                         ) {
@@ -108,7 +112,11 @@ struct MapScreen: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("\(people) people across \(cluster.members.count) bars")
+                            .accessibilityLabel(
+                                people == 0
+                                    ? "\(cluster.members.count) bars, no live users"
+                                    : "\(people) people across \(cluster.members.count) bars"
+                            )
                             .accessibilityHint("Zooms in to show each bar")
                         }
                         .annotationTitles(.hidden)
@@ -181,15 +189,20 @@ struct MapScreen: View {
                         }
 
                         VStack(spacing: 10) {
-                            searchBar
-                                .padding(.horizontal, 12)
+                            if showSearchResults {
+                                searchBar
+                                    .padding(.horizontal, 12)
+                            }
 
-                            HStack {
+                            HStack(spacing: 10) {
                                 if testMode.uiEnabled && testMode.useMockCheckIns {
                                     simulateLocationButton
                                 }
                                 Spacer(minLength: 0)
-                                locateMeButton
+                                if !showSearchResults {
+                                    searchIconButton
+                                    locateMeButton
+                                }
                             }
                             .padding(.horizontal, 12)
 
@@ -230,12 +243,14 @@ struct MapScreen: View {
                 locationAuth.refresh()
                 let region = mapRegion
                 visibleSpan = region.span
+                latestSpan = region.span
                 position = .region(region)
             }
             .onChange(of: appModel.resolvedGeography?.id) { _, _ in
                 dismissSelection()
                 let region = mapRegion
                 visibleSpan = region.span
+                latestSpan = region.span
                 didCaptureCamera = false
                 position = .region(region)
             }
@@ -253,6 +268,7 @@ struct MapScreen: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .focused($searchFocused)
+                .onAppear { searchFocused = true }
                 .onSubmit { searchFocused = false }
             if !venueSearch.isEmpty {
                 Button {
@@ -272,6 +288,24 @@ struct MapScreen: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemGroupedBackground))
         )
+    }
+
+    private var searchIconButton: some View {
+        Button {
+            searchFocused = true
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 40, height: 40)
+                .background(
+                    Circle()
+                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                )
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search bars")
     }
 
     private var locateMeButton: some View {
@@ -323,71 +357,64 @@ struct MapScreen: View {
     }
 
     private var searchResultsPanel: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Color.clear
-                .frame(width: 28)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture { dismissSearch() }
+        Group {
+            if searchQuery.isEmpty {
+                Text("Start typing a bar name")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            } else if searchResults.isEmpty {
+                Text("No bars match that search")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            } else if searchResults.count > 6 {
+                ScrollView {
+                    searchResultRows
+                }
+                .frame(maxHeight: 320)
+            } else {
+                searchResultRows
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+        .padding(.horizontal, 12)
+    }
 
-            Group {
-                if searchQuery.isEmpty {
-                    Text("Start typing a bar name")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 28)
-                } else if searchResults.isEmpty {
-                    Text("No bars match that search")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 28)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(searchResults) { venue in
-                                Button {
-                                    selectVenue(venue)
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(venue.name)
-                                                .font(.body.weight(.medium))
-                                                .foregroundStyle(.primary)
-                                            if !venue.area.isEmpty {
-                                                Text(venue.area)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 12)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                Divider().opacity(0.35)
+    private var searchResultRows: some View {
+        VStack(spacing: 0) {
+            ForEach(searchResults) { venue in
+                Button {
+                    selectVenue(venue)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(venue.name)
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.primary)
+                            if !venue.area.isEmpty {
+                                Text(venue.area)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
                         }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
                     }
-                    .frame(maxHeight: 320)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                Divider().opacity(0.35)
             }
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
-            )
-
-            Color.clear
-                .frame(width: 28)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture { dismissSearch() }
         }
     }
 
@@ -399,13 +426,14 @@ struct MapScreen: View {
             containing: venue,
             in: appModel.scopedVenues
         ) else { return }
-        selectCard(card, focus: venue)
+        selectedCard = card
+        mapPage = venue.id
     }
 
     private func selectCard(_ card: VenueLocationCard, focus: CatalogVenue) {
         selectedCard = card
         mapPage = focus.id
-        snapCamera(to: focus)
+        focusPinIfNeeded(focus)
     }
 
     /// First tap opens the location. Further taps on the same pin step through its bars.
@@ -460,15 +488,46 @@ struct MapScreen: View {
         }
     }
 
-    /// Centers the pin in the map viewport at a zoom similar to a tapped pin focus.
-    private func snapCamera(to venue: CatalogVenue) {
-        let region = MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude),
-            span: MKCoordinateSpan(latitudeDelta: 0.014, longitudeDelta: 0.014)
+    /// Focus zoom for a pin tapped from farther out. Tighter than the old 0.014 snap.
+    private static let pinFocusLatitudeDelta = 0.01
+
+    /// Pin tap: zoom in to the focus span only when the map is farther out.
+    /// A closer view keeps its zoom and position. Snap To always frames the pin.
+    private func focusPinIfNeeded(_ venue: CatalogVenue) {
+        guard latestSpan.latitudeDelta > Self.pinFocusLatitudeDelta else { return }
+        snapToPin(venue)
+    }
+
+    /// Moves the camera to the focus zoom with the pin in the open map above the card.
+    private func snapToPin(_ venue: CatalogVenue) {
+        let span = MKCoordinateSpan(
+            latitudeDelta: Self.pinFocusLatitudeDelta,
+            longitudeDelta: Self.pinFocusLatitudeDelta
         )
+        let pin = CLLocationCoordinate2D(latitude: venue.latitude, longitude: venue.longitude)
         withAnimation(.easeInOut(duration: 0.35)) {
-            position = .region(region)
+            position = .region(MKCoordinateRegion(
+                center: cameraCenterPlacingPinAboveCard(pin: pin, latitudeDelta: span.latitudeDelta),
+                span: span
+            ))
         }
+    }
+
+    /// Shifts the camera south so the pin sits in the open map above the venue card.
+    private func cameraCenterPlacingPinAboveCard(
+        pin: CLLocationCoordinate2D,
+        latitudeDelta: Double
+    ) -> CLLocationCoordinate2D {
+        let mapHeight = max(mapSize.height, 1)
+        // Search row and the venue card cover the top and bottom of the map.
+        let topChrome: CGFloat = 108
+        let bottomCover: CGFloat = 456
+        let fraction = (bottomCover - topChrome) / (2 * mapHeight)
+        let clamped = min(max(fraction, 0), 0.35)
+        return CLLocationCoordinate2D(
+            latitude: pin.latitude - Double(clamped) * latitudeDelta,
+            longitude: pin.longitude
+        )
     }
 
     // MARK: - Gates / popup
@@ -532,7 +591,7 @@ struct MapScreen: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: card.venues.count > 1 ? .automatic : .never))
-            .frame(height: 360)
+            .frame(height: 404)
         }
         .frame(maxWidth: 360)
         .background(
@@ -582,6 +641,18 @@ struct MapScreen: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
+
+            Button {
+                snapToPin(venue)
+            } label: {
+                Text("Snap To")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Snap map to this bar")
         }
         .padding(.horizontal, 18)
         .padding(.bottom, 18)
@@ -674,6 +745,7 @@ struct MapScreen: View {
 
     private func captureSpan(_ next: MKCoordinateSpan) {
         guard next.latitudeDelta > 0 else { return }
+        latestSpan = next
         if !didCaptureCamera {
             didCaptureCamera = true
             visibleSpan = next
@@ -780,7 +852,7 @@ private struct BusynessPin: View {
 }
 
 /// Overlapping bars collapsed into a pill. The large number is total people;
-/// the caption is how many bars, so it is not read as one venue's headcount.
+/// the caption is how many bars. A total of zero shows only the bar count.
 private struct BusynessCluster: View {
     let people: Int
     let venueCount: Int
@@ -791,18 +863,27 @@ private struct BusynessCluster: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text("\(people)")
-                .font(.system(size: 15, weight: .bold).monospacedDigit())
-                .foregroundStyle(Color.black.opacity(0.88))
-                .lineLimit(1)
-            Text(barLabel)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.7))
-                .lineLimit(1)
+        Group {
+            if people > 0 {
+                VStack(spacing: 0) {
+                    Text("\(people)")
+                        .font(.system(size: 15, weight: .bold).monospacedDigit())
+                        .foregroundStyle(Color.black.opacity(0.88))
+                        .lineLimit(1)
+                    Text(barLabel)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color.black.opacity(0.7))
+                        .lineLimit(1)
+                }
+            } else {
+                Text(barLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.75))
+                    .lineLimit(1)
+            }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.vertical, people > 0 ? 4 : 6)
         .background(Capsule(style: .continuous).fill(color))
         .overlay(
             Capsule(style: .continuous)
