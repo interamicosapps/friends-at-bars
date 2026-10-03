@@ -468,8 +468,8 @@ struct MapScreen: View {
         ) else {
             DiagnosticLog.shared.append(
                 category: "map",
-                level: "warn",
-                message: "search selected \"\(venue.name)\" but no map card"
+                message: "search selected \"\(venue.name)\" but no map card",
+                level: "warn"
             )
             return
         }
