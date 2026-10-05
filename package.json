@@ -11,18 +11,6 @@
     "preview": "vite preview",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "cap:sync": "npx cap sync",
-    "cap:sync:android": "npx cap sync android",
-    "cap:sync:ios": "npx cap sync ios",
-    "cap:apply-config": "node scripts/apply-capacitor-config.mjs",
-    "cap:apply-config:test": "node scripts/apply-capacitor-config.mjs test",
-    "cap:apply-config:production": "node scripts/apply-capacitor-config.mjs production",
-    "cap:sync:ios:test": "node scripts/apply-capacitor-config.mjs test && npx cap sync ios",
-    "cap:sync:ios:production": "node scripts/apply-capacitor-config.mjs production && npx cap sync ios",
-    "cap:open:android": "npx cap open android",
-    "cap:open:ios": "npx cap open ios",
-    "cap:build": "npm run build && npx cap sync",
-    "cap:build:ios": "npm run build:native-plugin && npm run build && npx cap sync ios",
     "build:native-plugin": "npm install --prefix packages/capacitor-barfest-native-live-location && npm run build --prefix packages/capacitor-barfest-native-live-location",
     "catalog:seed": "node scripts/generate-catalog-seed.mjs",
     "cms:dev": "npm run dev --prefix admin-cms"
@@ -30,7 +18,6 @@
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor/app": "^7.1.2",
-    "@capacitor/cli": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/geolocation": "^7.0.0",
     "@capacitor/status-bar": "^7.0.0",
@@ -53,8 +40,6 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@capacitor/android": "^7.0.0",
-    "@capacitor/ios": "^7.0.0",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@typescript-eslint/eslint-plugin": "^6.10.0",

@@ -36,7 +36,4 @@ admin-cms/.env
 admin-cms/.env.local
 admin-cms/.env.*.local
 
-# Capacitor native projects
-# Note: We track android/ and ios/ folders but ignore build artifacts
-# Build artifacts are handled by android/.gitignore and ios/.gitignore
-# The native project source files should be committed to version control
+# Native iOS project is under native/ios (XcodeGen). Do not add a Capacitor ios/ or android/ shell.

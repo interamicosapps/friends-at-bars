@@ -1,145 +1,5 @@
 workflows:
-  ios-workflow:
-    name: iOS Build and Deploy (Production)
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main
-          include: true
-    integrations:
-      app_store_connect: bar_fest_apple_api
-    max_build_duration: 120
-    instance_type: mac_mini_m1
-    environment:
-      groups:
-        - bar_fest_distribution
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.barfest.app
-      vars:
-        XCODE_PROJECT: "ios/App/App.xcodeproj"
-        XCODE_SCHEME: "App"
-        BUNDLE_ID: "com.barfest.app"
-        APP_ID: "6759994494"
-        # VITE_MAPKIT_TOKEN: inlines at `npm run build` for MapKit JS (web). The Capacitor
-        # iOS app uses native MKMapView and does not require this token for the map screen.
-        # Set in Codemagic if the same build must authorize MapKit JS (e.g. web assets).
-      node: 22.18.0
-      xcode: latest
-      cocoapods: default
-    scripts:
-      - name: Install dependencies
-        script: |
-          npm ci
-      - name: Build web app
-        script: |
-          if [ -z "$VITE_MAPKIT_TOKEN" ]; then echo "Note: VITE_MAPKIT_TOKEN is not set — native iOS map still works; MapKit JS (web) needs a token at runtime."; fi
-          npm run build
-      # Regenerates ios/App/App/capacitor.config.json + Package.swift; required so native plugins match JS.
-      - name: Sync Capacitor iOS
-        script: |
-          npx cap sync ios
-      - name: Set up code signing settings on Xcode project
-        script: |
-          xcode-project use-profiles
-      - name: Build IPA
-        script: |
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME"
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
-    publishing:
-      email:
-        recipients:
-          - user@example.com # Update with your email
-        notify:
-          success: true
-          failure: false
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
-        submit_to_app_store: false
-
-  ios-test-workflow:
-    name: iOS Build and Deploy (Bar Fest Test)
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: Test
-          include: true
-    integrations:
-      app_store_connect: bar_fest_test_apple_api
-    max_build_duration: 120
-    instance_type: mac_mini_m1
-    environment:
-      groups:
-        - bar_fest_distribution
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.barfest.app.test
-      vars:
-        XCODE_PROJECT: "ios/App/App.xcodeproj"
-        XCODE_SCHEME: "App"
-        BUNDLE_ID: "com.barfest.app.test"
-        APP_ID: "6776871909"
-      node: 22.18.0
-      xcode: latest
-      cocoapods: default
-    scripts:
-      - name: Install dependencies
-        script: |
-          npm ci
-      - name: Apply test Capacitor config
-        script: |
-          node scripts/apply-capacitor-config.mjs test
-      - name: Build web app
-        script: |
-          if [ -z "$VITE_MAPKIT_TOKEN" ]; then echo "Note: VITE_MAPKIT_TOKEN is not set — native iOS map still works; MapKit JS (web) needs a token at runtime."; fi
-          npm run build
-      - name: Sync Capacitor iOS
-        script: |
-          npx cap sync ios
-      - name: Diagnose iOS signing
-        script: |
-          chmod +x scripts/diagnose-ios-signing.sh
-          ./scripts/diagnose-ios-signing.sh
-      - name: Align Xcode bundle ID with workflow
-        script: |
-          chmod +x scripts/sync-ios-bundle-id.sh
-          ./scripts/sync-ios-bundle-id.sh
-      - name: Set up code signing settings on Xcode project
-        script: |
-          set -x
-          xcode-project use-profiles
-      - name: Build IPA
-        script: |
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME"
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
-    publishing:
-      email:
-        recipients:
-          - user@example.com # Update with your email
-        notify:
-          success: true
-          failure: false
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
-        submit_to_app_store: false
-
-  # Native SwiftUI shell (Phase 1+) — no Capacitor / Vite web bundle.
+  # Native SwiftUI app. No Capacitor shell.
   native-ios-workflow:
     name: Native iOS BarFest (TestFlight)
     triggering:
@@ -179,7 +39,7 @@ workflows:
           # Hardcoded marketing / build (bump these in Info.plist + here before each TestFlight upload).
           # Keep in sync with BarFest/Info.plist CFBundleShortVersionString / CFBundleVersion.
           NATIVE_MARKETING_VERSION=1.0.1
-          NATIVE_BUILD_NUMBER=41
+          NATIVE_BUILD_NUMBER=42
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NATIVE_MARKETING_VERSION}" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${NATIVE_MARKETING_VERSION}" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NATIVE_BUILD_NUMBER}" "$PLIST" || \
@@ -212,7 +72,7 @@ workflows:
         submit_to_testflight: true
         submit_to_app_store: false
 
-  # Native SwiftUI → Bar Fest Test (com.barfest.app.test). Prefer Test branch.
+  # Native SwiftUI â†’ Bar Fest Test (com.barfest.app.test). Prefer Test branch.
   native-ios-test-workflow:
     name: Native iOS BarFest Test (TestFlight)
     triggering:
@@ -264,7 +124,7 @@ workflows:
           fi
           NATIVE_MARKETING_VERSION=1.0.1
           # Independent of production Bar Fest build numbers — keep in sync with Info.plist
-          NATIVE_BUILD_NUMBER=41
+          NATIVE_BUILD_NUMBER=42
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NATIVE_MARKETING_VERSION}" "$PLIST" || \
             /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${NATIVE_MARKETING_VERSION}" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NATIVE_BUILD_NUMBER}" "$PLIST" || \

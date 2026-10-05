@@ -1,6 +1,6 @@
 # MapKit JS setup
 
-**Web** (browser / Vercel) and **Capacitor iOS** (WKWebView loading the same web app, e.g. via `server.url`) use **MapKit JS** in the page (`MapViewMapKit`). **Android** uses MapLibre only (`MapViewMapLibre`).
+The **website** (browser / Vercel) uses **MapKit JS** in the page (`MapViewMapKit`). The native iOS app uses MapKit directly and does not load this page.
 
 Safari or Chrome on iPhone (not the installed app) loads the web bundle and uses MapKit JS like desktop.
 
@@ -16,7 +16,6 @@ Safari or Chrome on iPhone (not the installed app) loads the web bundle and uses
 |-------------|----------------------------------|
 | **Local (`npm run dev`)** | **`.env.local`** in the repo root (gitignored). Restart dev server after changes. |
 | **Vercel** | Project → **Settings → Environment Variables**. Set for Production (and Preview if needed). Redeploy after changing. |
-| **Codemagic** | App → **Environment variables** → add `VITE_MAPKIT_TOKEN` (mark **sensitive**) so builds that bundle the web app include MapKit JS for web preview or iOS WebView loads. |
 
 ## Without a token
 

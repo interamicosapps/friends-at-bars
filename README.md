@@ -33,7 +33,7 @@ A Vite + React + TypeScript project with Tailwind CSS and ShadCN UI for building
 
 ## Native hybrid (iOS-first)
 
-Product path is **SwiftUI + Supabase catalog** (not Cap remote WebView):
+Phone product is **SwiftUI + Supabase catalog**. The Vite site in `src/` stays as the Vercel website:
 
 - Catalog SQL: `supabase/catalog_setup.sql` + `catalog_seed.sql`
 - Admin CMS: `admin-cms/` (deploy to Vercel) — see `docs/CATALOG_CMS.md`

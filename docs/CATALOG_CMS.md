@@ -1,6 +1,6 @@
 # Catalog content (Supabase) + Vercel Admin CMS
 
-Hybrid content pipeline for Bar Fest: **native / Capacitor apps read catalog JSON from Supabase**. Editors change venues, deals, events, and game packs via an admin UI (intended to deploy on Vercel). Shell/UI code still ships via TestFlight / App Store.
+Hybrid content pipeline for Bar Fest: **the native iOS app reads catalog JSON from Supabase**. Editors change venues, deals, events, and game packs via an admin UI (intended to deploy on Vercel). App UI still ships via TestFlight / App Store.
 
 ## Setup
 

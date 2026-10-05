@@ -26,8 +26,8 @@ struct GamesHubView: View {
                     }
 
                     GameHubCard(
-                        title: "Ride The Bus beta",
-                        imageName: nil
+                        title: "Ride The Bus (beta)",
+                        imageName: "RideTheBusCardIcon"
                     ) {
                         showRideTheBus = true
                     }
@@ -47,19 +47,25 @@ struct GamesHubView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                // Opaque sheet so the peek label (drawn behind this content) cannot show through a card.
+                .background(Color.black)
                 // Anchors a UIKit probe inside the SwiftUI ScrollView so we can read real bounce offsets.
                 .background {
                     GamesHubBottomOverscrollReader(bottomOverscroll: $bottomOverscroll)
                         .frame(width: 0, height: 0)
                 }
             }
-            .overlay(alignment: .bottom) {
+            .scrollContentBackground(.hidden)
+            // Behind the scrolling cards, clipped to the rubber-band strip only.
+            .background(alignment: .bottom) {
                 Text("More Games to Come")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.55))
-                    .padding(.bottom, 28)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: bottomOverscroll, alignment: .center)
+                    .clipped()
                     .opacity(moreGamesOpacity)
-                    .offset(y: max(0, 18 - bottomOverscroll * 0.25))
                     .allowsHitTesting(false)
                     .accessibilityHidden(moreGamesOpacity < 0.2)
             }

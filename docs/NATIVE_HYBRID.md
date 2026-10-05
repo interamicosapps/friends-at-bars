@@ -1,12 +1,11 @@
-# Native hybrid + Capacitor deprecation policy
+# Native app and web
 
-## Product UI (iOS)
+## Product UI
 
 | Channel | Role |
 |---------|------|
 | **Swift app** (`native/ios/BarFest`) | Consumer product — tabs, MKMapView, chat composer, location |
-| **Capacitor `ios/App`** | **Deprecated** as the iOS consumer UI. Keep only while migrating TestFlight users; stop pointing Cap `server.url` at the Vercel SPA for production once Swift TestFlight is live |
-| **Vercel consumer SPA** | Optional marketing / web fallback — not the phone UI |
+| **Vercel consumer SPA** (`src/`) | Website used to check branch health. Not the phone UI |
 | **Vercel admin CMS** (`admin-cms/`) | Editors only |
 
 ## CMS vs App Store release policy
@@ -31,7 +30,6 @@ Deferred Kotlin shell under `native/android/` uses the **same** Supabase APIs. N
 1. Run `supabase/catalog_setup.sql` + `catalog_seed.sql`
 2. Deploy `admin-cms` to Vercel; create Auth editor user
 3. Generate & archive Swift app; TestFlight via `native-ios-workflow` in `codemagic.yaml`
-4. Freeze Cap iOS feature work; remove Cap iOS from production TestFlight
-5. Document support path: content issues → CMS; crashes/UX → native release
+4. Document support path: content issues → CMS; crashes/UX → native release
 
 See also [CATALOG_CMS.md](./CATALOG_CMS.md) and [native/ios/BarFest/README.md](../native/ios/BarFest/README.md).

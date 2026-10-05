@@ -1,13 +1,6 @@
-# iOS location QA (Capacitor + native live tracking)
+# iOS location QA (website location code)
 
-Use a **physical device** with a dev or TestFlight build. Note results in your release checklist.
-
-## Native vs WebView (important)
-
-On **iOS**, live tracking uses **`BarFestNativeLiveLocation`** (Swift `CLLocationManager` + `URLSession` to Supabase). While the screen is **locked**, Supabase writes do **not** go through the Vercel WebView.
-
-- Safari **Develop → [device] → your app URL**: you may see **no** `*.supabase.co` requests while locked — that is expected.
-- Verify writes in **Supabase Dashboard** → `live_locations` → watch `last_updated` for your `user_id`.
+The installed app no longer loads this website. Native location behavior is documented in `native/ios/BarFest/LOCATION.md`. The notes below describe the website's location code.
 
 ## Permission matrix
 
@@ -36,14 +29,7 @@ On **iOS**, live tracking uses **`BarFestNativeLiveLocation`** (Swift `CLLocatio
 - Enable **Realtime** on `live_locations` if using map live counts.
 - Confirm Vercel `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` match the project.
 
-## Build
-
-```bash
-npm run build:native-plugin
-npm run cap:build:ios
-```
-
-## Regression (web / Android)
+## Regression (web)
 
 - Web/Android still use JS poll + `@capacitor-community/background-geolocation` on Android.
 - Desktop web: watch timeouts should not leave tracking stuck on without a dot.
