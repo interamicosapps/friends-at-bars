@@ -123,6 +123,7 @@ struct ChatView: View {
                     .padding(.horizontal)
                     Spacer()
                 } else {
+                    if useLocal {
                     HStack {
                         Picker("Sort", selection: $sort) {
                             Text("Recent").tag("recent")
@@ -130,36 +131,59 @@ struct ChatView: View {
                         }
                         .pickerStyle(.segmented)
 
-                        if useLocal {
-                            Button {
-                                testMode.simulateLocationAllowed.toggle()
-                                DiagnosticLog.shared.append(
-                                    category: "chat",
-                                    message: "Simulate location allowed=\(testMode.simulateLocationAllowed)"
-                                )
-                            } label: {
-                                Image(systemName: testMode.simulateLocationAllowed
-                                      ? "location.fill"
-                                      : "location.slash")
-                            }
-
-                            Button {
-                                if selectMode {
-                                    exitSelectMode()
-                                } else {
-                                    selectMode = true
-                                }
-                            } label: {
-                                Image(systemName: selectMode ? "xmark" : "list.bullet")
-                            }
-                            .accessibilityLabel(selectMode ? "Exit select mode" : "Select messages")
+                        Button {
+                            testMode.simulateLocationAllowed.toggle()
+                            DiagnosticLog.shared.append(
+                                category: "chat",
+                                message: "Simulate location allowed=\(testMode.simulateLocationAllowed)"
+                            )
+                        } label: {
+                            Image(systemName: testMode.simulateLocationAllowed
+                                  ? "location.fill"
+                                  : "location.slash")
                         }
+
+                        Button {
+                            if selectMode {
+                                exitSelectMode()
+                            } else {
+                                selectMode = true
+                            }
+                        } label: {
+                            Image(systemName: selectMode ? "xmark" : "list.bullet")
+                        }
+                        .accessibilityLabel(selectMode ? "Exit select mode" : "Select messages")
                     }
                     .padding()
                     .dismissKeyboardOnTap()
                     .onChange(of: sort) { _, _ in
                         composerFocused = false
                         Task { await load() }
+                    }
+                    } else {
+                    HStack(spacing: 12) {
+                        Button {
+                            avatarPickerTarget = .own
+                        } label: {
+                            ChatAvatarBadge(selection: avatarStore.selection, size: 32)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Change chat icon")
+
+                        Picker("Sort", selection: $sort) {
+                            Text("Recent").tag("recent")
+                            Text("Popular").tag("popular")
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
+                    .dismissKeyboardOnTap()
+                    .onChange(of: sort) { _, _ in
+                        composerFocused = false
+                        Task { await load() }
+                    }
                     }
 
                     if selectMode && useLocal {
@@ -224,8 +248,9 @@ struct ChatView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(needLocationGate || useLocal ? .automatic : .hidden, for: .navigationBar)
             .toolbar {
-                if !needLocationGate {
+                if !needLocationGate && useLocal {
                     ToolbarItem(placement: .topBarLeading) {
                         HStack(spacing: 8) {
                             Button {

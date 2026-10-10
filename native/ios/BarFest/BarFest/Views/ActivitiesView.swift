@@ -66,7 +66,7 @@ struct ActivitiesView: View {
         if testMode.uiEnabled && testMode.useMockCheckIns {
             return testMode.simulateLocationAllowed
         }
-        return locationAuth.isAuthorized
+        return locationAuth.canUseLocation
     }
 
     var body: some View {
@@ -99,6 +99,8 @@ struct ActivitiesView: View {
                             )
                         }
                     }
+
+                    AlwaysLocationHint()
 
                     PriorityDealsCarousel(items: priorityDeals)
 

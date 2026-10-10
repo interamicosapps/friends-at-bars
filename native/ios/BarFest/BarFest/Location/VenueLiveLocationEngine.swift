@@ -191,11 +191,32 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// Matches GPS mode to the current permission. While Using detects the bar on screen and does not write attendance. Always also writes attendance and keeps updating after the app closes.
+    func adoptAuthorization(_ status: CLAuthorizationStatus) {
+        switch status {
+        case .authorizedAlways:
+            setCountsInAttendance(true)
+            try? startTracking()
+        case .authorizedWhenInUse:
+            setCountsInAttendance(false)
+            try? startTracking()
+        default:
+            guard isRunning else { return }
+            stopTracking(deactivate: true)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.eventDelegate?.engineDidLoseAuthorization(self)
+            }
+        }
+    }
+
     func startTracking() throws {
         let status = manager.authorizationStatus
-        guard status == .authorizedAlways else {
+        let always = status == .authorizedAlways
+        let whileUsing = status == .authorizedWhenInUse
+        guard always || whileUsing else {
             let message =
-                "Always location permission is required for background live tracking (status=\(status.rawValue))."
+                "Location permission is required for presence (status=\(status.rawValue))."
             logPresence(message, level: "warn")
             throw NSError(
                 domain: "BarFestNativeLiveLocation",
@@ -214,22 +235,57 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         }
 
         UserDefaults.standard.set(true, forKey: Keys.trackingEnabled)
-        manager.allowsBackgroundLocationUpdates = true
+        if always {
+            manager.allowsBackgroundLocationUpdates = true
+            startSignificantLocationChangesIfPossible()
+            manager.startMonitoringVisits()
+            refreshMonitoredRegions(reason: "startTracking")
+        } else {
+            if manager.allowsBackgroundLocationUpdates {
+                manager.allowsBackgroundLocationUpdates = false
+            }
+            manager.stopMonitoringSignificantLocationChanges()
+            manager.stopMonitoringVisits()
+            clearMonitoredRegions(reason: "while-using")
+        }
         applyAccuracyMode(high: stickyVenue != nil)
-        manager.startUpdatingLocation()
+        if !isRunning {
+            manager.startUpdatingLocation()
+            startWatchdog()
+            startStickyHeartbeatTimer()
+        }
         manager.requestLocation()
-        startSignificantLocationChangesIfPossible()
-        manager.startMonitoringVisits()
-        refreshMonitoredRegions(reason: "startTracking")
         isRunning = true
-        startWatchdog()
-        startStickyHeartbeatTimer()
 
         let venueCount = onEngineQueue { venues.count }
         logPresence(
-            "tracking ON accuracyAuth=\(accuracyNote) venues=\(venueCount) regions=\(manager.monitoredRegions.count) sticky=\(stickyVenue ?? "nil") pending=\(pendingWriteCount())"
+            "tracking ON mode=\(always ? "always" : "while-using") counted=\(always) accuracyAuth=\(accuracyNote) venues=\(venueCount) regions=\(manager.monitoredRegions.count) sticky=\(stickyVenue ?? "nil") pending=\(pendingWriteCount())"
         )
         flushPendingWrites(reason: "start")
+    }
+
+    /// While Using keeps local bar detection and drops this phone from the live count.
+    private func setCountsInAttendance(_ counts: Bool) {
+        if !counts {
+            if !skipSupabase, lastWrittenVenue != nil || stickyVenue != nil {
+                enqueueOrSendDeactivate(source: "while-using")
+            }
+            skipSupabase = true
+            UserDefaults.standard.set(true, forKey: Keys.skipSupabase)
+            onEngineQueue { self.supabase = nil }
+            return
+        }
+
+        guard skipSupabase || supabase == nil else { return }
+        skipSupabase = false
+        UserDefaults.standard.set(false, forKey: Keys.skipSupabase)
+        let defaults = UserDefaults.standard
+        guard
+            let supabaseUrl = defaults.string(forKey: Keys.supabaseUrl),
+            let anonKey = defaults.string(forKey: Keys.supabaseAnonKey),
+            let api = try? SupabaseLiveLocationAPI(supabaseUrl: supabaseUrl, anonKey: anonKey)
+        else { return }
+        onEngineQueue { self.supabase = api }
     }
 
     func stopTracking(deactivate: Bool = true) {
@@ -283,6 +339,7 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
     }
 
     private func refreshMonitoredRegions(reason: String) {
+        guard manager.authorizationStatus == .authorizedAlways else { return }
         guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
             logPresence("geofence unavailable (\(reason))", level: "warn")
             return
@@ -527,18 +584,7 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
     // MARK: - CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        if status == .authorizedAlways {
-            startSignificantLocationChangesIfPossible()
-            refreshMonitoredRegions(reason: "authAlways")
-        }
-        if status != .authorizedAlways, isRunning {
-            stopTracking(deactivate: true)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.eventDelegate?.engineDidLoseAuthorization(self)
-            }
-        }
+        adoptAuthorization(manager.authorizationStatus)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -569,7 +615,7 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             self.eventDelegate?.engine(self, didUpdateCoordinate: location.coordinate)
         }
 
-        if n == 1 || n % 8 == 0 {
+        if manager.authorizationStatus == .authorizedAlways && (n == 1 || n % 8 == 0) {
             refreshMonitoredRegions(reason: "gps")
         }
 

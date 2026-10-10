@@ -585,7 +585,7 @@ final class LocationBridge: VenueLiveLocationEngineDelegate {
                 heartbeatMs: AppConfig.liveLocationHeartbeatMs,
                 pollIntervalMs: 10_000,
                 venueRadiusM: AppConfig.venueRadiusMeters,
-                skipSupabase: false
+                skipSupabase: LocationAuthorizationStore.shared.status != .authorizedAlways
             )
             VenueLiveLocationEngine.shared.eventDelegate = self
             LocationAuthorizationStore.shared.softStartTrackingIfPossible()
@@ -613,7 +613,7 @@ final class LocationBridge: VenueLiveLocationEngineDelegate {
             heartbeatMs: AppConfig.liveLocationHeartbeatMs,
             pollIntervalMs: 10_000,
             venueRadiusM: AppConfig.venueRadiusMeters,
-            skipSupabase: false
+            skipSupabase: LocationAuthorizationStore.shared.status != .authorizedAlways
         )
     }
 

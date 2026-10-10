@@ -47,7 +47,7 @@ struct MapScreen: View {
         if testMode.uiEnabled && testMode.useMockCheckIns {
             return testMode.simulateLocationAllowed
         }
-        return locationAuth.isAuthorized
+        return locationAuth.canUseLocation
     }
 
     /// Highest live headcount among location pins. Shared bars use one count.

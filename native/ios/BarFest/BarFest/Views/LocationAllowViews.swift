@@ -6,43 +6,37 @@ enum LocationPrivacyCopy {
         "Your personal location is never shared, sold, or otherwise shown to anyone."
 }
 
-/// Amber strip matching web Activities “Click Here to Enable Location…”.
-struct LocationAllowStrip: View {
+/// Persistent Activities reminder while location is While Using. Does not block the list.
+struct AlwaysLocationHint: View {
     @ObservedObject private var auth = LocationAuthorizationStore.shared
-    var label: String =
-        "Tap here to enable Location Always and see how busy each bar is right now!"
-    var busyLabel: String = "Opening…"
-    @State private var busy = false
 
     var body: some View {
-        if !auth.isAuthorized {
-            VStack(alignment: .leading, spacing: 6) {
+        if auth.needsAlwaysUpgrade {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Set Location to Always to be counted at the bar, including after you leave the app.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Button {
-                    busy = true
-                    auth.requestAllowLocation()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        busy = false
-                    }
+                    auth.openLocationSettings()
                 } label: {
-                    Text(busy ? busyLabel : label)
-                        .font(.caption2.weight(.semibold))
-                        .multilineTextAlignment(.center)
+                    Text("Settings")
+                        .font(.caption.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 8)
-                        .background(Color(red: 0.47, green: 0.27, blue: 0.08))
-                        .foregroundStyle(Color(red: 1, green: 0.96, blue: 0.9))
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.14))
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(busy)
-
-                Text(LocationPrivacyCopy.underButton)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
         }
     }
 }
@@ -50,10 +44,9 @@ struct LocationAllowStrip: View {
 /// Full-screen style prompt for Map.
 struct LocationAllowOverlay: View {
     @ObservedObject private var auth = LocationAuthorizationStore.shared
-    @State private var busy = false
 
     var body: some View {
-        if !auth.isAuthorized {
+        if !auth.canUseLocation {
             ZStack {
                 Color.black.opacity(0.72).ignoresSafeArea()
                 VStack(spacing: 16) {
@@ -64,24 +57,16 @@ struct LocationAllowOverlay: View {
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
 
-                    Text(
-                        auth.needsAlwaysUpgrade
-                            ? "Always allow location services to view a heat map of popular bars around you!"
-                            : "Enable location services to view a heat map of popular bars around you!"
-                    )
+                    Text("Enable location services to view a heat map of popular bars around you!")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
 
                     Button {
-                        busy = true
                         auth.requestAllowLocation()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            busy = false
-                        }
                     } label: {
-                        Text(busy ? "Opening…" : "Light Up the Map")
+                        Text("Light Up the Map")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -90,7 +75,6 @@ struct LocationAllowOverlay: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .padding(.horizontal, 24)
-                    .disabled(busy)
 
                     Text(LocationPrivacyCopy.underButton)
                         .font(.caption2)
@@ -159,7 +143,6 @@ struct LocationInlineGate: View {
     var onAllow: (() -> Void)?
 
     @ObservedObject private var auth = LocationAuthorizationStore.shared
-    @State private var busy = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -180,17 +163,13 @@ struct LocationInlineGate: View {
                 .padding(.horizontal, 8)
 
             Button {
-                busy = true
                 if let onAllow {
                     onAllow()
                 } else {
                     auth.requestAllowLocation()
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    busy = false
-                }
             } label: {
-                Text(busy ? "Opening…" : cta)
+                Text(cta)
                     .font(.headline)
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -199,7 +178,6 @@ struct LocationInlineGate: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(busy)
             .padding(.horizontal, 24)
 
             Text(LocationPrivacyCopy.underButton)
