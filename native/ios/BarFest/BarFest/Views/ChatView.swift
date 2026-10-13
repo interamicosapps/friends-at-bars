@@ -13,6 +13,11 @@ struct ChatView: View {
     @State private var error: String?
     @State private var selectMode = false
     @State private var selectedIds: Set<UUID> = []
+    @State private var showSoftHidden = false
+    @State private var draggingId: UUID?
+    @State private var dragTranslation: CGFloat = 0
+    @State private var rowHeights: [UUID: CGFloat] = [:]
+    @State private var suppressSelectUntil = Date.distantPast
     @State private var avatarPickerTarget: ChatAvatarPickerTarget?
     @FocusState private var composerFocused: Bool
     @State private var regionWarningFlash = false
@@ -75,8 +80,14 @@ struct ChatView: View {
         return "Must be located within \(name) region to send chat"
     }
 
+    private var canReorder: Bool {
+        useLocal && selectMode && sort == "recent"
+    }
+
     private var displayedPosts: [ChatPost] {
-        let feed = useLocal ? localChat.feed(sort: sort) : posts
+        let feed = useLocal
+            ? localChat.feed(sort: sort, includeHidden: selectMode && showSoftHidden)
+            : posts
         guard let geoId = viewedGeography?.id else { return [] }
         let venueNames = Set(appModel.scopedVenues.map(\.name))
         return feed.filter { post in
@@ -158,6 +169,7 @@ struct ChatView: View {
                     .dismissKeyboardOnTap()
                     .onChange(of: sort) { _, _ in
                         composerFocused = false
+                        cancelDrag()
                         Task { await load() }
                     }
                     } else {
@@ -187,32 +199,58 @@ struct ChatView: View {
                     }
 
                     if selectMode && useLocal {
-                        HStack {
-                            Text("\(selectedIds.count) selected")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button {
-                                localChat.forceVote(postIds: Array(selectedIds), direction: "up")
-                                exitSelectMode()
-                            } label: {
-                                Image(systemName: "chevron.up")
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("\(selectedIds.count) selected")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button {
+                                    showSoftHidden.toggle()
+                                } label: {
+                                    Image(systemName: showSoftHidden ? "eye" : "eye.slash")
+                                }
+                                .accessibilityLabel(
+                                    showSoftHidden
+                                        ? "Hide soft-hidden chats"
+                                        : "Show soft-hidden chats"
+                                )
+                                .foregroundStyle(showSoftHidden ? Color.accentColor : Color.secondary)
+                                Button {
+                                    localChat.nudgeScore(
+                                        postIds: Array(selectedIds),
+                                        direction: "up"
+                                    )
+                                } label: {
+                                    Image(systemName: "chevron.up")
+                                }
+                                .disabled(selectedIds.isEmpty)
+                                .accessibilityLabel("Add upvote to selected")
+                                Button {
+                                    localChat.nudgeScore(
+                                        postIds: Array(selectedIds),
+                                        direction: "down"
+                                    )
+                                } label: {
+                                    Image(systemName: "chevron.down")
+                                }
+                                .disabled(selectedIds.isEmpty)
+                                .accessibilityLabel("Add downvote to selected")
+                                Button(role: .destructive) {
+                                    let ids = Array(selectedIds)
+                                    localChat.hide(postIds: ids)
+                                    selectedIds.subtract(ids)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .disabled(selectedIds.isEmpty)
+                                .accessibilityLabel("Delete selected")
                             }
-                            .disabled(selectedIds.isEmpty)
-                            Button {
-                                localChat.forceVote(postIds: Array(selectedIds), direction: "down")
-                                exitSelectMode()
-                            } label: {
-                                Image(systemName: "chevron.down")
+                            if canReorder, displayedPosts.count > 1 {
+                                Text("Hold and drag to reorder")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
-                            .disabled(selectedIds.isEmpty)
-                            Button(role: .destructive) {
-                                localChat.hide(postIds: Array(selectedIds))
-                                exitSelectMode()
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .disabled(selectedIds.isEmpty)
                         }
                         .padding(.horizontal)
                         .padding(.bottom, 8)
@@ -227,14 +265,18 @@ struct ChatView: View {
                             .padding(.bottom, 4)
                     }
 
-                    List {
-                        ForEach(displayedPosts) { post in
-                            chatRow(post)
+                    if useLocal && selectMode {
+                        selectModeList
+                    } else {
+                        List {
+                            ForEach(displayedPosts) { post in
+                                chatRow(post)
+                            }
                         }
+                        .listStyle(.plain)
+                        .scrollDismissesKeyboard(.interactively)
+                        .dismissKeyboardOnTap()
                     }
-                    .listStyle(.plain)
-                    .scrollDismissesKeyboard(.interactively)
-                    .dismissKeyboardOnTap()
 
                     if let error {
                         Text(error)
@@ -363,29 +405,34 @@ struct ChatView: View {
                                 .font(.caption)
                                 .foregroundStyle(metaColor)
                         }
+                        if post.is_hidden {
+                            Text("Hidden")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(isOwn ? Color.black.opacity(0.55) : Color.orange)
+                        }
                     }
                     Spacer(minLength: 8)
-                    if !(selectMode && useLocal) {
-                        RedditVotePill(
-                            score: post.score,
-                            myVote: post.my_vote,
-                            disabled: isOwn,
-                            onLightBackground: isOwn,
-                            onUp: { Task { await vote(postId: post.id, direction: "up") } },
-                            onDown: { Task { await vote(postId: post.id, direction: "down") } }
-                        )
-                    }
+                    RedditVotePill(
+                        score: post.score,
+                        myVote: post.my_vote,
+                        disabled: isOwn || (selectMode && useLocal),
+                        onLightBackground: isOwn,
+                        onUp: { Task { await vote(postId: post.id, direction: "up") } },
+                        onDown: { Task { await vote(postId: post.id, direction: "down") } }
+                    )
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture {
-                if selectMode && useLocal { toggleSelect(post.id) }
-            }
         }
         .padding(.horizontal, isOwn ? 10 : 0)
         .padding(.vertical, 8)
         .background(rowBg)
         .clipShape(RoundedRectangle(cornerRadius: isOwn ? 12 : 0, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if selectMode && useLocal { toggleSelect(post.id) }
+        }
+        .simultaneousIf(canReorder, reorderGesture(for: post.id))
         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
         .listRowBackground(Color.clear)
         .swipeActions(edge: .trailing, allowsFullSwipe: !(selectMode && useLocal)) {
@@ -549,11 +596,150 @@ struct ChatView: View {
     private func exitSelectMode() {
         selectMode = false
         selectedIds = []
+        showSoftHidden = false
+        cancelDrag()
     }
 
     private func toggleSelect(_ id: UUID) {
+        if Date() < suppressSelectUntil { return }
         if selectedIds.contains(id) { selectedIds.remove(id) }
         else { selectedIds.insert(id) }
+    }
+
+    private var selectModeList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(displayedPosts) { post in
+                    VStack(spacing: 0) {
+                        selectModeRow(post)
+                        Divider()
+                    }
+                }
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .scrollDisabled(draggingId != nil)
+        .dismissKeyboardOnTap()
+        .onPreferenceChange(ChatRowHeightKey.self) { heights in
+            if heights != rowHeights {
+                rowHeights = heights
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func selectModeRow(_ post: ChatPost) -> some View {
+        let row = chatRow(post)
+            .opacity(post.is_hidden ? 0.55 : 1)
+            .padding(.horizontal, 12)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ChatRowHeightKey.self,
+                        value: [post.id: proxy.size.height]
+                    )
+                }
+            }
+            .contentShape(Rectangle())
+            .offset(y: canReorder ? dragOffset(for: post.id) : 0)
+            .zIndex(draggingId == post.id ? 1 : 0)
+            .shadow(
+                color: draggingId == post.id ? Color.black.opacity(0.28) : .clear,
+                radius: draggingId == post.id ? 8 : 0,
+                y: draggingId == post.id ? 4 : 0
+            )
+        row
+    }
+
+    private func reorderGesture(for id: UUID) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture(minimumDistance: 1, coordinateSpace: .global))
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    suppressSelectUntil = Date().addingTimeInterval(0.6)
+                    draggingId = id
+                    dragTranslation = 0
+                case .second(true, let drag?):
+                    suppressSelectUntil = Date().addingTimeInterval(0.6)
+                    draggingId = id
+                    dragTranslation = drag.translation.height
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                commitDrag()
+            }
+    }
+
+    private func dragOffset(for id: UUID) -> CGFloat {
+        guard let draggingId,
+              let from = displayedPosts.firstIndex(where: { $0.id == draggingId }) else { return 0 }
+        if id == draggingId { return dragTranslation }
+        guard let index = displayedPosts.firstIndex(where: { $0.id == id }) else { return 0 }
+        let target = dropIndex(from: from, translation: dragTranslation)
+        let height = rowHeights[draggingId] ?? 80
+        if target > from && index > from && index <= target { return -height }
+        if target < from && index < from && index >= target { return height }
+        return 0
+    }
+
+    private func dropIndex(from: Int, translation: CGFloat) -> Int {
+        let items = displayedPosts
+        guard from >= 0, from < items.count else { return from }
+        var cursor: CGFloat = 0
+        var mids: [CGFloat] = []
+        mids.reserveCapacity(items.count)
+        for post in items {
+            let height = rowHeights[post.id] ?? 80
+            mids.append(cursor + height / 2)
+            cursor += height
+        }
+        let proposed = mids[from] + translation
+        var best = from
+        var bestDistance = CGFloat.infinity
+        for (index, mid) in mids.enumerated() {
+            let distance = abs(mid - proposed)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = index
+            }
+        }
+        return best
+    }
+
+    private func commitDrag() {
+        guard let originId = draggingId else { return }
+        let translation = dragTranslation
+        suppressSelectUntil = Date().addingTimeInterval(0.6)
+        guard translation != 0,
+              let from = displayedPosts.firstIndex(where: { $0.id == originId }) else {
+            cancelDrag()
+            return
+        }
+        let target = dropIndex(from: from, translation: translation)
+        guard target != from else {
+            cancelDrag()
+            return
+        }
+        var ids = displayedPosts.map(\.id)
+        let original = ids
+        let item = ids.remove(at: from)
+        let clamped = min(max(target, 0), ids.count)
+        ids.insert(item, at: clamped)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            draggingId = nil
+            dragTranslation = 0
+            localChat.applyDisplayedRecentOrder(originalDisplayed: original, reordered: ids)
+        }
+    }
+
+    private func cancelDrag() {
+        draggingId = nil
+        dragTranslation = 0
     }
 
     private func load() async {
@@ -684,6 +870,25 @@ struct ChatView: View {
                 message: error.localizedDescription,
                 level: "error"
             )
+        }
+    }
+}
+
+private struct ChatRowHeightKey: PreferenceKey {
+    static var defaultValue: [UUID: CGFloat] = [:]
+
+    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func simultaneousIf<G: Gesture>(_ enabled: Bool, _ gesture: G) -> some View {
+        if enabled {
+            simultaneousGesture(gesture)
+        } else {
+            self
         }
     }
 }
