@@ -5,6 +5,7 @@ enum ChatService {
         var query: [URLQueryItem] = [
             URLQueryItem(name: "is_hidden", value: "eq.false"),
             URLQueryItem(name: "expires_at", value: "gt.\(ISO8601DateFormatter().string(from: Date()))"),
+            URLQueryItem(name: "parent_id", value: "is.null"),
             URLQueryItem(name: "select", value: "*"),
             URLQueryItem(name: "limit", value: "50"),
         ]
@@ -16,6 +17,29 @@ enum ChatService {
         return try await SupabaseClient.shared.get(path: "rest/v1/chat_posts", query: query)
     }
 
+    static func fetchReplies(parentId: UUID) async throws -> [ChatPost] {
+        let query: [URLQueryItem] = [
+            URLQueryItem(name: "parent_id", value: "eq.\(parentId.uuidString)"),
+            URLQueryItem(name: "is_hidden", value: "eq.false"),
+            URLQueryItem(name: "expires_at", value: "gt.\(ISO8601DateFormatter().string(from: Date()))"),
+            URLQueryItem(name: "select", value: "*"),
+            URLQueryItem(name: "order", value: "created_at.asc"),
+        ]
+        return try await SupabaseClient.shared.get(path: "rest/v1/chat_posts", query: query)
+    }
+
+    static func fetchPost(id: UUID) async throws -> ChatPost? {
+        let rows: [ChatPost] = try await SupabaseClient.shared.get(
+            path: "rest/v1/chat_posts",
+            query: [
+                URLQueryItem(name: "id", value: "eq.\(id.uuidString)"),
+                URLQueryItem(name: "select", value: "*"),
+                URLQueryItem(name: "limit", value: "1"),
+            ]
+        )
+        return rows.first
+    }
+
     static func createPost(
         body: String,
         geographyId: UUID,
@@ -23,7 +47,8 @@ enum ChatService {
         longitude: Double,
         venueName: String?,
         avatarIcon: String,
-        avatarColor: String
+        avatarColor: String,
+        parentId: UUID? = nil
     ) async throws {
         let uid = String(AnonymousIdentity.userId().prefix(12))
         let venueLabel = venueName ?? ""
@@ -47,6 +72,9 @@ enum ChatService {
             params["p_venue_name"] = venueName
         } else {
             params["p_venue_name"] = NSNull()
+        }
+        if let parentId {
+            params["p_parent_id"] = parentId.uuidString
         }
         do {
             try await SupabaseClient.shared.rpcVoid("create_chat_post", params: params)

@@ -34,6 +34,7 @@ final class TestChatStore: ObservableObject {
 
     func feed(sort: String, includeHidden: Bool = false) -> [ChatPost] {
         let active = posts.filter { post in
+            guard post.parent_id == nil else { return false }
             guard expiryOk(post) else { return false }
             if removedIds.contains(post.id) { return false }
             if post.is_hidden && !includeHidden { return false }
@@ -80,10 +81,64 @@ final class TestChatStore: ObservableObject {
             expires_at: expires,
             my_vote: nil,
             avatar_icon: avatar.icon.rawValue,
-            avatar_color: avatar.color.rawValue
+            avatar_color: avatar.color.rawValue,
+            parent_id: nil,
+            reply_count: 0
         )
         posts.insert(post, at: 0)
         persist()
+    }
+
+    func createReply(parentId: UUID, body: String, avatar: ChatAvatarSelection) throws {
+        guard let parent = posts.first(where: { $0.id == parentId && $0.parent_id == nil }) else {
+            throw ChatLocalError.message("Chat not found")
+        }
+        guard !parent.is_hidden, !removedIds.contains(parentId), expiryOk(parent) else {
+            throw ChatLocalError.message("Chat is no longer available")
+        }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw ChatLocalError.message("Message cannot be empty") }
+        guard trimmed.count <= AppConfig.maxChatChars else {
+            throw ChatLocalError.message("150 Character Limit")
+        }
+        let author = sender == .other ? Self.otherAuthorId : AnonymousIdentity.userId()
+        let now = ISO8601DateFormatter().string(from: Date())
+        let reply = ChatPost(
+            id: UUID(),
+            author_id: author,
+            body: trimmed,
+            venue_name: parent.venue_name,
+            geography_id: parent.geography_id,
+            score: 0,
+            is_hidden: false,
+            created_at: now,
+            expires_at: parent.expires_at,
+            my_vote: nil,
+            avatar_icon: avatar.icon.rawValue,
+            avatar_color: avatar.color.rawValue,
+            parent_id: parentId,
+            reply_count: 0
+        )
+        posts.insert(reply, at: 0)
+        refreshReplyCount(parentId)
+        persist()
+    }
+
+    func replies(parentId: UUID) -> [ChatPost] {
+        posts
+            .filter {
+                $0.parent_id == parentId
+                    && !$0.is_hidden
+                    && !removedIds.contains($0.id)
+                    && expiryOk($0)
+            }
+            .sorted { $0.created_at < $1.created_at }
+    }
+
+    func parentPost(id: UUID) -> ChatPost? {
+        guard let post = posts.first(where: { $0.id == id && $0.parent_id == nil }) else { return nil }
+        guard !post.is_hidden, !removedIds.contains(id), expiryOk(post) else { return nil }
+        return post
     }
 
     func setVote(postId: UUID, direction: String) throws {
@@ -110,9 +165,17 @@ final class TestChatStore: ObservableObject {
             delta = desired - (existing ?? 0)
         }
         post.score += delta
-        if post.score <= -4 { post.is_hidden = true }
+        if post.score <= -4 {
+            post.is_hidden = true
+            concealChildren(of: post.id, in: &posts)
+        }
         post.my_vote = votes[key]
-        posts[idx] = post
+        if let parentId = post.parent_id {
+            posts[idx] = post
+            refreshReplyCount(parentId)
+        } else {
+            posts[idx] = post
+        }
         persist()
     }
 
@@ -129,11 +192,17 @@ final class TestChatStore: ObservableObject {
             next[idx].score += delta
             if next[idx].score <= -4 {
                 next[idx].is_hidden = true
+                concealChildren(of: id, in: &next)
             }
             changed = true
         }
         guard changed else { return }
         posts = next
+        for id in postIds {
+            if let parentId = posts.first(where: { $0.id == id })?.parent_id {
+                refreshReplyCount(parentId)
+            }
+        }
         persist()
     }
 
@@ -142,7 +211,7 @@ final class TestChatStore: ObservableObject {
     func applyDisplayedRecentOrder(originalDisplayed: [UUID], reordered: [UUID]) {
         let displayedSet = Set(originalDisplayed)
         let canonical = orderedRecent(
-            posts.filter { expiryOk($0) && !removedIds.contains($0.id) }
+            posts.filter { $0.parent_id == nil && expiryOk($0) && !removedIds.contains($0.id) }
         ).map(\.id)
         var merged: [UUID] = []
         merged.reserveCapacity(canonical.count)
@@ -168,16 +237,29 @@ final class TestChatStore: ObservableObject {
     func hide(postIds: [UUID]) {
         guard !postIds.isEmpty else { return }
         var next = posts
+        var ids = Set(postIds)
         for id in postIds {
+            for child in next where child.parent_id == id {
+                ids.insert(child.id)
+            }
+        }
+        var parentIds = Set<UUID>()
+        for id in ids {
             removedIds.insert(id)
             votes.removeValue(forKey: id.uuidString)
             if let idx = next.firstIndex(where: { $0.id == id }) {
+                if let parentId = next[idx].parent_id {
+                    parentIds.insert(parentId)
+                }
                 next[idx].is_hidden = true
                 next[idx].my_vote = nil
             }
         }
-        recentOrder.removeAll { postIds.contains($0) }
+        recentOrder.removeAll { ids.contains($0) }
         posts = next
+        for parentId in parentIds {
+            refreshReplyCount(parentId)
+        }
         persist()
     }
 
@@ -187,6 +269,23 @@ final class TestChatStore: ObservableObject {
         recentOrder = []
         removedIds = []
         persist()
+    }
+
+    private func concealChildren(of parentId: UUID, in posts: inout [ChatPost]) {
+        for index in posts.indices where posts[index].parent_id == parentId {
+            posts[index].is_hidden = true
+        }
+    }
+
+    private func refreshReplyCount(_ parentId: UUID) {
+        guard let idx = posts.firstIndex(where: { $0.id == parentId }) else { return }
+        let count = posts.filter {
+            $0.parent_id == parentId
+                && !$0.is_hidden
+                && !removedIds.contains($0.id)
+                && expiryOk($0)
+        }.count
+        posts[idx].reply_count = count
     }
 
     /// Newest chats that have never been placed stay at the top. Saved ids follow in their stored order.

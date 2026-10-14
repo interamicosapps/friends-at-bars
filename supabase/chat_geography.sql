@@ -41,9 +41,20 @@ CREATE INDEX IF NOT EXISTS idx_chat_posts_geography_feed
   ON chat_posts (geography_id, created_at DESC)
   WHERE is_hidden = false;
 
+ALTER TABLE chat_posts
+  ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES chat_posts(id) ON DELETE CASCADE;
+
+ALTER TABLE chat_posts
+  ADD COLUMN IF NOT EXISTS reply_count INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_chat_posts_parent
+  ON chat_posts (parent_id, created_at)
+  WHERE parent_id IS NOT NULL;
+
 DROP FUNCTION IF EXISTS create_chat_post(TEXT, TEXT, TEXT);
 DROP FUNCTION IF EXISTS create_chat_post(TEXT, TEXT, TEXT, TEXT, TEXT);
 DROP FUNCTION IF EXISTS create_chat_post(TEXT, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT);
+DROP FUNCTION IF EXISTS create_chat_post(TEXT, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, UUID);
 
 CREATE OR REPLACE FUNCTION create_chat_post(
   p_author_id TEXT,
@@ -53,7 +64,8 @@ CREATE OR REPLACE FUNCTION create_chat_post(
   p_longitude DOUBLE PRECISION,
   p_venue_name TEXT DEFAULT NULL,
   p_avatar_icon TEXT DEFAULT NULL,
-  p_avatar_color TEXT DEFAULT NULL
+  p_avatar_color TEXT DEFAULT NULL,
+  p_parent_id UUID DEFAULT NULL
 )
 RETURNS chat_posts
 LANGUAGE plpgsql
@@ -63,9 +75,9 @@ AS $$
 DECLARE
   trimmed TEXT;
   venue_trimmed TEXT;
-  recent_count INTEGER;
   location_ok BOOLEAN;
   geo_row catalog_geographies%ROWTYPE;
+  parent_row chat_posts%ROWTYPE;
   v_geography UUID;
   v_lat DOUBLE PRECISION;
   v_lon DOUBLE PRECISION;
@@ -105,17 +117,49 @@ BEGIN
     RAISE EXCEPTION 'Must be located within % region to send chat', geo_row.name;
   END IF;
 
+  IF p_parent_id IS NOT NULL THEN
+    SELECT * INTO parent_row FROM chat_posts WHERE id = p_parent_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Chat not found';
+    END IF;
+    IF parent_row.parent_id IS NOT NULL THEN
+      RAISE EXCEPTION 'You can only reply to a chat';
+    END IF;
+    IF parent_row.is_hidden OR parent_row.expires_at <= NOW() THEN
+      RAISE EXCEPTION 'Chat is no longer available';
+    END IF;
+    IF parent_row.geography_id IS DISTINCT FROM p_geography_id THEN
+      RAISE EXCEPTION 'Must be located within % region to send chat', geo_row.name;
+    END IF;
+
+    INSERT INTO chat_posts (
+      author_id,
+      body,
+      venue_name,
+      geography_id,
+      avatar_icon,
+      avatar_color,
+      parent_id,
+      expires_at
+    )
+    VALUES (
+      p_author_id,
+      trimmed,
+      coalesce(parent_row.venue_name, ''),
+      parent_row.geography_id,
+      NULLIF(trim(p_avatar_icon), ''),
+      NULLIF(trim(p_avatar_color), ''),
+      parent_row.id,
+      parent_row.expires_at
+    )
+    RETURNING * INTO new_row;
+
+    RETURN new_row;
+  END IF;
+
   venue_trimmed := NULLIF(trim(coalesce(p_venue_name, '')), '');
 
-  SELECT COUNT(*)::INTEGER
-  INTO recent_count
-  FROM chat_posts
-  WHERE author_id = p_author_id
-    AND created_at > NOW() - INTERVAL '1 hour';
-
-  IF recent_count >= 5 THEN
-    RAISE EXCEPTION 'Rate limit: max 5 messages per hour';
-  END IF;
+  -- Hourly send cap is paused. Restore by counting this author's posts in the last hour and rejecting at 5.
 
   IF venue_trimmed IS NOT NULL THEN
     SELECT geography_id, latitude, longitude, radius_m
@@ -169,4 +213,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION create_chat_post(TEXT, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION create_chat_post(TEXT, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT, TEXT, UUID) TO anon, authenticated;

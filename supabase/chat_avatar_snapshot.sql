@@ -22,7 +22,6 @@ SET search_path = public
 AS $$
 DECLARE
   trimmed TEXT;
-  recent_count INTEGER;
   location_ok BOOLEAN;
   new_row chat_posts;
 BEGIN
@@ -42,15 +41,7 @@ BEGIN
     RAISE EXCEPTION 'Must be at a bar to chat';
   END IF;
 
-  SELECT COUNT(*)::INTEGER
-  INTO recent_count
-  FROM chat_posts
-  WHERE author_id = p_author_id
-    AND created_at > NOW() - INTERVAL '1 hour';
-
-  IF recent_count >= 5 THEN
-    RAISE EXCEPTION 'Rate limit: max 5 messages per hour';
-  END IF;
+  -- Hourly send cap is paused. Restore by counting this author's posts in the last hour and rejecting at 5.
 
   SELECT EXISTS (
     SELECT 1

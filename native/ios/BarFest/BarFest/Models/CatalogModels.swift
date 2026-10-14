@@ -122,6 +122,12 @@ struct ChatPost: Codable, Identifiable, Hashable {
     /// Snapshot of the author's avatar at send time (stable even if they change later).
     var avatar_icon: String?
     var avatar_color: String?
+    /// Set on replies. Top-level chats stay nil.
+    var parent_id: UUID?
+    /// Visible replies on a top-level chat. Missing on older rows.
+    var reply_count: Int?
+
+    var visibleReplyCount: Int { reply_count ?? 0 }
 }
 
 struct CheckInRow: Codable, Hashable, Identifiable {

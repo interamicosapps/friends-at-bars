@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ChatView: View {
     @EnvironmentObject private var appModel: AppModel
@@ -18,6 +19,7 @@ struct ChatView: View {
     @State private var dragTranslation: CGFloat = 0
     @State private var rowHeights: [UUID: CGFloat] = [:]
     @State private var suppressSelectUntil = Date.distantPast
+    @State private var openThreadId: UUID?
     @State private var avatarPickerTarget: ChatAvatarPickerTarget?
     @FocusState private var composerFocused: Bool
     @State private var regionWarningFlash = false
@@ -91,6 +93,7 @@ struct ChatView: View {
         guard let geoId = viewedGeography?.id else { return [] }
         let venueNames = Set(appModel.scopedVenues.map(\.name))
         return feed.filter { post in
+            guard post.parent_id == nil else { return false }
             if let postGeo = post.geography_id {
                 return postGeo == geoId
             }
@@ -328,6 +331,14 @@ struct ChatView: View {
             .sheet(item: $avatarPickerTarget) { target in
                 ChatAvatarPickerSheet(target: target)
             }
+            .navigationDestination(item: $openThreadId) { id in
+                ChatThreadView(parentId: id)
+            }
+            .onChange(of: openThreadId) { _, id in
+                if id == nil {
+                    Task { await load() }
+                }
+            }
             .task {
                 await load()
                 startChatLocationIfNeeded()
@@ -384,9 +395,17 @@ struct ChatView: View {
 
         HStack(alignment: .top, spacing: 10) {
             if selectMode && useLocal {
-                Image(systemName: selectedIds.contains(post.id) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selectedIds.contains(post.id) ? Color.accentColor : .secondary)
-                    .onTapGesture { toggleSelect(post.id) }
+                Button {
+                    toggleSelect(post.id)
+                } label: {
+                    Image(systemName: selectedIds.contains(post.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 22))
+                        .foregroundStyle(selectedIds.contains(post.id) ? Color.accentColor : .secondary)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(selectedIds.contains(post.id) ? "Deselect message" : "Select message")
             }
 
             ChatAvatarBadge(selection: avatar, size: 36)
@@ -410,6 +429,21 @@ struct ChatView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(isOwn ? Color.black.opacity(0.55) : Color.orange)
                         }
+                        if !selectMode {
+                            Button {
+                                openThreadId = post.id
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "bubble.right")
+                                        .font(.system(size: 11))
+                                    Text("\(replyCount(for: post))")
+                                        .font(.caption)
+                                }
+                                .foregroundStyle(metaColor)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(replyCount(for: post)) replies")
+                        }
                     }
                     Spacer(minLength: 8)
                     RedditVotePill(
@@ -423,16 +457,19 @@ struct ChatView: View {
                 }
             }
             .contentShape(Rectangle())
+            .onTapGesture {
+                if selectMode && useLocal {
+                    toggleSelect(post.id)
+                } else if !selectMode {
+                    openThreadId = post.id
+                }
+            }
         }
         .padding(.horizontal, isOwn ? 10 : 0)
         .padding(.vertical, 8)
         .background(rowBg)
         .clipShape(RoundedRectangle(cornerRadius: isOwn ? 12 : 0, style: .continuous))
         .contentShape(Rectangle())
-        .onTapGesture {
-            if selectMode && useLocal { toggleSelect(post.id) }
-        }
-        .simultaneousIf(canReorder, reorderGesture(for: post.id))
         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
         .listRowBackground(Color.clear)
         .swipeActions(edge: .trailing, allowsFullSwipe: !(selectMode && useLocal)) {
@@ -536,7 +573,7 @@ struct ChatView: View {
                         text: $draft,
                         axis: .vertical
                     )
-                    .lineLimit(1 ... 3)
+                    .lineLimit(1 ... 6)
                     .font(.system(size: 17))
                     .foregroundStyle(overCharLimit ? Color.red : Color.primary)
                     .focused($composerFocused)
@@ -593,6 +630,13 @@ struct ChatView: View {
         }
     }
 
+    private func replyCount(for post: ChatPost) -> Int {
+        if useLocal {
+            return localChat.replies(parentId: post.id).count
+        }
+        return post.visibleReplyCount
+    }
+
     private func exitSelectMode() {
         selectMode = false
         selectedIds = []
@@ -602,8 +646,20 @@ struct ChatView: View {
 
     private func toggleSelect(_ id: UUID) {
         if Date() < suppressSelectUntil { return }
-        if selectedIds.contains(id) { selectedIds.remove(id) }
-        else { selectedIds.insert(id) }
+        let turningOn = !selectedIds.contains(id)
+        if turningOn {
+            selectedIds.insert(id)
+        } else {
+            selectedIds.remove(id)
+        }
+        let snippet = String(
+            (displayedPosts.first(where: { $0.id == id })?.body ?? "")
+                .prefix(32)
+        )
+        DiagnosticLog.shared.append(
+            category: "chat",
+            message: "\(turningOn ? "Selected" : "Deselected") chat\(snippet.isEmpty ? "" : " “\(snippet)”")"
+        )
     }
 
     private var selectModeList: some View {
@@ -618,7 +674,6 @@ struct ChatView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        .scrollDisabled(draggingId != nil)
         .dismissKeyboardOnTap()
         .onPreferenceChange(ChatRowHeightKey.self) { heights in
             if heights != rowHeights {
@@ -639,6 +694,25 @@ struct ChatView: View {
                         value: [post.id: proxy.size.height]
                     )
                 }
+                .allowsHitTesting(false)
+            }
+            .background {
+                if canReorder {
+                    ChatReorderTouch(
+                        onChange: { translation in
+                            suppressSelectUntil = Date().addingTimeInterval(0.45)
+                            draggingId = post.id
+                            dragTranslation = translation
+                        },
+                        onFinish: { translation, commit in
+                            if commit && translation != 0 {
+                                commitDrag(originId: post.id, translation: translation)
+                            } else {
+                                cancelDrag()
+                            }
+                        }
+                    )
+                }
             }
             .contentShape(Rectangle())
             .offset(y: canReorder ? dragOffset(for: post.id) : 0)
@@ -649,28 +723,6 @@ struct ChatView: View {
                 y: draggingId == post.id ? 4 : 0
             )
         row
-    }
-
-    private func reorderGesture(for id: UUID) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 1, coordinateSpace: .global))
-            .onChanged { value in
-                switch value {
-                case .first(true):
-                    suppressSelectUntil = Date().addingTimeInterval(0.6)
-                    draggingId = id
-                    dragTranslation = 0
-                case .second(true, let drag?):
-                    suppressSelectUntil = Date().addingTimeInterval(0.6)
-                    draggingId = id
-                    dragTranslation = drag.translation.height
-                default:
-                    break
-                }
-            }
-            .onEnded { _ in
-                commitDrag()
-            }
     }
 
     private func dragOffset(for id: UUID) -> CGFloat {
@@ -709,10 +761,8 @@ struct ChatView: View {
         return best
     }
 
-    private func commitDrag() {
-        guard let originId = draggingId else { return }
-        let translation = dragTranslation
-        suppressSelectUntil = Date().addingTimeInterval(0.6)
+    private func commitDrag(originId: UUID, translation: CGFloat) {
+        suppressSelectUntil = Date().addingTimeInterval(0.45)
         guard translation != 0,
               let from = displayedPosts.firstIndex(where: { $0.id == originId }) else {
             cancelDrag()
@@ -882,13 +932,153 @@ private struct ChatRowHeightKey: PreferenceKey {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func simultaneousIf<G: Gesture>(_ enabled: Bool, _ gesture: G) -> some View {
-        if enabled {
-            simultaneousGesture(gesture)
-        } else {
-            self
+/// Hold-to-reorder that fails closed when the finger moves, so the list can still scroll
+/// and row taps still select. A SwiftUI DragGesture on the row was claiming both.
+private struct ChatReorderTouch: UIViewRepresentable {
+    var onChange: (CGFloat) -> Void
+    var onFinish: (_ translation: CGFloat, _ commit: Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange, onFinish: onFinish)
+    }
+
+    func makeUIView(context: Context) -> InstallerView {
+        let view = InstallerView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: InstallerView, context: Context) {
+        context.coordinator.onChange = onChange
+        context.coordinator.onFinish = onFinish
+        uiView.installIfNeeded()
+    }
+
+    static func dismantleUIView(_ uiView: InstallerView, coordinator: Coordinator) {
+        uiView.removeRecognizer()
+        coordinator.setScrollEnabled(true)
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onChange: (CGFloat) -> Void
+        var onFinish: (CGFloat, Bool) -> Void
+        var startY: CGFloat = 0
+        weak var recognizer: UILongPressGestureRecognizer?
+        private weak var lockedScroll: UIScrollView?
+
+        init(onChange: @escaping (CGFloat) -> Void, onFinish: @escaping (CGFloat, Bool) -> Void) {
+            self.onChange = onChange
+            self.onFinish = onFinish
+        }
+
+        @objc func handle(_ gesture: UILongPressGestureRecognizer) {
+            let y = gesture.location(in: gesture.view?.window).y
+            switch gesture.state {
+            case .began:
+                startY = y
+                setScrollEnabled(false, from: gesture.view)
+                onChange(0)
+            case .changed:
+                onChange(y - startY)
+            case .ended:
+                let translation = y - startY
+                setScrollEnabled(true)
+                onFinish(translation, true)
+            case .cancelled, .failed:
+                setScrollEnabled(true)
+                onFinish(0, false)
+            default:
+                break
+            }
+        }
+
+        func setScrollEnabled(_ enabled: Bool, from view: UIView? = nil) {
+            if !enabled, lockedScroll == nil {
+                lockedScroll = enclosingScrollView(from: view)
+            }
+            lockedScroll?.isScrollEnabled = enabled
+            if enabled { lockedScroll = nil }
+        }
+
+        private func enclosingScrollView(from view: UIView?) -> UIScrollView? {
+            var current = view
+            while let next = current {
+                if let scroll = next as? UIScrollView { return scroll }
+                current = next.superview
+            }
+            return nil
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            // Stay out of the way until the hold actually begins, so a flick still scrolls.
+            gestureRecognizer.state != .began && gestureRecognizer.state != .changed
+        }
+    }
+
+    final class InstallerView: UIView {
+        weak var coordinator: Coordinator?
+        private weak var installedOn: UIView?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            installIfNeeded()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            installIfNeeded()
+        }
+
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            nil
+        }
+
+        func installIfNeeded() {
+            guard let coordinator else { return }
+            guard let host = rowHost() else { return }
+            guard installedOn !== host else { return }
+            removeRecognizer()
+            let gesture = UILongPressGestureRecognizer(
+                target: coordinator,
+                action: #selector(Coordinator.handle)
+            )
+            gesture.minimumPressDuration = 0.35
+            gesture.allowableMovement = 12
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesBegan = false
+            gesture.delaysTouchesEnded = false
+            gesture.delegate = coordinator
+            host.addGestureRecognizer(gesture)
+            coordinator.recognizer = gesture
+            installedOn = host
+        }
+
+        /// The row container that also holds the message content, not the scroll view or the stack.
+        private func rowHost() -> UIView? {
+            var candidate = superview
+            var best: UIView?
+            var level = 0
+            while let view = candidate, level < 5 {
+                if view is UIScrollView { break }
+                let height = view.bounds.height
+                if height > 24 && height < 280 {
+                    best = view
+                }
+                candidate = view.superview
+                level += 1
+            }
+            return best
+        }
+
+        func removeRecognizer() {
+            if let host = installedOn, let gesture = coordinator?.recognizer {
+                host.removeGestureRecognizer(gesture)
+            }
+            coordinator?.recognizer = nil
+            installedOn = nil
         }
     }
 }
