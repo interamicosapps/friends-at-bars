@@ -162,6 +162,7 @@ struct ChatView: View {
                                 exitSelectMode()
                             } else {
                                 selectMode = true
+                                logSelectModeState(reason: "enter")
                             }
                         } label: {
                             Image(systemName: selectMode ? "xmark" : "list.bullet")
@@ -170,9 +171,12 @@ struct ChatView: View {
                     }
                     .padding()
                     .dismissKeyboardOnTap()
-                    .onChange(of: sort) { _, _ in
+                    .onChange(of: sort) { _, newSort in
                         composerFocused = false
-                        cancelDrag()
+                        cancelDrag(reason: "sort-changed")
+                        if selectMode {
+                            logSelectModeState(reason: "sort→\(newSort)")
+                        }
                         Task { await load() }
                     }
                     } else {
@@ -210,6 +214,10 @@ struct ChatView: View {
                                 Spacer()
                                 Button {
                                     showSoftHidden.toggle()
+                                    DiagnosticLog.shared.append(
+                                        category: "chat",
+                                        message: "Select mode eye → showHidden=\(showSoftHidden)"
+                                    )
                                 } label: {
                                     Image(systemName: showSoftHidden ? "eye" : "eye.slash")
                                 }
@@ -220,9 +228,11 @@ struct ChatView: View {
                                 )
                                 .foregroundStyle(showSoftHidden ? Color.accentColor : Color.secondary)
                                 Button {
-                                    localChat.nudgeScore(
-                                        postIds: Array(selectedIds),
-                                        direction: "up"
+                                    let ids = Array(selectedIds)
+                                    localChat.nudgeScore(postIds: ids, direction: "up")
+                                    DiagnosticLog.shared.append(
+                                        category: "chat",
+                                        message: "Select mode nudge +1 on \(ids.count) chat(s)"
                                     )
                                 } label: {
                                     Image(systemName: "chevron.up")
@@ -230,9 +240,11 @@ struct ChatView: View {
                                 .disabled(selectedIds.isEmpty)
                                 .accessibilityLabel("Add upvote to selected")
                                 Button {
-                                    localChat.nudgeScore(
-                                        postIds: Array(selectedIds),
-                                        direction: "down"
+                                    let ids = Array(selectedIds)
+                                    localChat.nudgeScore(postIds: ids, direction: "down")
+                                    DiagnosticLog.shared.append(
+                                        category: "chat",
+                                        message: "Select mode nudge -1 on \(ids.count) chat(s)"
                                     )
                                 } label: {
                                     Image(systemName: "chevron.down")
@@ -243,6 +255,10 @@ struct ChatView: View {
                                     let ids = Array(selectedIds)
                                     localChat.hide(postIds: ids)
                                     selectedIds.subtract(ids)
+                                    DiagnosticLog.shared.append(
+                                        category: "chat",
+                                        message: "Select mode delete \(ids.count) chat(s)"
+                                    )
                                 } label: {
                                     Image(systemName: "trash")
                                 }
@@ -250,7 +266,11 @@ struct ChatView: View {
                                 .accessibilityLabel("Delete selected")
                             }
                             if canReorder, displayedPosts.count > 1 {
-                                Text("Hold and drag to reorder")
+                                Text("Hold a chat (or the ≡ grip), then drag to reorder")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            } else if selectMode && sort != "recent" {
+                                Text("Switch to Recent to reorder")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -332,7 +352,11 @@ struct ChatView: View {
                 ChatAvatarPickerSheet(target: target)
             }
             .navigationDestination(item: $openThreadId) { id in
-                ChatThreadView(parentId: id)
+                ChatThreadView(
+                    parentId: id,
+                    selectModeEnabled: selectMode && useLocal,
+                    initiallyShowSoftHidden: selectMode && useLocal && showSoftHidden
+                )
             }
             .onChange(of: openThreadId) { _, id in
                 if id == nil {
@@ -429,21 +453,19 @@ struct ChatView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(isOwn ? Color.black.opacity(0.55) : Color.orange)
                         }
-                        if !selectMode {
-                            Button {
-                                openThreadId = post.id
-                            } label: {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "bubble.right")
-                                        .font(.system(size: 11))
-                                    Text("\(replyCount(for: post))")
-                                        .font(.caption)
-                                }
-                                .foregroundStyle(metaColor)
+                        Button {
+                            openThreadId = post.id
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "bubble.right")
+                                    .font(.system(size: 11))
+                                Text("\(replyCount(for: post))")
+                                    .font(.caption)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(replyCount(for: post)) replies")
+                            .foregroundStyle(metaColor)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(replyCount(for: post)) replies")
                     }
                     Spacer(minLength: 8)
                     RedditVotePill(
@@ -463,6 +485,14 @@ struct ChatView: View {
                 } else if !selectMode {
                     openThreadId = post.id
                 }
+            }
+
+            if canReorder {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 36)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, isOwn ? 10 : 0)
@@ -638,14 +668,34 @@ struct ChatView: View {
     }
 
     private func exitSelectMode() {
+        logSelectModeState(reason: "exit")
         selectMode = false
         selectedIds = []
         showSoftHidden = false
-        cancelDrag()
+        cancelDrag(reason: "exit-select")
+    }
+
+    private func logSelectModeState(reason: String) {
+        DiagnosticLog.shared.append(
+            category: "chat",
+            message: """
+            Select mode \(reason): sort=\(sort) local=\(useLocal) \
+            canReorder=\(canReorder) posts=\(displayedPosts.count) \
+            selected=\(selectedIds.count) showHidden=\(showSoftHidden) \
+            dragging=\(draggingId?.uuidString.prefix(8) ?? "nil")
+            """
+        )
     }
 
     private func toggleSelect(_ id: UUID) {
-        if Date() < suppressSelectUntil { return }
+        if Date() < suppressSelectUntil {
+            DiagnosticLog.shared.append(
+                category: "chat",
+                message: "Select tap ignored (drag cooldown) id=\(id.uuidString.prefix(8))…",
+                level: "warn"
+            )
+            return
+        }
         let turningOn = !selectedIds.contains(id)
         if turningOn {
             selectedIds.insert(id)
@@ -658,7 +708,7 @@ struct ChatView: View {
         )
         DiagnosticLog.shared.append(
             category: "chat",
-            message: "\(turningOn ? "Selected" : "Deselected") chat\(snippet.isEmpty ? "" : " “\(snippet)”")"
+            message: "\(turningOn ? "Selected" : "Deselected") chat\(snippet.isEmpty ? "" : " “\(snippet)”") total=\(selectedIds.count)"
         )
     }
 
@@ -696,22 +746,35 @@ struct ChatView: View {
                 }
                 .allowsHitTesting(false)
             }
-            .background {
+            .overlay {
                 if canReorder {
                     ChatReorderTouch(
+                        postId: post.id,
                         onChange: { translation in
                             suppressSelectUntil = Date().addingTimeInterval(0.45)
+                            if draggingId != post.id {
+                                DiagnosticLog.shared.append(
+                                    category: "chat",
+                                    message: "Reorder drag began id=\(post.id.uuidString.prefix(8))…"
+                                )
+                            }
                             draggingId = post.id
                             dragTranslation = translation
                         },
                         onFinish: { translation, commit in
-                            if commit && translation != 0 {
+                            if commit && abs(translation) > 4 {
                                 commitDrag(originId: post.id, translation: translation)
                             } else {
-                                cancelDrag()
+                                cancelDrag(
+                                    reason: commit
+                                        ? "release-no-move(\(Int(translation)))"
+                                        : "gesture-cancelled"
+                                )
                             }
                         }
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
                 }
             }
             .contentShape(Rectangle())
@@ -763,14 +826,13 @@ struct ChatView: View {
 
     private func commitDrag(originId: UUID, translation: CGFloat) {
         suppressSelectUntil = Date().addingTimeInterval(0.45)
-        guard translation != 0,
-              let from = displayedPosts.firstIndex(where: { $0.id == originId }) else {
-            cancelDrag()
+        guard let from = displayedPosts.firstIndex(where: { $0.id == originId }) else {
+            cancelDrag(reason: "commit-missing-origin")
             return
         }
         let target = dropIndex(from: from, translation: translation)
         guard target != from else {
-            cancelDrag()
+            cancelDrag(reason: "commit-same-index(\(from)) dy=\(Int(translation))")
             return
         }
         var ids = displayedPosts.map(\.id)
@@ -778,6 +840,10 @@ struct ChatView: View {
         let item = ids.remove(at: from)
         let clamped = min(max(target, 0), ids.count)
         ids.insert(item, at: clamped)
+        DiagnosticLog.shared.append(
+            category: "chat",
+            message: "Reorder commit \(from)→\(clamped) dy=\(Int(translation)) id=\(originId.uuidString.prefix(8))…"
+        )
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -787,7 +853,13 @@ struct ChatView: View {
         }
     }
 
-    private func cancelDrag() {
+    private func cancelDrag(reason: String = "cancel") {
+        if draggingId != nil || dragTranslation != 0 {
+            DiagnosticLog.shared.append(
+                category: "chat",
+                message: "Reorder cancel (\(reason)) id=\(draggingId?.uuidString.prefix(8) ?? "nil") dy=\(Int(dragTranslation))"
+            )
+        }
         draggingId = nil
         dragTranslation = 0
     }
@@ -932,25 +1004,30 @@ private struct ChatRowHeightKey: PreferenceKey {
     }
 }
 
-/// Hold-to-reorder that fails closed when the finger moves, so the list can still scroll
-/// and row taps still select. A SwiftUI DragGesture on the row was claiming both.
+/// Hold-to-reorder for select mode. Gesture lives on the row host so taps/scroll still work;
+/// scroll is only locked after the hold begins.
 private struct ChatReorderTouch: UIViewRepresentable {
+    let postId: UUID
     var onChange: (CGFloat) -> Void
     var onFinish: (_ translation: CGFloat, _ commit: Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onChange: onChange, onFinish: onFinish)
+        Coordinator(postId: postId, onChange: onChange, onFinish: onFinish)
     }
 
     func makeUIView(context: Context) -> InstallerView {
         let view = InstallerView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
         view.coordinator = context.coordinator
         return view
     }
 
     func updateUIView(_ uiView: InstallerView, context: Context) {
+        context.coordinator.postId = postId
         context.coordinator.onChange = onChange
         context.coordinator.onFinish = onFinish
+        uiView.coordinator = context.coordinator
         uiView.installIfNeeded()
     }
 
@@ -960,32 +1037,62 @@ private struct ChatReorderTouch: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var postId: UUID
         var onChange: (CGFloat) -> Void
         var onFinish: (CGFloat, Bool) -> Void
         var startY: CGFloat = 0
         weak var recognizer: UILongPressGestureRecognizer?
         private weak var lockedScroll: UIScrollView?
+        private var loggedInstallHost: ObjectIdentifier?
+        private var didLogInstallFailure = false
 
-        init(onChange: @escaping (CGFloat) -> Void, onFinish: @escaping (CGFloat, Bool) -> Void) {
+        init(
+            postId: UUID,
+            onChange: @escaping (CGFloat) -> Void,
+            onFinish: @escaping (CGFloat, Bool) -> Void
+        ) {
+            self.postId = postId
             self.onChange = onChange
             self.onFinish = onFinish
         }
 
         @objc func handle(_ gesture: UILongPressGestureRecognizer) {
             let y = gesture.location(in: gesture.view?.window).y
+            let shortId = String(postId.uuidString.prefix(8))
             switch gesture.state {
             case .began:
                 startY = y
                 setScrollEnabled(false, from: gesture.view)
+                DiagnosticLog.log(
+                    category: "chat",
+                    message: "Reorder hold began id=\(shortId)… scrollLocked=\(lockedScroll != nil)"
+                )
                 onChange(0)
             case .changed:
                 onChange(y - startY)
             case .ended:
                 let translation = y - startY
                 setScrollEnabled(true)
+                DiagnosticLog.log(
+                    category: "chat",
+                    message: "Reorder hold ended id=\(shortId)… dy=\(Int(translation))"
+                )
                 onFinish(translation, true)
-            case .cancelled, .failed:
+            case .cancelled:
                 setScrollEnabled(true)
+                DiagnosticLog.log(
+                    category: "chat",
+                    message: "Reorder hold cancelled id=\(shortId)…",
+                    level: "warn"
+                )
+                onFinish(0, false)
+            case .failed:
+                setScrollEnabled(true)
+                DiagnosticLog.log(
+                    category: "chat",
+                    message: "Reorder hold failed id=\(shortId)… (moved during press or conflict)",
+                    level: "warn"
+                )
                 onFinish(0, false)
             default:
                 break
@@ -995,6 +1102,13 @@ private struct ChatReorderTouch: UIViewRepresentable {
         func setScrollEnabled(_ enabled: Bool, from view: UIView? = nil) {
             if !enabled, lockedScroll == nil {
                 lockedScroll = enclosingScrollView(from: view)
+                if lockedScroll == nil {
+                    DiagnosticLog.log(
+                        category: "chat",
+                        message: "Reorder could not find UIScrollView to lock id=\(postId.uuidString.prefix(8))…",
+                        level: "warn"
+                    )
+                }
             }
             lockedScroll?.isScrollEnabled = enabled
             if enabled { lockedScroll = nil }
@@ -1013,8 +1127,43 @@ private struct ChatReorderTouch: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
-            // Stay out of the way until the hold actually begins, so a flick still scrolls.
-            gestureRecognizer.state != .began && gestureRecognizer.state != .changed
+            // Allow scroll while the hold is still forming; once active, we own the touch.
+            if other is UIPanGestureRecognizer {
+                return gestureRecognizer.state == .possible
+            }
+            return true
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy other: UIGestureRecognizer
+        ) -> Bool {
+            // Do not let the scroll pan require our long-press to fail first.
+            false
+        }
+
+        func noteInstalled(on host: UIView) {
+            let id = ObjectIdentifier(host)
+            guard loggedInstallHost != id else { return }
+            loggedInstallHost = id
+            let typeName = String(describing: type(of: host))
+            DiagnosticLog.log(
+                category: "chat",
+                message: """
+                Reorder gesture installed id=\(postId.uuidString.prefix(8))… \
+                host=\(typeName) size=\(Int(host.bounds.width))x\(Int(host.bounds.height))
+                """
+            )
+        }
+
+        func noteInstallFailed(_ reason: String) {
+            guard !didLogInstallFailure else { return }
+            didLogInstallFailure = true
+            DiagnosticLog.log(
+                category: "chat",
+                message: "Reorder install failed id=\(postId.uuidString.prefix(8))… \(reason)",
+                level: "warn"
+            )
         }
     }
 
@@ -1038,15 +1187,20 @@ private struct ChatReorderTouch: UIViewRepresentable {
 
         func installIfNeeded() {
             guard let coordinator else { return }
-            guard let host = rowHost() else { return }
-            guard installedOn !== host else { return }
+            guard window != nil else { return }
+            guard let host = rowHost() else {
+                coordinator.noteInstallFailed("no-host superview=\(superview == nil ? "nil" : "present")")
+                return
+            }
+            if installedOn === host, coordinator.recognizer != nil { return }
             removeRecognizer()
             let gesture = UILongPressGestureRecognizer(
                 target: coordinator,
                 action: #selector(Coordinator.handle)
             )
-            gesture.minimumPressDuration = 0.35
-            gesture.allowableMovement = 12
+            // Stay still briefly, then drag. Larger movement tolerance so scroll doesn't kill the hold.
+            gesture.minimumPressDuration = 0.28
+            gesture.allowableMovement = 44
             gesture.cancelsTouchesInView = false
             gesture.delaysTouchesBegan = false
             gesture.delaysTouchesEnded = false
@@ -1054,21 +1208,27 @@ private struct ChatReorderTouch: UIViewRepresentable {
             host.addGestureRecognizer(gesture)
             coordinator.recognizer = gesture
             installedOn = host
+            coordinator.noteInstalled(on: host)
         }
 
-        /// The row container that also holds the message content, not the scroll view or the stack.
+        /// Climb to the tallest non-scroll ancestor so the press covers the whole chat row.
         private func rowHost() -> UIView? {
-            var candidate = superview
-            var best: UIView?
+            guard let start = superview else { return nil }
+            var best = start
+            var candidate: UIView? = start
             var level = 0
-            while let view = candidate, level < 5 {
+            while let view = candidate, level < 10 {
                 if view is UIScrollView { break }
-                let height = view.bounds.height
-                if height > 24 && height < 280 {
+                let size = view.bounds.size
+                if size.height >= 40, size.width >= best.bounds.width {
                     best = view
                 }
                 candidate = view.superview
                 level += 1
+            }
+            // Prefer a row-sized host; fall back to immediate superview.
+            if best.bounds.height < 24 {
+                return start.bounds.height > 0 ? start : nil
             }
             return best
         }

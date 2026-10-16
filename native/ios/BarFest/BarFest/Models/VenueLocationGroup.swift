@@ -23,6 +23,11 @@ struct VenueLocationCard: Identifiable, Hashable {
             max(partial, counts[venue.name] ?? 0)
         }
     }
+
+    /// Distinct While Using visitors in the recent window (same max-across-members rule).
+    func recentAttendance(in counts: [String: Int]) -> Int {
+        attendance(in: counts)
+    }
 }
 
 enum VenueLocationGrouping {

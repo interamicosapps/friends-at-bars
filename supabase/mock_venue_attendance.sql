@@ -7,14 +7,18 @@ CREATE TABLE IF NOT EXISTS mock_venue_attendance (
   venue_id UUID PRIMARY KEY REFERENCES catalog_venues(id) ON DELETE CASCADE,
   venue_name TEXT NOT NULL,
   attendance INTEGER NOT NULL DEFAULT 0 CHECK (attendance >= 0),
+  recent INTEGER NOT NULL DEFAULT 0 CHECK (recent >= 0),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE mock_venue_attendance
+  ADD COLUMN IF NOT EXISTS recent INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_mock_venue_attendance_name
   ON mock_venue_attendance (venue_name);
 
 COMMENT ON TABLE mock_venue_attendance IS
-  'CMS-managed mock live headcounts used by the test app when Test Mode mock data is on.';
+  'CMS-managed mock live headcounts and recent While Using counts for Test Mode.';
 
 -- Keep venue_name in sync if a venue is renamed.
 CREATE OR REPLACE FUNCTION mock_venue_attendance_sync_name()
@@ -49,8 +53,8 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  INSERT INTO mock_venue_attendance (venue_id, venue_name, attendance)
-  VALUES (NEW.id, NEW.name, 0)
+  INSERT INTO mock_venue_attendance (venue_id, venue_name, attendance, recent)
+  VALUES (NEW.id, NEW.name, 0, 0)
   ON CONFLICT (venue_id) DO UPDATE
   SET venue_name = EXCLUDED.venue_name;
   RETURN NEW;

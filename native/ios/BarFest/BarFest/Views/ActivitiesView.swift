@@ -48,13 +48,21 @@ struct ActivitiesView: View {
         }
         var cards = VenueLocationGrouping.cards(from: pool)
         if !isSearching {
-            cards = cards.filter { $0.attendance(in: appModel.venueCounts) > 0 }
+            cards = cards.filter {
+                $0.attendance(in: appModel.venueCounts) > 0
+                    || $0.recentAttendance(in: appModel.recentWhileUsingCounts) > 0
+            }
         }
         cards.sort { a, b in
             let ca = a.attendance(in: appModel.venueCounts)
             let cb = b.attendance(in: appModel.venueCounts)
             if ca != cb {
                 return populationSort == .mostPopulated ? ca > cb : ca < cb
+            }
+            let ra = a.recentAttendance(in: appModel.recentWhileUsingCounts)
+            let rb = b.recentAttendance(in: appModel.recentWhileUsingCounts)
+            if ra != rb {
+                return populationSort == .mostPopulated ? ra > rb : ra < rb
             }
             return a.primary.sort_order < b.primary.sort_order
         }
@@ -216,6 +224,7 @@ struct ActivitiesView: View {
                             LazyVStack(spacing: 0) {
                                 ForEach(Array(locationCards.enumerated()), id: \.element.id) { idx, card in
                                     let count = card.attendance(in: appModel.venueCounts)
+                                    let recent = card.recentAttendance(in: appModel.recentWhileUsingCounts)
                                     let intensity = Self.busynessIntensity(
                                         count: count,
                                         maxCount: maxCount
@@ -240,18 +249,32 @@ struct ActivitiesView: View {
                                                 }
                                             }
                                             Spacer(minLength: 8)
-                                            if count == 0 {
+                                            if count == 0 && recent == 0 {
                                                 Text("No Live Users")
                                                     .font(.caption.weight(.semibold))
                                                     .foregroundStyle(.white.opacity(0.4))
                                                     .multilineTextAlignment(.trailing)
                                             } else {
-                                                HStack(spacing: 8) {
-                                                    VenueBusynessMeter(intensity: intensity)
-                                                    Text("\(count)")
-                                                        .font(.title3.monospacedDigit().weight(.bold))
-                                                        .foregroundStyle(Self.busynessColor(intensity: intensity))
-                                                        .accessibilityLabel("\(count) live users")
+                                                VStack(alignment: .trailing, spacing: 2) {
+                                                    HStack(spacing: 8) {
+                                                        if count > 0 {
+                                                            VenueBusynessMeter(intensity: intensity)
+                                                        }
+                                                        Text("\(count)")
+                                                            .font(.title3.monospacedDigit().weight(.bold))
+                                                            .foregroundStyle(
+                                                                count > 0
+                                                                    ? Self.busynessColor(intensity: intensity)
+                                                                    : .white.opacity(0.4)
+                                                            )
+                                                            .accessibilityLabel("\(count) live users")
+                                                    }
+                                                    if recent > 0 {
+                                                        Text("\(recent) recent")
+                                                            .font(.caption2.weight(.medium))
+                                                            .foregroundStyle(.white.opacity(0.45))
+                                                            .accessibilityLabel("\(recent) recent while-using visitors")
+                                                    }
                                                 }
                                             }
                                             Image(systemName: "chevron.right")

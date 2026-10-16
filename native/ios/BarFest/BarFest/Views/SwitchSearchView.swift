@@ -42,7 +42,7 @@ struct SwitchSearchView: View {
             Text("Switch Search")
                 .font(.largeTitle.bold())
                 .foregroundStyle(.white)
-            Text("Find the hidden words before time runs out. Clear all words in a word search to swap to a new set and gain extra time.")
+            Text("Find the hidden words before time runs out.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -55,14 +55,6 @@ struct SwitchSearchView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 40)
-
-            Text(engine.difficulty == .easy
-                  ? "7×7 · 42s game · 12s per word-search · full word hints"
-                  : "8×8 · 56s game · 16s per word-search · letter hints")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.55))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
 
             Button {
                 engine.start()

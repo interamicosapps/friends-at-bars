@@ -76,6 +76,56 @@ final class SupabaseLiveLocationAPI {
         run(request: request, label: "upsert:\(venueName)", completion: completion)
     }
 
+    /// Records a While Using App visit for the quieter "N recent" Activities count.
+    func upsertPresenceVisit(
+        userId: String,
+        venueName: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("rest/v1/presence_visits"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            completion(.failure(SupabaseAPIError.invalidURL))
+            return
+        }
+        components.queryItems = [URLQueryItem(name: "on_conflict", value: "user_id,venue_name")]
+
+        guard let url = components.url else {
+            completion(.failure(SupabaseAPIError.invalidURL))
+            return
+        }
+
+        let body = PresenceVisitPayload(
+            user_id: userId,
+            venue_name: venueName,
+            mode: "while_using",
+            last_seen_at: ISO8601DateFormatter().string(from: Date())
+        )
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyHeaders(&request)
+        request.setValue(
+            "return=minimal, resolution=merge-duplicates",
+            forHTTPHeaderField: "Prefer"
+        )
+
+        do {
+            request.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            DiagnosticLog.log(
+                category: "location",
+                message: "presence visit encode failed venue=\(venueName): \(error.localizedDescription)",
+                level: "error"
+            )
+            completion(.failure(error))
+            return
+        }
+
+        run(request: request, label: "visit:\(venueName)", completion: completion)
+    }
+
     func deactivateLiveLocation(
         userId: String,
         completion: @escaping (Result<Void, Error>) -> Void

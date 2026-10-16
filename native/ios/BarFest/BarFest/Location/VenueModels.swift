@@ -57,3 +57,10 @@ struct DeactivatePayload: Encodable {
     let is_active: Bool
     let last_updated: String
 }
+
+struct PresenceVisitPayload: Encodable {
+    let user_id: String
+    let venue_name: String
+    let mode: String
+    let last_seen_at: String
+}

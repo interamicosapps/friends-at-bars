@@ -128,14 +128,11 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             self.exitRadiusM = AppConfig.venueExitRadiusMeters
             self.hardClearRadiusM = AppConfig.venueHardClearRadiusMeters
             self.skipSupabase = skipSupabase
-            if skipSupabase {
-                self.supabase = nil
-            } else {
-                self.supabase = try SupabaseLiveLocationAPI(
-                    supabaseUrl: supabaseUrl,
-                    anonKey: supabaseAnonKey
-                )
-            }
+            // Keep the API for Always live_locations and While Using presence_visits.
+            self.supabase = try SupabaseLiveLocationAPI(
+                supabaseUrl: supabaseUrl,
+                anonKey: supabaseAnonKey
+            )
         }
 
         logPresence(
@@ -264,7 +261,7 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         flushPendingWrites(reason: "start")
     }
 
-    /// While Using keeps local bar detection and drops this phone from the live count.
+    /// While Using: local bar detection + recent visits. Always: live attendance writes.
     private func setCountsInAttendance(_ counts: Bool) {
         if !counts {
             if !skipSupabase, lastWrittenVenue != nil || stickyVenue != nil {
@@ -272,13 +269,17 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             }
             skipSupabase = true
             UserDefaults.standard.set(true, forKey: Keys.skipSupabase)
-            onEngineQueue { self.supabase = nil }
+            ensureSupabaseAPI()
             return
         }
 
-        guard skipSupabase || supabase == nil else { return }
         skipSupabase = false
         UserDefaults.standard.set(false, forKey: Keys.skipSupabase)
+        ensureSupabaseAPI()
+    }
+
+    private func ensureSupabaseAPI() {
+        if supabase != nil { return }
         let defaults = UserDefaults.standard
         guard
             let supabaseUrl = defaults.string(forKey: Keys.supabaseUrl),
@@ -976,7 +977,9 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         onEngineQueue {
             let changed = venue != lastWrittenVenue
             let msSince = Date().timeIntervalSince1970 * 1000 - lastWriteAtMs
-            let heartbeatDue = msSince >= Double(heartbeatMs) || lastWriteAtMs == 0
+            // While Using visits refresh more often so "N recent" stays accurate while the app is open.
+            let intervalMs = skipSupabase ? 120_000.0 : Double(heartbeatMs)
+            let heartbeatDue = msSince >= intervalMs || lastWriteAtMs == 0
             if changed { return (true, true) }
             if force, msSince < 30_000, lastWriteAtMs > 0 { return (false, false) }
             if heartbeatDue { return (true, false) }
@@ -1157,7 +1160,10 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         source: String,
         venueChanged: Bool
     ) {
-        guard !skipSupabase else { return }
+        if skipSupabase {
+            sendPresenceVisit(venueName: venueName, source: source)
+            return
+        }
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1192,6 +1198,32 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
                         enqueuedAtMs: Date().timeIntervalSince1970 * 1000
                     )
                 )
+            }
+        }
+    }
+
+    private func sendPresenceVisit(venueName: String, source: String) {
+        ensureSupabaseAPI()
+        guard let api = supabase else {
+            logPresence("visit skipped[\(source)] — no API", level: "warn")
+            return
+        }
+        logPresence("visit[\(source)] \(venueName)")
+        api.upsertPresenceVisit(userId: userId, venueName: venueName) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.onEngineQueue {
+                    self.lastWrittenVenue = venueName
+                    self.lastWriteAtMs = Date().timeIntervalSince1970 * 1000
+                }
+                self.setSticky(venueName)
+                self.logPresence("visit ok[\(source)] \(venueName)")
+                DispatchQueue.main.async {
+                    self.eventDelegate?.engine(self, didWrite: "visit", venueName: venueName)
+                }
+            case .failure(let err):
+                self.notifyWriteError(err)
             }
         }
     }

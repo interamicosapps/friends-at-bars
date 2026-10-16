@@ -205,30 +205,59 @@ enum LiveLocationService {
         return counts
     }
 
-    /// CMS-managed mock headcounts for Test Mode (`mock_venue_attendance`).
-    static func mockVenueCounts() async throws -> [String: Int] {
+    /// Distinct While Using App visitors per bar in the recent window (not live attendance).
+    static func recentWhileUsingCounts(
+        windowSeconds: Int = AppConfig.recentWhileUsingWindowSeconds
+    ) async throws -> [String: Int] {
         struct Row: Decodable {
             let venue_name: String
-            let attendance: Int
+            let user_id: String
+            let last_seen_at: String?
         }
+        let cutoff = Date().addingTimeInterval(TimeInterval(-windowSeconds))
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let cutoffIso = formatter.string(from: cutoff)
+
         let rows: [Row]
         do {
             rows = try await SupabaseClient.shared.get(
-                path: "rest/v1/mock_venue_attendance",
+                path: "rest/v1/presence_visits",
                 query: [
-                    URLQueryItem(name: "select", value: "venue_name,attendance"),
+                    URLQueryItem(name: "mode", value: "eq.while_using"),
+                    URLQueryItem(name: "last_seen_at", value: "gte.\(cutoffIso)"),
+                    URLQueryItem(name: "select", value: "venue_name,user_id,last_seen_at"),
                 ]
             )
         } catch {
             await MainActor.run {
                 DiagnosticLog.shared.append(
                     category: "location",
-                    message: "mockVenueCounts fetch failed: \(error.localizedDescription)",
+                    message: "recentWhileUsingCounts fetch failed: \(error.localizedDescription)",
                     level: "error"
                 )
             }
             throw error
         }
+
+        var usersByVenue: [String: Set<String>] = [:]
+        for row in rows {
+            usersByVenue[row.venue_name, default: []].insert(row.user_id)
+        }
+        let counts = usersByVenue.mapValues(\.count)
+        let total = counts.values.reduce(0, +)
+        await MainActor.run {
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "recentWhileUsing windowSec=\(windowSeconds) people=\(total) venues=\(counts.count)"
+            )
+        }
+        return counts
+    }
+
+    /// CMS-managed mock headcounts for Test Mode (`mock_venue_attendance`).
+    static func mockVenueCounts() async throws -> [String: Int] {
+        let rows = try await mockAttendanceRows()
         var counts: [String: Int] = [:]
         for row in rows where row.attendance > 0 {
             counts[row.venue_name] = row.attendance
@@ -242,6 +271,74 @@ enum LiveLocationService {
             )
         }
         return counts
+    }
+
+    /// CMS-managed mock "N recent" counts for Test Mode.
+    static func mockRecentWhileUsingCounts() async throws -> [String: Int] {
+        let rows = try await mockAttendanceRows()
+        var counts: [String: Int] = [:]
+        for row in rows where row.recent > 0 {
+            counts[row.venue_name] = row.recent
+        }
+        let withPeople = counts.count
+        await MainActor.run {
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "mockRecentWhileUsingCounts venues=\(withPeople)"
+            )
+        }
+        return counts
+    }
+
+    private struct MockAttendanceRow: Decodable {
+        let venue_name: String
+        let attendance: Int
+        let recent: Int?
+
+        var recentValue: Int { recent ?? 0 }
+    }
+
+    private static func mockAttendanceRows() async throws -> [(venue_name: String, attendance: Int, recent: Int)] {
+        do {
+            let rows: [MockAttendanceRow] = try await SupabaseClient.shared.get(
+                path: "rest/v1/mock_venue_attendance",
+                query: [
+                    URLQueryItem(name: "select", value: "venue_name,attendance,recent"),
+                ]
+            )
+            return rows.map { ($0.venue_name, $0.attendance, $0.recentValue) }
+        } catch {
+            // Older DB without `recent` — fall back so live mock attendance still loads.
+            do {
+                struct Legacy: Decodable {
+                    let venue_name: String
+                    let attendance: Int
+                }
+                let rows: [Legacy] = try await SupabaseClient.shared.get(
+                    path: "rest/v1/mock_venue_attendance",
+                    query: [
+                        URLQueryItem(name: "select", value: "venue_name,attendance"),
+                    ]
+                )
+                await MainActor.run {
+                    DiagnosticLog.shared.append(
+                        category: "location",
+                        message: "mock attendance: recent column missing — run mock_venue_attendance_recent.sql",
+                        level: "warn"
+                    )
+                }
+                return rows.map { ($0.venue_name, $0.attendance, 0) }
+            } catch {
+                await MainActor.run {
+                    DiagnosticLog.shared.append(
+                        category: "location",
+                        message: "mockVenueCounts fetch failed: \(error.localizedDescription)",
+                        level: "error"
+                    )
+                }
+                throw error
+            }
+        }
     }
 }
 

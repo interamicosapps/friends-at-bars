@@ -10,9 +10,15 @@ type AttendanceRow = {
   venue_id: string;
   venue_name: string;
   attendance: number;
+  recent?: number | null;
 };
 
-type VenueLine = CatalogVenue & { attendance: number };
+type Snapshot = {
+  attendance: Record<string, number>;
+  recent: Record<string, number>;
+};
+
+type VenueLine = CatalogVenue & { attendance: number; recent: number };
 
 const MAX_HISTORY = 80;
 
@@ -23,14 +29,14 @@ export function MockAttendancePanel() {
   const [attendanceById, setAttendanceById] = useState<Record<string, number>>(
     {}
   );
+  const [recentById, setRecentById] = useState<Record<string, number>>({});
   const [geographyId, setGeographyId] = useState<string>("");
   const [areaFilter, setAreaFilter] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [deltaById, setDeltaById] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [past, setPast] = useState<Record<string, number>[]>([]);
-  const [future, setFuture] = useState<Record<string, number>[]>([]);
+  const [past, setPast] = useState<Snapshot[]>([]);
+  const [future, setFuture] = useState<Snapshot[]>([]);
   const skipHistoryRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -66,7 +72,9 @@ export function MockAttendancePanel() {
       setError(
         mRes.error.message.includes("mock_venue_attendance")
           ? `${mRes.error.message} — run supabase/mock_venue_attendance.sql`
-          : mRes.error.message
+          : mRes.error.message.includes("recent")
+            ? `${mRes.error.message} — run supabase/mock_venue_attendance_recent.sql`
+            : mRes.error.message
       );
       return;
     }
@@ -77,16 +85,19 @@ export function MockAttendancePanel() {
     setAreas((aRes.data ?? []) as CatalogArea[]);
     setVenues((vRes.data ?? []) as CatalogVenue[]);
 
-    const map: Record<string, number> = {};
+    const attendanceMap: Record<string, number> = {};
+    const recentMap: Record<string, number> = {};
     for (const row of (mRes.data ?? []) as AttendanceRow[]) {
-      map[row.venue_id] = row.attendance;
+      attendanceMap[row.venue_id] = row.attendance;
+      recentMap[row.venue_id] = Number(row.recent ?? 0);
     }
-    // Ensure every venue has a local value even if seed missed a row.
     for (const v of (vRes.data ?? []) as CatalogVenue[]) {
-      if (map[v.id] == null) map[v.id] = 0;
+      if (attendanceMap[v.id] == null) attendanceMap[v.id] = 0;
+      if (recentMap[v.id] == null) recentMap[v.id] = 0;
     }
     skipHistoryRef.current = true;
-    setAttendanceById(map);
+    setAttendanceById(attendanceMap);
+    setRecentById(recentMap);
     setPast([]);
     setFuture([]);
 
@@ -118,24 +129,41 @@ export function MockAttendancePanel() {
       .map((v) => ({
         ...v,
         attendance: attendanceById[v.id] ?? 0,
+        recent: recentById[v.id] ?? 0,
       }));
-  }, [venues, geographyId, areaFilter, attendanceById]);
+  }, [venues, geographyId, areaFilter, attendanceById, recentById]);
 
-  function pushHistory(next: Record<string, number>) {
+  function currentSnapshot(): Snapshot {
+    return {
+      attendance: { ...attendanceById },
+      recent: { ...recentById },
+    };
+  }
+
+  function applySnapshot(next: Snapshot) {
     if (skipHistoryRef.current) {
       skipHistoryRef.current = false;
-      setAttendanceById(next);
+      setAttendanceById(next.attendance);
+      setRecentById(next.recent);
       return;
     }
     setPast((p) => {
-      const copy = [...p, { ...attendanceById }];
+      const copy = [...p, currentSnapshot()];
       return copy.length > MAX_HISTORY ? copy.slice(-MAX_HISTORY) : copy;
     });
     setFuture([]);
-    setAttendanceById(next);
+    setAttendanceById(next.attendance);
+    setRecentById(next.recent);
   }
 
-  async function persist(updates: { venue_id: string; attendance: number; venue_name: string }[]) {
+  async function persist(
+    updates: {
+      venue_id: string;
+      venue_name: string;
+      attendance: number;
+      recent: number;
+    }[]
+  ) {
     if (!updates.length) return;
     setBusy(true);
     setError(null);
@@ -144,12 +172,19 @@ export function MockAttendancePanel() {
         venue_id: u.venue_id,
         venue_name: u.venue_name,
         attendance: Math.max(0, Math.floor(u.attendance)),
+        recent: Math.max(0, Math.floor(u.recent)),
         updated_at: new Date().toISOString(),
       })),
       { onConflict: "venue_id" }
     );
     setBusy(false);
-    if (err) setError(err.message);
+    if (err) {
+      setError(
+        err.message.includes("recent")
+          ? `${err.message} — run supabase/mock_venue_attendance_recent.sql`
+          : err.message
+      );
+    }
   }
 
   function targetsFor(venueId: string): string[] {
@@ -159,47 +194,36 @@ export function MockAttendancePanel() {
     return [venueId];
   }
 
-  function applyAbsolute(venueId: string, value: number) {
+  function applyField(
+    venueId: string,
+    field: "attendance" | "recent",
+    value: number
+  ) {
     const ids = targetsFor(venueId);
-    const next = { ...attendanceById };
     const clamped = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
-    const updates: { venue_id: string; attendance: number; venue_name: string }[] =
-      [];
-    for (const id of ids) {
-      next[id] = clamped;
-      const venue = venues.find((v) => v.id === id);
-      if (venue) {
-        updates.push({
-          venue_id: id,
-          attendance: clamped,
-          venue_name: venue.name,
-        });
-      }
-    }
-    pushHistory(next);
-    void persist(updates);
-  }
+    const nextAttendance = { ...attendanceById };
+    const nextRecent = { ...recentById };
+    const updates: {
+      venue_id: string;
+      venue_name: string;
+      attendance: number;
+      recent: number;
+    }[] = [];
 
-  function applyDelta(venueId: string, delta: number) {
-    if (!delta) return;
-    const ids = targetsFor(venueId);
-    const next = { ...attendanceById };
-    const updates: { venue_id: string; attendance: number; venue_name: string }[] =
-      [];
     for (const id of ids) {
-      const current = next[id] ?? 0;
-      const value = Math.max(0, current + delta);
-      next[id] = value;
+      if (field === "attendance") nextAttendance[id] = clamped;
+      else nextRecent[id] = clamped;
       const venue = venues.find((v) => v.id === id);
       if (venue) {
         updates.push({
           venue_id: id,
-          attendance: value,
           venue_name: venue.name,
+          attendance: nextAttendance[id] ?? 0,
+          recent: nextRecent[id] ?? 0,
         });
       }
     }
-    pushHistory(next);
+    applySnapshot({ attendance: nextAttendance, recent: nextRecent });
     void persist(updates);
   }
 
@@ -207,14 +231,19 @@ export function MockAttendancePanel() {
     if (!past.length) return;
     const previous = past[past.length - 1];
     setPast((p) => p.slice(0, -1));
-    setFuture((f) => [{ ...attendanceById }, ...f].slice(0, MAX_HISTORY));
-    setAttendanceById(previous);
-    const updates = Object.entries(previous).map(([venue_id, attendance]) => {
+    setFuture((f) => [currentSnapshot(), ...f].slice(0, MAX_HISTORY));
+    setAttendanceById(previous.attendance);
+    setRecentById(previous.recent);
+    const updates = Object.keys({
+      ...previous.attendance,
+      ...previous.recent,
+    }).map((venue_id) => {
       const venue = venues.find((v) => v.id === venue_id);
       return {
         venue_id,
-        attendance,
         venue_name: venue?.name ?? venue_id,
+        attendance: previous.attendance[venue_id] ?? 0,
+        recent: previous.recent[venue_id] ?? 0,
       };
     });
     void persist(updates);
@@ -224,14 +253,19 @@ export function MockAttendancePanel() {
     if (!future.length) return;
     const next = future[0];
     setFuture((f) => f.slice(1));
-    setPast((p) => [...p, { ...attendanceById }].slice(-MAX_HISTORY));
-    setAttendanceById(next);
-    const updates = Object.entries(next).map(([venue_id, attendance]) => {
+    setPast((p) => [...p, currentSnapshot()].slice(-MAX_HISTORY));
+    setAttendanceById(next.attendance);
+    setRecentById(next.recent);
+    const updates = Object.keys({
+      ...next.attendance,
+      ...next.recent,
+    }).map((venue_id) => {
       const venue = venues.find((v) => v.id === venue_id);
       return {
         venue_id,
-        attendance,
         venue_name: venue?.name ?? venue_id,
+        attendance: next.attendance[venue_id] ?? 0,
+        recent: next.recent[venue_id] ?? 0,
       };
     });
     void persist(updates);
@@ -248,12 +282,6 @@ export function MockAttendancePanel() {
 
   function clearSelection() {
     setSelectedIds(new Set());
-  }
-
-  function deltaValue(id: string): number {
-    const raw = deltaById[id] ?? "1";
-    const n = Number(raw);
-    return Number.isFinite(n) ? Math.floor(n) : 1;
   }
 
   const hasSelection = selectedIds.size > 0;
@@ -317,9 +345,9 @@ export function MockAttendancePanel() {
       </div>
 
       <p className="muted mock-attendance-help">
-        Edit mock live attendance used by the test app when Test Mode mock data
-        is on. Multiselect applies absolute edits and +/- steps to every selected
-        venue. Undo/redo is session-only.
+        Edit mock live attendance and recent While Using counts used by the test
+        app when Test Mode mock data is on. Multiselect applies an edit to every
+        selected venue. Undo/redo is session-only.
       </p>
 
       {error && <p className="error">{error}</p>}
@@ -331,7 +359,7 @@ export function MockAttendancePanel() {
               <th>Venue</th>
               <th>Area</th>
               <th>Attendance</th>
-              <th>Adjust</th>
+              <th>Recent</th>
               <th>Select</th>
             </tr>
           </thead>
@@ -367,11 +395,11 @@ export function MockAttendancePanel() {
                         min={0}
                         step={1}
                         defaultValue={v.attendance}
-                        key={`${v.id}-${v.attendance}`}
+                        key={`${v.id}-att-${v.attendance}`}
                         onBlur={(e) => {
                           const n = Number(e.target.value);
                           if (!Number.isFinite(n) || n === v.attendance) return;
-                          applyAbsolute(v.id, n);
+                          applyField(v.id, "attendance", n);
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
@@ -382,41 +410,25 @@ export function MockAttendancePanel() {
                       />
                     </td>
                     <td>
-                      <div className="mock-stepper">
-                        <button
-                          type="button"
-                          aria-label={`Decrease ${v.name}`}
-                          disabled={busy}
-                          onClick={() =>
-                            applyDelta(v.id, -Math.abs(deltaValue(v.id) || 1))
+                      <input
+                        className="mock-attendance-count"
+                        type="number"
+                        min={0}
+                        step={1}
+                        defaultValue={v.recent}
+                        key={`${v.id}-rec-${v.recent}`}
+                        onBlur={(e) => {
+                          const n = Number(e.target.value);
+                          if (!Number.isFinite(n) || n === v.recent) return;
+                          applyField(v.id, "recent", n);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            (e.target as HTMLInputElement).blur();
                           }
-                        >
-                          −
-                        </button>
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={deltaById[v.id] ?? "1"}
-                          onChange={(e) =>
-                            setDeltaById((d) => ({
-                              ...d,
-                              [v.id]: e.target.value,
-                            }))
-                          }
-                          aria-label={`Step amount for ${v.name}`}
-                        />
-                        <button
-                          type="button"
-                          aria-label={`Increase ${v.name}`}
-                          disabled={busy}
-                          onClick={() =>
-                            applyDelta(v.id, Math.abs(deltaValue(v.id) || 1))
-                          }
-                        >
-                          +
-                        </button>
-                      </div>
+                        }}
+                        disabled={busy}
+                      />
                     </td>
                     <td className="mock-select-cell">
                       <input

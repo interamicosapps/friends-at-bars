@@ -13,7 +13,7 @@ struct AlwaysLocationHint: View {
     var body: some View {
         if auth.needsAlwaysUpgrade {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Set Location to Always to be counted at the bar, including after you leave the app.")
+                Text("Recent visits already count while the app is open. Set Location to Always to stay in the live count after you leave.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)

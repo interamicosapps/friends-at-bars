@@ -61,6 +61,8 @@ final class AppModel: ObservableObject {
     @Published var geographies: [CatalogGeography] = []
     @Published var areas: [CatalogArea] = []
     @Published var venueCounts: [String: Int] = [:]
+    /// Distinct While Using App visitors per bar in the last 25 minutes.
+    @Published var recentWhileUsingCounts: [String: Int] = [:]
     @Published var wordPackReady = false
     @Published var lastVenueName: String?
     /// Venues currently in footprint ∪ 15 m buffer (closest center first).
@@ -410,9 +412,15 @@ final class AppModel: ObservableObject {
     func refreshLiveCountsOnly(source: String) async {
         do {
             if TestModeStore.shared.useMockCheckIns {
-                venueCounts = try await LiveLocationService.mockVenueCounts()
+                async let live = LiveLocationService.mockVenueCounts()
+                async let recent = LiveLocationService.mockRecentWhileUsingCounts()
+                venueCounts = try await live
+                recentWhileUsingCounts = (try? await recent) ?? [:]
             } else {
-                venueCounts = try await LiveLocationService.venueCounts()
+                async let live = LiveLocationService.venueCounts()
+                async let recent = LiveLocationService.recentWhileUsingCounts()
+                venueCounts = try await live
+                recentWhileUsingCounts = (try? await recent) ?? recentWhileUsingCounts
             }
             await logHeadcountSnapshot(source: source)
         } catch {
@@ -455,13 +463,19 @@ final class AppModel: ObservableObject {
             let wordPack = await CatalogStore.shared.wordPack
             wordPackReady = cmsLibrary != nil || !wordPack.isEmpty
             if TestModeStore.shared.useMockCheckIns {
-                venueCounts = try await LiveLocationService.mockVenueCounts()
+                async let live = LiveLocationService.mockVenueCounts()
+                async let recent = LiveLocationService.mockRecentWhileUsingCounts()
+                venueCounts = try await live
+                recentWhileUsingCounts = (try? await recent) ?? [:]
                 DiagnosticLog.shared.append(
                     category: "location",
-                    message: "venueCounts using CMS mock_venue_attendance (\(venueCounts.count) venues)"
+                    message: "venueCounts using CMS mock_venue_attendance live=\(venueCounts.count) recent=\(recentWhileUsingCounts.count)"
                 )
             } else {
-                venueCounts = try await LiveLocationService.venueCounts()
+                async let live = LiveLocationService.venueCounts()
+                async let recent = LiveLocationService.recentWhileUsingCounts()
+                venueCounts = try await live
+                recentWhileUsingCounts = (try? await recent) ?? [:]
             }
             locationBridge.updateVenues(venuesInVisibleGeographies)
             errorMessage = nil
@@ -494,12 +508,13 @@ final class AppModel: ObservableObject {
 
     private func logHeadcountSnapshot(source: String) async {
         let total = venueCounts.values.reduce(0, +)
+        let recentTotal = recentWhileUsingCounts.values.reduce(0, +)
         let top = venueCounts.sorted { $0.value > $1.value }.prefix(5)
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: ", ")
         DiagnosticLog.shared.append(
             category: "location",
-            message: "headcount snapshot[\(source)] people=\(total) venues=\(venueCounts.count) maxAgeSec=\(AppConfig.liveLocationCountMaxAgeSeconds) top=\(top.isEmpty ? "(none)" : top)"
+            message: "headcount snapshot[\(source)] people=\(total) venues=\(venueCounts.count) maxAgeSec=\(AppConfig.liveLocationCountMaxAgeSeconds) recentPeople=\(recentTotal) recentWindowSec=\(AppConfig.recentWhileUsingWindowSeconds) top=\(top.isEmpty ? "(none)" : top)"
         )
     }
 

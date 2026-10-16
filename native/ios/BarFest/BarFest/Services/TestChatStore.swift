@@ -124,20 +124,21 @@ final class TestChatStore: ObservableObject {
         persist()
     }
 
-    func replies(parentId: UUID) -> [ChatPost] {
+    func replies(parentId: UUID, includeHidden: Bool = false) -> [ChatPost] {
         posts
             .filter {
                 $0.parent_id == parentId
-                    && !$0.is_hidden
                     && !removedIds.contains($0.id)
                     && expiryOk($0)
+                    && (includeHidden || !$0.is_hidden)
             }
             .sorted { $0.created_at < $1.created_at }
     }
 
-    func parentPost(id: UUID) -> ChatPost? {
+    func parentPost(id: UUID, includeHidden: Bool = false) -> ChatPost? {
         guard let post = posts.first(where: { $0.id == id && $0.parent_id == nil }) else { return nil }
-        guard !post.is_hidden, !removedIds.contains(id), expiryOk(post) else { return nil }
+        guard !removedIds.contains(id), expiryOk(post) else { return nil }
+        if post.is_hidden && !includeHidden { return nil }
         return post
     }
 

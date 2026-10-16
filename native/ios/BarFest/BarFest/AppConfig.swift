@@ -49,6 +49,8 @@ enum AppConfig {
     static let liveLocationCountMaxAgeSeconds: Int = 18 * 60 // 18 minutes
     /// Matches chat RPC freshness window (`create_chat_post`).
     static let liveLocationChatFreshnessSeconds: Int = liveLocationCountMaxAgeSeconds
+    /// While Using visits older than this drop off the quieter "N recent" Activities line.
+    static let recentWhileUsingWindowSeconds: Int = 25 * 60 // 25 minutes
 
     /// Reports inside this window count toward the "N reports" threshold.
     static let waitTimeCountingWindowSeconds: Int = 20 * 60
