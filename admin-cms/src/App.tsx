@@ -7,6 +7,7 @@ import { GameContentPanel } from "./GameContentPanel";
 import { GeographiesPanel } from "./GeographiesPanel";
 import { MapPanel, type MapCoords } from "./MapPanel";
 import { MockAttendancePanel } from "./MockAttendancePanel";
+import { MockWaitPanel } from "./MockWaitPanel";
 import { CatalogFeedbackPanel } from "./CatalogFeedbackPanel";
 
 type Tab =
@@ -15,6 +16,7 @@ type Tab =
   | "games"
   | "geographies"
   | "mock"
+  | "mockWait"
   | "tips"
   | "map";
 
@@ -87,7 +89,7 @@ export default function App() {
   const shellClass =
     tab === "map"
       ? "app-shell map-mode"
-      : tab === "listings" || tab === "mock" || tab === "tips"
+      : tab === "listings" || tab === "mock" || tab === "mockWait" || tab === "tips"
         ? "app-shell wide"
         : "app-shell";
 
@@ -113,7 +115,8 @@ export default function App() {
             ["listings", "Deals / Events", "Deals"],
             ["games", "Game content", "Games"],
             ["geographies", "Geographies", "Geos"],
-            ["mock", "Mock live", "Mock"],
+            ["mock", "Mock live", "Live"],
+            ["mockWait", "Mock wait", "Wait"],
             ["tips", "Tips", "Tips"],
             ["map", "Map", "Map"],
           ] as const
@@ -146,6 +149,7 @@ export default function App() {
           />
         )}
         {tab === "mock" && <MockAttendancePanel />}
+        {tab === "mockWait" && <MockWaitPanel />}
         {tab === "tips" && <CatalogFeedbackPanel />}
         {tab === "map" && (
           <MapPanel

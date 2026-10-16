@@ -266,7 +266,7 @@ struct ChatView: View {
                                 .accessibilityLabel("Delete selected")
                             }
                             if canReorder, displayedPosts.count > 1 {
-                                Text("Hold a chat (or the ≡ grip), then drag to reorder")
+                                Text("Hold the ≡ grip, then drag to reorder")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             } else if selectMode && sort != "recent" {
@@ -488,11 +488,52 @@ struct ChatView: View {
             }
 
             if canReorder {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 36)
-                    .accessibilityHidden(true)
+                ZStack {
+                    ChatReorderTouch(
+                        postId: post.id,
+                        shouldBegin: {
+                            draggingId == nil || draggingId == post.id
+                        },
+                        onChange: { translation in
+                            guard draggingId == nil || draggingId == post.id else { return }
+                            suppressSelectUntil = Date().addingTimeInterval(0.45)
+                            if draggingId != post.id {
+                                DiagnosticLog.shared.append(
+                                    category: "chat",
+                                    message: "Reorder drag began id=\(post.id.uuidString.prefix(8))…"
+                                )
+                            }
+                            draggingId = post.id
+                            dragTranslation = translation
+                        },
+                        onFinish: { translation, commit in
+                            guard draggingId == nil || draggingId == post.id else {
+                                DiagnosticLog.shared.append(
+                                    category: "chat",
+                                    message: "Reorder finish ignored (not owner) id=\(post.id.uuidString.prefix(8))…",
+                                    level: "warn"
+                                )
+                                return
+                            }
+                            if commit && abs(translation) > 4 {
+                                commitDrag(originId: post.id, translation: translation)
+                            } else {
+                                cancelDrag(
+                                    reason: commit
+                                        ? "release-no-move(\(Int(translation)))"
+                                        : "gesture-cancelled"
+                                )
+                            }
+                        }
+                    )
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .allowsHitTesting(false)
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Drag to reorder")
             }
         }
         .padding(.horizontal, isOwn ? 10 : 0)
@@ -746,37 +787,6 @@ struct ChatView: View {
                 }
                 .allowsHitTesting(false)
             }
-            .overlay {
-                if canReorder {
-                    ChatReorderTouch(
-                        postId: post.id,
-                        onChange: { translation in
-                            suppressSelectUntil = Date().addingTimeInterval(0.45)
-                            if draggingId != post.id {
-                                DiagnosticLog.shared.append(
-                                    category: "chat",
-                                    message: "Reorder drag began id=\(post.id.uuidString.prefix(8))…"
-                                )
-                            }
-                            draggingId = post.id
-                            dragTranslation = translation
-                        },
-                        onFinish: { translation, commit in
-                            if commit && abs(translation) > 4 {
-                                commitDrag(originId: post.id, translation: translation)
-                            } else {
-                                cancelDrag(
-                                    reason: commit
-                                        ? "release-no-move(\(Int(translation)))"
-                                        : "gesture-cancelled"
-                                )
-                            }
-                        }
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .allowsHitTesting(false)
-                }
-            }
             .contentShape(Rectangle())
             .offset(y: canReorder ? dragOffset(for: post.id) : 0)
             .zIndex(draggingId == post.id ? 1 : 0)
@@ -1004,20 +1014,27 @@ private struct ChatRowHeightKey: PreferenceKey {
     }
 }
 
-/// Hold-to-reorder for select mode. Gesture lives on the row host so taps/scroll still work;
-/// scroll is only locked after the hold begins.
+/// Hold-to-reorder for select mode. Gesture attaches to one chat-row host only
+/// (never the multi-row stack), so taps/scroll still work on the rest of the list.
 private struct ChatReorderTouch: UIViewRepresentable {
     let postId: UUID
+    var shouldBegin: () -> Bool
     var onChange: (CGFloat) -> Void
     var onFinish: (_ translation: CGFloat, _ commit: Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(postId: postId, onChange: onChange, onFinish: onFinish)
+        Coordinator(
+            postId: postId,
+            shouldBegin: shouldBegin,
+            onChange: onChange,
+            onFinish: onFinish
+        )
     }
 
     func makeUIView(context: Context) -> InstallerView {
         let view = InstallerView()
-        view.isUserInteractionEnabled = false
+        // Grip-sized host: receives the hold itself so each chat has a unique recognizer.
+        view.isUserInteractionEnabled = true
         view.backgroundColor = .clear
         view.coordinator = context.coordinator
         return view
@@ -1025,6 +1042,7 @@ private struct ChatReorderTouch: UIViewRepresentable {
 
     func updateUIView(_ uiView: InstallerView, context: Context) {
         context.coordinator.postId = postId
+        context.coordinator.shouldBegin = shouldBegin
         context.coordinator.onChange = onChange
         context.coordinator.onFinish = onFinish
         uiView.coordinator = context.coordinator
@@ -1038,9 +1056,11 @@ private struct ChatReorderTouch: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var postId: UUID
+        var shouldBegin: () -> Bool
         var onChange: (CGFloat) -> Void
         var onFinish: (CGFloat, Bool) -> Void
         var startY: CGFloat = 0
+        private var isActive = false
         weak var recognizer: UILongPressGestureRecognizer?
         private weak var lockedScroll: UIScrollView?
         private var loggedInstallHost: ObjectIdentifier?
@@ -1048,10 +1068,12 @@ private struct ChatReorderTouch: UIViewRepresentable {
 
         init(
             postId: UUID,
+            shouldBegin: @escaping () -> Bool,
             onChange: @escaping (CGFloat) -> Void,
             onFinish: @escaping (CGFloat, Bool) -> Void
         ) {
             self.postId = postId
+            self.shouldBegin = shouldBegin
             self.onChange = onChange
             self.onFinish = onFinish
         }
@@ -1061,6 +1083,18 @@ private struct ChatReorderTouch: UIViewRepresentable {
             let shortId = String(postId.uuidString.prefix(8))
             switch gesture.state {
             case .began:
+                guard shouldBegin() else {
+                    DiagnosticLog.log(
+                        category: "chat",
+                        message: "Reorder hold rejected (not owner) id=\(shortId)…",
+                        level: "warn"
+                    )
+                    // Force-fail this recognizer so it cannot keep delivering .changed.
+                    gesture.isEnabled = false
+                    gesture.isEnabled = true
+                    return
+                }
+                isActive = true
                 startY = y
                 setScrollEnabled(false, from: gesture.view)
                 DiagnosticLog.log(
@@ -1069,17 +1103,24 @@ private struct ChatReorderTouch: UIViewRepresentable {
                 )
                 onChange(0)
             case .changed:
+                guard isActive else { return }
                 onChange(y - startY)
             case .ended:
                 let translation = y - startY
+                let active = isActive
+                isActive = false
                 setScrollEnabled(true)
+                guard active else { return }
                 DiagnosticLog.log(
                     category: "chat",
                     message: "Reorder hold ended id=\(shortId)… dy=\(Int(translation))"
                 )
                 onFinish(translation, true)
             case .cancelled:
+                let active = isActive
+                isActive = false
                 setScrollEnabled(true)
+                guard active else { return }
                 DiagnosticLog.log(
                     category: "chat",
                     message: "Reorder hold cancelled id=\(shortId)…",
@@ -1087,7 +1128,10 @@ private struct ChatReorderTouch: UIViewRepresentable {
                 )
                 onFinish(0, false)
             case .failed:
+                let active = isActive
+                isActive = false
                 setScrollEnabled(true)
+                guard active else { return }
                 DiagnosticLog.log(
                     category: "chat",
                     message: "Reorder hold failed id=\(shortId)… (moved during press or conflict)",
@@ -1123,13 +1167,20 @@ private struct ChatReorderTouch: UIViewRepresentable {
             return nil
         }
 
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            shouldBegin()
+        }
+
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
-            // Allow scroll while the hold is still forming; once active, we own the touch.
             if other is UIPanGestureRecognizer {
                 return gestureRecognizer.state == .possible
+            }
+            // Never run two row long-presses at once.
+            if other is UILongPressGestureRecognizer {
+                return false
             }
             return true
         }
@@ -1138,7 +1189,6 @@ private struct ChatReorderTouch: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldBeRequiredToFailBy other: UIGestureRecognizer
         ) -> Bool {
-            // Do not let the scroll pan require our long-press to fail first.
             false
         }
 
@@ -1182,26 +1232,26 @@ private struct ChatReorderTouch: UIViewRepresentable {
         }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            nil
+            guard isUserInteractionEnabled, !isHidden, alpha > 0.01, bounds.contains(point) else {
+                return nil
+            }
+            return self
         }
 
         func installIfNeeded() {
             guard let coordinator else { return }
             guard window != nil else { return }
-            guard let host = rowHost() else {
-                coordinator.noteInstallFailed("no-host superview=\(superview == nil ? "nil" : "present")")
-                return
-            }
+            // Always install on this grip view — unique per chat, never a shared list host.
+            let host = self
             if installedOn === host, coordinator.recognizer != nil { return }
             removeRecognizer()
             let gesture = UILongPressGestureRecognizer(
                 target: coordinator,
                 action: #selector(Coordinator.handle)
             )
-            // Stay still briefly, then drag. Larger movement tolerance so scroll doesn't kill the hold.
             gesture.minimumPressDuration = 0.28
             gesture.allowableMovement = 44
-            gesture.cancelsTouchesInView = false
+            gesture.cancelsTouchesInView = true
             gesture.delaysTouchesBegan = false
             gesture.delaysTouchesEnded = false
             gesture.delegate = coordinator
@@ -1209,28 +1259,6 @@ private struct ChatReorderTouch: UIViewRepresentable {
             coordinator.recognizer = gesture
             installedOn = host
             coordinator.noteInstalled(on: host)
-        }
-
-        /// Climb to the tallest non-scroll ancestor so the press covers the whole chat row.
-        private func rowHost() -> UIView? {
-            guard let start = superview else { return nil }
-            var best = start
-            var candidate: UIView? = start
-            var level = 0
-            while let view = candidate, level < 10 {
-                if view is UIScrollView { break }
-                let size = view.bounds.size
-                if size.height >= 40, size.width >= best.bounds.width {
-                    best = view
-                }
-                candidate = view.superview
-                level += 1
-            }
-            // Prefer a row-sized host; fall back to immediate superview.
-            if best.bounds.height < 24 {
-                return start.bounds.height > 0 ? start : nil
-            }
-            return best
         }
 
         func removeRecognizer() {

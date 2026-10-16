@@ -82,17 +82,48 @@ struct WaitTimeSummary: Equatable {
         case .none:
             return "No Recent Wait-Time Reports"
         case .sparse, .consensus:
-            guard let minutes = displayMinutes, let latest = latestReportAt else {
+            guard let minutes = displayMinutes else {
                 return "No Recent Wait-Time Reports"
             }
             let bucket = WaitTimeBucket.from(minutes: minutes)
             let waitLabel = bucket?.waitPhrase ?? "\(minutes) minute wait"
-            let ago = Self.formatElapsed(since: latest)
-            if mode == .consensus {
-                return "\(waitLabel) · \(reportCount20m) reports · \(ago)"
+            if let latest = latestReportAt {
+                let ago = Self.formatElapsed(since: latest)
+                if mode == .consensus {
+                    return "\(waitLabel) · \(reportCount20m) reports · \(ago)"
+                }
+                return "\(waitLabel) · \(ago)"
             }
-            return "\(waitLabel) · \(ago)"
+            // CMS mock wait counts have no timestamp — omit "ago".
+            if mode == .consensus {
+                return "\(waitLabel) · \(reportCount20m) reports"
+            }
+            return waitLabel
         }
+    }
+
+    /// Build a summary from CMS mock bucket counts (no report timestamps).
+    static func fromMockBucketCounts(_ counts: [Int: Int]) -> WaitTimeSummary {
+        let total = counts.values.reduce(0, +)
+        guard total > 0 else { return .none }
+        let winning = counts.max { a, b in
+            if a.value != b.value { return a.value < b.value }
+            return a.key < b.key
+        }!.key
+        if total >= 3 {
+            return WaitTimeSummary(
+                mode: .consensus,
+                displayMinutes: winning,
+                reportCount20m: total,
+                latestReportAt: nil
+            )
+        }
+        return WaitTimeSummary(
+            mode: .sparse,
+            displayMinutes: winning,
+            reportCount20m: total,
+            latestReportAt: nil
+        )
     }
 
     static func formatElapsed(since date: Date, now: Date = Date()) -> String {

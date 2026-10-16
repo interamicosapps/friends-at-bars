@@ -10,6 +10,8 @@ struct ActivitiesView: View {
     @State private var venueSearch = ""
     @FocusState private var searchFocused: Bool
     @State private var showWaitCheckIn = false
+    /// Tile-opened editor for a bar this device already reported. Separate from the arrival prompt.
+    @State private var manualWaitVenue: String?
     @State private var dismissedCheckInVenue: String?
     @State private var waitSubmitting = false
     @State private var waitSubmitError: String?
@@ -229,63 +231,12 @@ struct ActivitiesView: View {
                                         count: count,
                                         maxCount: maxCount
                                     )
-                                    Button {
-                                        searchFocused = false
-                                        selectedCard = card
-                                    } label: {
-                                        HStack(alignment: .center, spacing: 10) {
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                Text(card.title)
-                                                    .font(.body.weight(.semibold))
-                                                    .foregroundStyle(.white)
-                                                Text(card.area)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.white.opacity(0.45))
-                                                if !card.isShared {
-                                                    WaitTimeLabel(
-                                                        summary: appModel.waitSummary(for: card.primary.name),
-                                                        hidesWhenEmpty: true
-                                                    )
-                                                }
-                                            }
-                                            Spacer(minLength: 8)
-                                            if count == 0 && recent == 0 {
-                                                Text("No Live Users")
-                                                    .font(.caption.weight(.semibold))
-                                                    .foregroundStyle(.white.opacity(0.4))
-                                                    .multilineTextAlignment(.trailing)
-                                            } else {
-                                                VStack(alignment: .trailing, spacing: 2) {
-                                                    HStack(spacing: 8) {
-                                                        if count > 0 {
-                                                            VenueBusynessMeter(intensity: intensity)
-                                                        }
-                                                        Text("\(count)")
-                                                            .font(.title3.monospacedDigit().weight(.bold))
-                                                            .foregroundStyle(
-                                                                count > 0
-                                                                    ? Self.busynessColor(intensity: intensity)
-                                                                    : .white.opacity(0.4)
-                                                            )
-                                                            .accessibilityLabel("\(count) live users")
-                                                    }
-                                                    if recent > 0 {
-                                                        Text("\(recent) recent")
-                                                            .font(.caption2.weight(.medium))
-                                                            .foregroundStyle(.white.opacity(0.45))
-                                                            .accessibilityLabel("\(recent) recent while-using visitors")
-                                                    }
-                                                }
-                                            }
-                                            Image(systemName: "chevron.right")
-                                                .font(.caption2.weight(.semibold))
-                                                .foregroundStyle(.white.opacity(0.22))
-                                        }
-                                        .padding(.vertical, 14)
-                                        .padding(.horizontal, 14)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
+                                    locationRow(
+                                        card: card,
+                                        count: count,
+                                        recent: recent,
+                                        intensity: intensity
+                                    )
                                     if idx < locationCards.count - 1 {
                                         Rectangle()
                                             .fill(Color.white.opacity(0.06))
@@ -315,21 +266,22 @@ struct ActivitiesView: View {
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await reload(fromPullToRefresh: true) }
 
-                if showWaitCheckIn, !checkInSelectedVenue.isEmpty {
+                if waitPopupIsPresented {
                     Color.black.opacity(0.35)
                         .ignoresSafeArea()
-                        .onTapGesture { dismissCheckIn(for: checkInSelectedVenue) }
+                        .onTapGesture { dismissWaitPopup() }
                     WaitTimeCheckInPopup(
-                        venueNames: checkInVenueOptions,
+                        venueNames: waitPopupVenueNames,
                         selectedVenueName: $checkInSelectedVenue,
                         selectedMinutes: appModel.myWaitMinutes(for: checkInSelectedVenue),
                         isSubmitting: waitSubmitting,
                         errorMessage: waitSubmitError,
+                        isUpdating: manualWaitVenue != nil,
                         onSelect: { minutes in
                             let venue = checkInSelectedVenue
                             Task { await submitWait(venueName: venue, minutes: minutes) }
                         },
-                        onDismiss: { dismissCheckIn(for: checkInSelectedVenue) }
+                        onDismiss: { dismissWaitPopup() }
                     )
                     .transition(
                         .opacity.combined(with: .scale(scale: 0.96, anchor: .center))
@@ -421,6 +373,17 @@ struct ActivitiesView: View {
         )
     }
 
+    /// Arrival prompt, or the tile editor when this device already has a report.
+    private var waitPopupIsPresented: Bool {
+        if manualWaitVenue != nil { return true }
+        return showWaitCheckIn && !checkInSelectedVenue.isEmpty
+    }
+
+    private var waitPopupVenueNames: [String] {
+        if let manualWaitVenue { return [manualWaitVenue] }
+        return checkInVenueOptions
+    }
+
     private var checkInVenueOptions: [String] {
         let prox = appModel.proximityVenueNames
         if !prox.isEmpty { return prox }
@@ -429,6 +392,10 @@ struct ActivitiesView: View {
     }
 
     private func syncCheckInSelectedVenue() {
+        if let manualWaitVenue {
+            checkInSelectedVenue = manualWaitVenue
+            return
+        }
         let options = checkInVenueOptions
         if options.isEmpty {
             checkInSelectedVenue = ""
@@ -459,6 +426,12 @@ struct ActivitiesView: View {
             return
         }
         guard appModel.waitPromptEligible else {
+            showWaitCheckIn = false
+            return
+        }
+        // While their report is still on the tile, updates happen from that line.
+        if appModel.myWaitMinutes(for: venue) != nil,
+           appModel.waitSummary(for: venue).mode != .none {
             showWaitCheckIn = false
             return
         }
@@ -514,21 +487,159 @@ struct ActivitiesView: View {
         }
     }
 
-    private func dismissCheckIn(for venue: String) {
-        dismissedCheckInVenue = venue
-        showWaitCheckIn = false
+    private func openManualWaitEditor(venueName: String) {
+        searchFocused = false
         waitSubmitError = nil
+        checkInSelectedVenue = venueName
+        withAnimation(.easeOut(duration: 0.28)) {
+            manualWaitVenue = venueName
+        }
+    }
+
+    private func dismissWaitPopup() {
+        waitSubmitError = nil
+        if manualWaitVenue != nil {
+            withAnimation(.easeOut(duration: 0.2)) {
+                manualWaitVenue = nil
+            }
+            return
+        }
+        dismissedCheckInVenue = checkInSelectedVenue
+        withAnimation(.easeOut(duration: 0.2)) {
+            showWaitCheckIn = false
+        }
     }
 
     private func submitWait(venueName: String, minutes: Int) async {
         waitSubmitting = true
         waitSubmitError = nil
         defer { waitSubmitting = false }
+        let wasManual = manualWaitVenue != nil
         do {
             try await appModel.submitWaitReport(venueName: venueName, waitMinutes: minutes)
+            withAnimation(.easeOut(duration: 0.2)) {
+                manualWaitVenue = nil
+                showWaitCheckIn = false
+            }
+            // Don't clear a dismissal for the bar you're standing at when saving a different bar.
+            if !wasManual || venueName == appModel.lastVenueName || appModel.proximityVenueNames.contains(venueName) {
+                dismissedCheckInVenue = venueName
+            }
         } catch {
             waitSubmitError = error.localizedDescription
         }
+    }
+
+    private func locationRow(
+        card: VenueLocationCard,
+        count: Int,
+        recent: Int,
+        intensity: Double
+    ) -> some View {
+        let canEditWait = !card.isShared
+            && appModel.myWaitMinutes(for: card.primary.name) != nil
+            && appModel.waitSummary(for: card.primary.name).mode != .none
+
+        return HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Button {
+                    openVenue(card)
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(card.title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Text(card.area)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.45))
+                        if !card.isShared && !canEditWait {
+                            WaitTimeLabel(
+                                summary: appModel.waitSummary(for: card.primary.name),
+                                hidesWhenEmpty: true
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(card.title), \(card.area)")
+
+                if canEditWait {
+                    waitTimeControl(for: card)
+                }
+            }
+
+            Button {
+                openVenue(card)
+            } label: {
+                HStack(spacing: 10) {
+                    if count == 0 && recent == 0 {
+                        Text("No Live Users")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.4))
+                            .multilineTextAlignment(.trailing)
+                    } else {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            HStack(spacing: 8) {
+                                if count > 0 {
+                                    VenueBusynessMeter(intensity: intensity)
+                                }
+                                Text("\(count)")
+                                    .font(.title3.monospacedDigit().weight(.bold))
+                                    .foregroundStyle(
+                                        count > 0
+                                            ? Self.busynessColor(intensity: intensity)
+                                            : .white.opacity(0.4)
+                                    )
+                                    .accessibilityLabel("\(count) live users")
+                            }
+                            if recent > 0 {
+                                Text("\(recent) recent")
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(.white.opacity(0.45))
+                                    .accessibilityLabel("\(recent) recent while-using visitors")
+                            }
+                        }
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.22))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 14)
+    }
+
+    private func openVenue(_ card: VenueLocationCard) {
+        searchFocused = false
+        selectedCard = card
+    }
+
+    /// This device already reported, so the line opens the update card instead of the bar sheet.
+    private func waitTimeControl(for card: VenueLocationCard) -> some View {
+        let summary = appModel.waitSummary(for: card.primary.name)
+        return Button {
+            openManualWaitEditor(venueName: card.primary.name)
+        } label: {
+            HStack(spacing: 4) {
+                WaitTimeLabel(summary: summary, hidesWhenEmpty: true)
+                Image(systemName: "pencil")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.1))
+            )
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Update wait time for \(card.primary.name)")
     }
 
     /// Deals/events for this venue that apply today (empty `days_of_week` = any day).

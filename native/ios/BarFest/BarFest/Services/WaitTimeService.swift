@@ -24,6 +24,42 @@ enum WaitTimeService {
         return rows.map { WaitTimeReport(row: $0, formatter: isoFormatter) }
     }
 
+    /// CMS mock wait bucket counts → summaries for Test Mode (no timestamps).
+    static func fetchMockWaitSummaries() async throws -> [String: WaitTimeSummary] {
+        struct Row: Decodable {
+            let venue_name: String
+            let count_5: Int
+            let count_10: Int
+            let count_15: Int
+            let count_30: Int
+            let count_45: Int
+        }
+        let rows: [Row] = try await SupabaseClient.shared.get(
+            path: "rest/v1/mock_venue_wait",
+            query: [
+                URLQueryItem(
+                    name: "select",
+                    value: "venue_name,count_5,count_10,count_15,count_30,count_45"
+                ),
+            ]
+        )
+        var result: [String: WaitTimeSummary] = [:]
+        for row in rows {
+            let counts: [Int: Int] = [
+                5: max(0, row.count_5),
+                10: max(0, row.count_10),
+                15: max(0, row.count_15),
+                30: max(0, row.count_30),
+                45: max(0, row.count_45),
+            ].filter { $0.value > 0 }
+            let summary = WaitTimeSummary.fromMockBucketCounts(counts)
+            if summary.mode != .none {
+                result[row.venue_name] = summary
+            }
+        }
+        return result
+    }
+
     static func submitReport(
         venueName: String,
         waitMinutes: Int,

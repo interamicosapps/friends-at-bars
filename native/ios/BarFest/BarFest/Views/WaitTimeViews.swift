@@ -57,6 +57,8 @@ struct WaitTimeCheckInPopup: View {
     let selectedMinutes: Int?
     let isSubmitting: Bool
     let errorMessage: String?
+    /// Opened from a bar tile to change an existing report. The arrival prompt omits this.
+    var isUpdating = false
     let onSelect: (Int) -> Void
     let onDismiss: () -> Void
 
@@ -64,19 +66,16 @@ struct WaitTimeCheckInPopup: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Check In")
+                    Text(isUpdating ? "Update Wait" : "Check In")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(Color.accentColor)
                         .tracking(0.5)
                     venueTitle
-                    Text("Report your wait time or projected wait")
+                    Text(isUpdating
+                         ? "Tap a time to replace your report"
+                         : "Report your wait time or projected wait")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    if selectedMinutes != nil {
-                        Text("Tap another time to update your report")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
                 }
                 Spacer(minLength: 8)
                 Button(action: onDismiss) {

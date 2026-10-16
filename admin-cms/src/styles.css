@@ -623,6 +623,37 @@ tr.row-selected {
     0 0 12px rgba(59, 130, 246, 0.55);
 }
 
+.mock-wait-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mock-wait-header-title {
+  font-weight: 600;
+}
+
+.mock-wait-buckets {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.mock-wait-bucket-label {
+  width: 2.75rem;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.mock-wait-count {
+  width: 2.75rem;
+  text-align: center;
+  padding: 0.35rem 0.2rem;
+}
+
 .catalog-feedback-table .feedback-when {
   white-space: nowrap;
   font-size: 0.85rem;

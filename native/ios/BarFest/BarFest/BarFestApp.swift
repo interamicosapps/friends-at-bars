@@ -182,20 +182,41 @@ final class AppModel: ObservableObject {
             return
         }
 
-        var reports: [WaitTimeReport] = []
         if TestModeStore.shared.useMockCheckIns {
-            reports = TestWaitTimeStore.shared.reports(for: Array(names))
-        } else {
             do {
-                reports = try await WaitTimeService.fetchReports(geographyId: geoId)
-                    .filter { names.contains($0.venueName) }
-            } catch {
+                let cms = try await WaitTimeService.fetchMockWaitSummaries()
+                    .filter { names.contains($0.key) }
+                waitSummaries = cms
                 DiagnosticLog.shared.append(
                     category: "location",
-                    message: "wait times fetch failed: \(error.localizedDescription)",
+                    message: "wait times using CMS mock_venue_wait venues=\(cms.count)"
+                )
+            } catch {
+                waitSummaries = [:]
+                DiagnosticLog.shared.append(
+                    category: "location",
+                    message: "mock wait times fetch failed: \(error.localizedDescription) — run mock_venue_wait.sql",
                     level: "error"
                 )
             }
+            var mine: [String: Int] = [:]
+            for report in TestWaitTimeStore.shared.reports(for: Array(names)) where report.isMine {
+                mine[report.venueName] = report.minutes
+            }
+            myWaitMinutesByVenue = mine
+            return
+        }
+
+        var reports: [WaitTimeReport] = []
+        do {
+            reports = try await WaitTimeService.fetchReports(geographyId: geoId)
+                .filter { names.contains($0.venueName) }
+        } catch {
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "wait times fetch failed: \(error.localizedDescription)",
+                level: "error"
+            )
         }
 
         waitSummaries = WaitTimeAggregator.summariesByVenue(reports: reports)
