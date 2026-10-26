@@ -9,21 +9,22 @@ struct RedditVotePill: View {
     let onUp: () -> Void
     let onDown: () -> Void
 
+    private var positiveTint: Color { Color(red: 0.2, green: 0.55, blue: 0.3) }
+    private var negativeTint: Color { Color(red: 0.75, green: 0.2, blue: 0.2) }
+
     private var upTint: Color {
-        if myVote == 1 { return Color.orange }
+        if myVote == 1 { return positiveTint }
         return onLightBackground ? Color.black.opacity(0.45) : .secondary
     }
 
     private var downTint: Color {
-        if myVote == -1 { return Color.blue }
+        if myVote == -1 { return negativeTint }
         return onLightBackground ? Color.black.opacity(0.45) : .secondary
     }
 
     private var scoreTint: Color {
-        if myVote == 1 { return .orange }
-        if myVote == -1 { return .blue }
-        if score > 0 { return Color(red: 0.2, green: 0.55, blue: 0.3) }
-        if score < 0 { return Color(red: 0.75, green: 0.2, blue: 0.2) }
+        if score > 0 { return positiveTint }
+        if score < 0 { return negativeTint }
         return onLightBackground ? .black : .primary
     }
 
@@ -31,7 +32,7 @@ struct RedditVotePill: View {
         HStack(spacing: 0) {
             Button(action: onUp) {
                 Image(systemName: myVote == 1 ? "arrow.up" : "arrow.up")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 14, weight: myVote == 1 ? .black : .semibold))
                     .foregroundStyle(upTint)
                     .frame(width: 32, height: 28)
             }
@@ -49,7 +50,7 @@ struct RedditVotePill: View {
 
             Button(action: onDown) {
                 Image(systemName: "arrow.down")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 14, weight: myVote == -1 ? .black : .semibold))
                     .foregroundStyle(downTint)
                     .frame(width: 32, height: 28)
             }

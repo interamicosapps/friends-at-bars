@@ -149,6 +149,71 @@ struct WaitTimeCheckInPopup: View {
     }
 }
 
+/// While Using: confirm the bar before the wait-time card. Closest venue is first.
+struct PresenceConfirmCard: View {
+    let venueNames: [String]
+    let onConfirm: (String) -> Void
+    let onDeclineAll: () -> Void
+
+    private var several: Bool { venueNames.count > 1 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(several ? "Which bar are you at?" : "Are you at this bar?")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Color.accentColor)
+                .tracking(0.5)
+
+            if let primary = venueNames.first, !several {
+                Text(primary)
+                    .font(.title3.bold())
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                HStack(spacing: 10) {
+                    choiceButton("No", filled: false) { onDeclineAll() }
+                    choiceButton("Yes", filled: true) { onConfirm(primary) }
+                }
+            } else {
+                ForEach(Array(venueNames.enumerated()), id: \.element) { index, name in
+                    choiceButton(name, filled: index == 0) { onConfirm(name) }
+                }
+                choiceButton("None of these", filled: false) { onDeclineAll() }
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
+        )
+        .padding(.horizontal, 20)
+        .onAppear {
+            guard let primary = venueNames.first else { return }
+            let delta = VenueLiveLocationEngine.shared.millisecondsSinceDetectInside(venue: primary)
+            let deltaText = delta.map(String.init) ?? "nil"
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "confirm shown \(primary) detectToPromptMs=\(deltaText) candidates=\(venueNames.count)"
+            )
+        }
+    }
+
+    private func choiceButton(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(filled ? Color.accentColor : Color.white.opacity(0.1))
+                )
+                .foregroundStyle(filled ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// Test Mode: same check-in card users see at a bar, with a bar picker for any mock venue.
 struct MockWaitReportOverlay: View {
     @EnvironmentObject private var appModel: AppModel
@@ -272,7 +337,7 @@ struct MockWaitReportOverlay: View {
             )
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(for: error)
         }
     }
 }

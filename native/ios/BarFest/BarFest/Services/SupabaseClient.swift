@@ -1,5 +1,16 @@
 import Foundation
 
+/// Consumer copy for failed requests. Product messages (wait-time location, local chat) stay as written.
+enum UserFacingError {
+    static let tryAgain = "Something went wrong. Try again."
+
+    static func message(for error: Error) -> String {
+        if error is ChatLocalError { return error.localizedDescription }
+        if (error as NSError).domain == "WaitTime" { return error.localizedDescription }
+        return tryAgain
+    }
+}
+
 enum SupabaseError: Error, LocalizedError {
     case invalidURL
     case http(Int, String)

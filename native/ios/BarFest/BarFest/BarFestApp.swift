@@ -67,7 +67,9 @@ final class AppModel: ObservableObject {
     @Published var lastVenueName: String?
     /// Venues currently in footprint ∪ 15 m buffer (closest center first).
     @Published private(set) var proximityVenueNames: [String] = []
-    /// True after ~20 s continuously in a proximity zone — drives wait check-in popup.
+    /// Dwell-confirmed venues whose footprint contains the user (closest center first).
+    @Published private(set) var insideVenueNames: [String] = []
+    /// True after ~20 s continuously in a proximity zone — drives the Always wait check-in popup.
     @Published private(set) var waitPromptEligible = false
     @Published var errorMessage: String?
     @Published var isRefreshing = false
@@ -342,7 +344,7 @@ final class AppModel: ObservableObject {
                     if let name {
                         self?.lastVenueName = name
                     }
-                    if let name, name != previous {
+                    if let name, name != previous, !LocationAuthorizationStore.shared.needsAlwaysUpgrade {
                         let reported = self?.myWaitMinutes(for: name) != nil
                         WaitTimeNotificationManager.notifyCheckInIfNeeded(
                             venueName: name,
@@ -366,7 +368,7 @@ final class AppModel: ObservableObject {
                     } else if candidates.isEmpty {
                         self.lastVenueName = nil
                     }
-                    if eligible, !previousEligible, let primary {
+                    if eligible, !previousEligible, let primary, !LocationAuthorizationStore.shared.needsAlwaysUpgrade {
                         let reported = self.myWaitMinutes(for: primary) != nil
                         WaitTimeNotificationManager.notifyCheckInIfNeeded(
                             venueName: primary,
@@ -382,9 +384,17 @@ final class AppModel: ObservableObject {
                     }
                 }
             },
-            onPresenceWrite: { [weak self] action in
+            onPresenceWrite: { [weak self] action, venueName in
                 Task { @MainActor in
-                    await self?.refreshLiveCountsOnly(source: "presence-\(action)")
+                    await self?.refreshLiveCountsOnly(
+                        source: "presence-\(action)",
+                        expectVenue: action == "deactivate" ? nil : venueName
+                    )
+                }
+            },
+            onInside: { [weak self] names in
+                Task { @MainActor in
+                    self?.insideVenueNames = names
                 }
             },
             onCoordinate: { [weak self] coord in
@@ -429,26 +439,93 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Bumped when a live/recent count fetch starts. Older results are dropped.
+    private var liveCountsGeneration = 0
+
     /// Lightweight headcount refresh after our own upsert/deactivate (avoids full catalog round-trip).
-    func refreshLiveCountsOnly(source: String) async {
+    func refreshLiveCountsOnly(source: String, expectVenue: String? = nil) async {
+        let generation = nextLiveCountsGeneration()
         do {
+            let live: [String: Int]
+            let recent: [String: Int]
             if TestModeStore.shared.useMockCheckIns {
-                async let live = LiveLocationService.mockVenueCounts()
-                async let recent = LiveLocationService.mockRecentWhileUsingCounts()
-                venueCounts = try await live
-                recentWhileUsingCounts = (try? await recent) ?? [:]
+                async let liveTask = LiveLocationService.mockVenueCounts()
+                async let recentTask = LiveLocationService.mockRecentWhileUsingCounts()
+                live = try await liveTask
+                recent = (try? await recentTask) ?? [:]
             } else {
-                async let live = LiveLocationService.venueCounts()
-                async let recent = LiveLocationService.recentWhileUsingCounts()
-                venueCounts = try await live
-                recentWhileUsingCounts = (try? await recent) ?? recentWhileUsingCounts
+                async let liveTask = LiveLocationService.venueCounts()
+                async let recentTask = LiveLocationService.recentWhileUsingCounts()
+                live = try await liveTask
+                recent = (try? await recentTask) ?? recentWhileUsingCounts
             }
-            await logHeadcountSnapshot(source: source)
+            await commitLiveCounts(
+                generation: generation,
+                venue: live,
+                recent: recent,
+                source: source,
+                expectVenue: expectVenue
+            )
         } catch {
             DiagnosticLog.shared.append(
                 category: "location",
                 message: "headcount refresh[\(source)] failed: \(error.localizedDescription)",
                 level: "error"
+            )
+        }
+    }
+
+    private func nextLiveCountsGeneration() -> Int {
+        liveCountsGeneration += 1
+        return liveCountsGeneration
+    }
+
+    /// Applies count fetches only when no newer fetch has started.
+    private func commitLiveCounts(
+        generation: Int,
+        venue: [String: Int],
+        recent: [String: Int],
+        source: String,
+        expectVenue: String?
+    ) async {
+        guard generation == liveCountsGeneration else {
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "live counts ignored stale source=\(source)"
+            )
+            return
+        }
+        venueCounts = venue
+        recentWhileUsingCounts = recent
+        await logHeadcountSnapshot(source: source)
+        logPresenceReflection(source: source, expectVenue: expectVenue)
+    }
+
+    private func logPresenceReflection(source: String, expectVenue: String?) {
+        guard let venue = expectVenue else { return }
+        let whileUsing = LocationAuthorizationStore.shared.needsAlwaysUpgrade
+        let count = whileUsing
+            ? (recentWhileUsingCounts[venue] ?? 0)
+            : (venueCounts[venue] ?? 0)
+        let delta = VenueLiveLocationEngine.shared.millisecondsSinceDetectInside(venue: venue)
+        let deltaText = delta.map(String.init) ?? "nil"
+        if count > 0 {
+            let kind = whileUsing ? "recent refresh" : "presence refresh"
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "\(kind) venue=\(venue) count=\(count) detectToVisibleMs=\(deltaText) source=\(source)"
+            )
+        } else if whileUsing {
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "recent refresh missed own visit venue=\(venue) source=\(source)",
+                level: "warn"
+            )
+        } else {
+            DiagnosticLog.shared.append(
+                category: "location",
+                message: "presence refresh missed own visit venue=\(venue) source=\(source)",
+                level: "warn"
             )
         }
     }
@@ -483,20 +560,35 @@ final class AppModel: ObservableObject {
             let cmsLibrary = await CatalogStore.shared.switchSearchLibrary
             let wordPack = await CatalogStore.shared.wordPack
             wordPackReady = cmsLibrary != nil || !wordPack.isEmpty
+            let generation = nextLiveCountsGeneration()
             if TestModeStore.shared.useMockCheckIns {
-                async let live = LiveLocationService.mockVenueCounts()
-                async let recent = LiveLocationService.mockRecentWhileUsingCounts()
-                venueCounts = try await live
-                recentWhileUsingCounts = (try? await recent) ?? [:]
+                async let liveTask = LiveLocationService.mockVenueCounts()
+                async let recentTask = LiveLocationService.mockRecentWhileUsingCounts()
+                let live = try await liveTask
+                let recent = (try? await recentTask) ?? [:]
+                await commitLiveCounts(
+                    generation: generation,
+                    venue: live,
+                    recent: recent,
+                    source: "refresh",
+                    expectVenue: nil
+                )
                 DiagnosticLog.shared.append(
                     category: "location",
                     message: "venueCounts using CMS mock_venue_attendance live=\(venueCounts.count) recent=\(recentWhileUsingCounts.count)"
                 )
             } else {
-                async let live = LiveLocationService.venueCounts()
-                async let recent = LiveLocationService.recentWhileUsingCounts()
-                venueCounts = try await live
-                recentWhileUsingCounts = (try? await recent) ?? [:]
+                async let liveTask = LiveLocationService.venueCounts()
+                async let recentTask = LiveLocationService.recentWhileUsingCounts()
+                let live = try await liveTask
+                let recent = (try? await recentTask) ?? [:]
+                await commitLiveCounts(
+                    generation: generation,
+                    venue: live,
+                    recent: recent,
+                    source: "refresh",
+                    expectVenue: nil
+                )
             }
             locationBridge.updateVenues(venuesInVisibleGeographies)
             errorMessage = nil
@@ -586,7 +678,8 @@ final class AppModel: ObservableObject {
 final class LocationBridge: VenueLiveLocationEngineDelegate {
     private var onVenue: ((String?) -> Void)?
     private var onProximity: (([String], String?, Bool) -> Void)?
-    private var onPresenceWrite: ((String) -> Void)?
+    private var onPresenceWrite: ((String, String?) -> Void)?
+    private var onInside: (([String]) -> Void)?
     private var onCoordinate: ((CLLocationCoordinate2D) -> Void)?
 
     private static func records(from venues: [CatalogVenue]) -> [VenueRecord] {
@@ -604,13 +697,16 @@ final class LocationBridge: VenueLiveLocationEngineDelegate {
         venues: [CatalogVenue],
         onVenue: @escaping (String?) -> Void,
         onProximity: (([String], String?, Bool) -> Void)? = nil,
-        onPresenceWrite: ((String) -> Void)? = nil,
+        onPresenceWrite: ((String, String?) -> Void)? = nil,
+        onInside: (([String]) -> Void)? = nil,
         onCoordinate: ((CLLocationCoordinate2D) -> Void)? = nil
     ) {
         self.onVenue = onVenue
         self.onProximity = onProximity
         self.onPresenceWrite = onPresenceWrite
+        self.onInside = onInside
         self.onCoordinate = onCoordinate
+        VenueLiveLocationEngine.shared.eventDelegate = self
         do {
             let records = Self.records(from: venues)
             try VenueLiveLocationEngine.shared.applyConfiguration(
@@ -623,7 +719,6 @@ final class LocationBridge: VenueLiveLocationEngineDelegate {
                 venueRadiusM: AppConfig.venueRadiusMeters,
                 skipSupabase: LocationAuthorizationStore.shared.status != .authorizedAlways
             )
-            VenueLiveLocationEngine.shared.eventDelegate = self
             LocationAuthorizationStore.shared.softStartTrackingIfPossible()
             DiagnosticLog.shared.append(
                 category: "location",
@@ -672,7 +767,13 @@ final class LocationBridge: VenueLiveLocationEngineDelegate {
     nonisolated func engine(_ engine: VenueLiveLocationEngine, didWrite action: String, venueName: String?) {
         Task { @MainActor in
             self.onVenue?(venueName)
-            self.onPresenceWrite?(action)
+            self.onPresenceWrite?(action, venueName)
+        }
+    }
+
+    nonisolated func engine(_ engine: VenueLiveLocationEngine, didConfirmInside venues: [String]) {
+        Task { @MainActor in
+            self.onInside?(venues)
         }
     }
 
@@ -701,6 +802,7 @@ final class LocationBridge: VenueLiveLocationEngineDelegate {
         Task { @MainActor in
             self.onVenue?(nil)
             self.onProximity?([], nil, false)
+            self.onInside?([])
             DiagnosticLog.shared.append(
                 category: "location",
                 message: "Lost Always authorization",

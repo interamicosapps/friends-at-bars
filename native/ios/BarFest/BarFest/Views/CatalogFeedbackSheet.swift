@@ -142,7 +142,7 @@ struct CatalogFeedbackSheet: View {
             )
             didSend = true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(for: error)
         }
     }
 }

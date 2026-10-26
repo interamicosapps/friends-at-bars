@@ -889,7 +889,7 @@ struct ChatView: View {
             posts = try await ChatService.fetchFeed(sort: sort)
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
             DiagnosticLog.shared.append(
                 category: "chat",
                 message: error.localizedDescription,
@@ -908,7 +908,7 @@ struct ChatView: View {
             }
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -935,7 +935,7 @@ struct ChatView: View {
                 DiagnosticLog.shared.append(category: "chat", message: "Reported post")
                 await load()
             } catch {
-                self.error = error.localizedDescription
+                self.error = UserFacingError.message(for: error)
                 DiagnosticLog.shared.append(
                     category: "chat",
                     message: "Report failed: \(error.localizedDescription)",
@@ -996,7 +996,7 @@ struct ChatView: View {
             }
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
             DiagnosticLog.shared.append(
                 category: "chat",
                 message: error.localizedDescription,

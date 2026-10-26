@@ -383,7 +383,7 @@ struct ChatThreadView: View {
             }
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -403,7 +403,7 @@ struct ChatThreadView: View {
             }
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -431,7 +431,7 @@ struct ChatThreadView: View {
                 try await ChatService.report(postId: postId, reason: nil)
                 await reload()
             } catch {
-                self.error = error.localizedDescription
+                self.error = UserFacingError.message(for: error)
             }
         }
     }
@@ -477,7 +477,7 @@ struct ChatThreadView: View {
             }
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = UserFacingError.message(for: error)
         }
     }
 

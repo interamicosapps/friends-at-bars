@@ -26,7 +26,13 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         static let pendingWrites = "barfest_native_pendingWrites"
     }
 
-    weak var eventDelegate: VenueLiveLocationEngineDelegate?
+    weak var eventDelegate: VenueLiveLocationEngineDelegate? {
+        didSet {
+            DispatchQueue.main.async { [weak self] in
+                self?.flushPendingDelegateEvents()
+            }
+        }
+    }
 
     private let manager = CLLocationManager()
     private let queue = DispatchQueue(label: "com.barfest.native-live-location", qos: .userInitiated)
@@ -67,6 +73,11 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
     private var proximityCandidates: [String] = []
     private var proximityPrimary: String?
     private var proximityZoneEnteredAtMs: Double = 0
+    /// First dwell-confirmed inside fix per venue, used for detect-to-write timing.
+    private var detectInsideAtMsByVenue: [String: Double] = [:]
+    private var confirmedInsideNames: [String] = []
+    private var pendingDidWrite: (action: String, venue: String?)?
+    private var pendingInsideNames: [String]?
     private var waitPromptEligible = false
     /// True after we have deactivated because the user left the polygon but is still in the buffer.
     private var leftPolygonPendingExit = false
@@ -298,6 +309,8 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         manager.stopMonitoringVisits()
         clearMonitoredRegions(reason: "stopTracking")
         isRunning = false
+        onEngineQueue { detectInsideAtMsByVenue.removeAll() }
+        publishConfirmedInside([])
 
         if deactivate, stickyVenue != nil || lastWrittenVenue != nil {
             clearSticky(reason: "stopTracking")
@@ -739,6 +752,8 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
                 return
             }
 
+            noteDetectInside(name: present.name, candidates: insidePolygon.count)
+            publishConfirmedInside(insidePolygon.map(\.name))
             setSticky(present.name)
             let writeDecision = shouldUpsert(venue: present.name, force: force)
             if writeDecision.write {
@@ -1025,6 +1040,8 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
     private func completeExit(source: String) {
         let venue = stickyVenue ?? exitCandidateVenue ?? "?"
         logPresence("exit confirmed \(venue) [\(source)] - deactivating")
+        onEngineQueue { detectInsideAtMsByVenue.removeAll() }
+        publishConfirmedInside([])
         clearSticky(reason: source)
         resetDwell()
         clearExitCandidate()
@@ -1036,6 +1053,62 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             waitPromptEligible = false
             proximityZoneEnteredAtMs = 0
             publishProximity()
+        }
+    }
+
+    /// Milliseconds since dwell first confirmed `venue` inside its footprint. Nil before that.
+    func millisecondsSinceDetectInside(venue: String) -> Int? {
+        onEngineQueue {
+            guard let start = detectInsideAtMsByVenue[venue] else { return nil }
+            return Int(Date().timeIntervalSince1970 * 1000 - start)
+        }
+    }
+
+    private func noteDetectInside(name: String, candidates: Int) {
+        let now = Date().timeIntervalSince1970 * 1000
+        let shouldLog: Bool = onEngineQueue {
+            if detectInsideAtMsByVenue[name] != nil { return false }
+            detectInsideAtMsByVenue[name] = now
+            return true
+        }
+        if shouldLog {
+            logPresence("detect inside \(name) candidates=\(candidates)")
+        }
+    }
+
+    private func publishConfirmedInside(_ names: [String]) {
+        guard names != confirmedInsideNames else { return }
+        confirmedInsideNames = names
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let delegate = self.eventDelegate {
+                delegate.engine(self, didConfirmInside: names)
+            } else {
+                self.pendingInsideNames = names
+            }
+        }
+    }
+
+    private func emitDidWrite(action: String, venue: String?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let delegate = self.eventDelegate {
+                delegate.engine(self, didWrite: action, venueName: venue)
+            } else {
+                self.pendingDidWrite = (action, venue)
+            }
+        }
+    }
+
+    private func flushPendingDelegateEvents() {
+        guard let delegate = eventDelegate else { return }
+        if let pending = pendingDidWrite {
+            pendingDidWrite = nil
+            delegate.engine(self, didWrite: pending.action, venueName: pending.venue)
+        }
+        if let names = pendingInsideNames {
+            pendingInsideNames = nil
+            delegate.engine(self, didConfirmInside: names)
         }
     }
 
@@ -1161,7 +1234,7 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         venueChanged: Bool
     ) {
         if skipSupabase {
-            sendPresenceVisit(venueName: venueName, source: source)
+            sendPresenceVisit(venueName: venueName, source: source, venueChanged: venueChanged)
             return
         }
 
@@ -1202,13 +1275,13 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    private func sendPresenceVisit(venueName: String, source: String) {
+    private func sendPresenceVisit(venueName: String, source: String, venueChanged: Bool) {
         ensureSupabaseAPI()
         guard let api = supabase else {
             logPresence("visit skipped[\(source)] — no API", level: "warn")
             return
         }
-        logPresence("visit[\(source)] \(venueName)")
+        logPresence("visit write start[\(source)] \(venueName)")
         api.upsertPresenceVisit(userId: userId, venueName: venueName) { [weak self] result in
             guard let self else { return }
             switch result {
@@ -1218,10 +1291,12 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
                     self.lastWriteAtMs = Date().timeIntervalSince1970 * 1000
                 }
                 self.setSticky(venueName)
-                self.logPresence("visit ok[\(source)] \(venueName)")
-                DispatchQueue.main.async {
-                    self.eventDelegate?.engine(self, didWrite: "visit", venueName: venueName)
+                var line = "visit ok[\(source)] \(venueName)"
+                if venueChanged, let ms = self.millisecondsSinceDetectInside(venue: venueName) {
+                    line += " detectToWriteMs=\(ms)"
                 }
+                self.logPresence(line)
+                self.emitDidWrite(action: "visit", venue: venueName)
             case .failure(let err):
                 self.notifyWriteError(err)
             }
@@ -1272,10 +1347,12 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
                     self.lastWriteAtMs = Date().timeIntervalSince1970 * 1000
                 }
                 self.setSticky(venueName)
-                self.logPresence("upsert ok[\(source)] \(venueName) sticky=ON")
-                DispatchQueue.main.async {
-                    self.eventDelegate?.engine(self, didWrite: "upsert", venueName: venueName)
+                var line = "upsert ok[\(source)] \(venueName) sticky=ON"
+                if venueChanged, let ms = self.millisecondsSinceDetectInside(venue: venueName) {
+                    line += " detectToWriteMs=\(ms)"
                 }
+                self.logPresence(line)
+                self.emitDidWrite(action: "upsert", venue: venueName)
                 completion?(true)
             case .failure(let err):
                 self.notifyWriteError(err)
@@ -1295,9 +1372,7 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             switch result {
             case .success:
                 self.logPresence("deactivate ok[\(source)]")
-                DispatchQueue.main.async {
-                    self.eventDelegate?.engine(self, didWrite: "deactivate", venueName: nil)
-                }
+                self.emitDidWrite(action: "deactivate", venue: nil)
                 completion?(true)
             case .failure(let err):
                 self.notifyWriteError(err)
@@ -1376,6 +1451,8 @@ protocol VenueLiveLocationEngineDelegate: AnyObject {
         heartbeatDue: Bool
     )
     func engine(_ engine: VenueLiveLocationEngine, didWrite action: String, venueName: String?)
+    /// Dwell-confirmed venues that contain the user (closest center first). Empty after exit.
+    func engine(_ engine: VenueLiveLocationEngine, didConfirmInside venues: [String])
     func engine(_ engine: VenueLiveLocationEngine, didFailWrite message: String)
     func engineDidLoseAuthorization(_ engine: VenueLiveLocationEngine)
     func engine(
