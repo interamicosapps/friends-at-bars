@@ -214,13 +214,7 @@ struct ActivitiesView: View {
                                 .padding(.vertical, 24)
                                 .dismissKeyboardOnTap()
                             } else {
-                                ActivitiesNoActivityEmptyState(areaName: areaFilter) {
-                                    openFeedback(
-                                        prompt: .missingBar,
-                                        category: .missingBar,
-                                        source: "activities-empty"
-                                    )
-                                }
+                                ActivitiesNoActivityEmptyState(areaName: areaFilter)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 36)
                             }
@@ -754,7 +748,6 @@ private struct VenueBusynessMeter: View {
 /// Empty state when no bars currently have live attendance (optionally scoped to an area).
 private struct ActivitiesNoActivityEmptyState: View {
     var areaName: String?
-    var onMissingTip: (() -> Void)?
 
     private var message: String {
         if let areaName, !areaName.isEmpty {
@@ -773,12 +766,6 @@ private struct ActivitiesNoActivityEmptyState: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
-            if let onMissingTip {
-                CatalogFeedbackLinkButton(
-                    title: "Missing Bar?",
-                    action: onMissingTip
-                )
-            }
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
