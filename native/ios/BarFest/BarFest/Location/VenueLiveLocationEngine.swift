@@ -78,6 +78,15 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
     private var confirmedInsideNames: [String] = []
     private var pendingDidWrite: (action: String, venue: String?)?
     private var pendingInsideNames: [String]?
+    /// Foreground: hold the dwell write until the user answers or leaves the app.
+    private var appIsActive = false
+    private var presencePromptsEnabled = true
+    /// No for this visit. Blocks live and recent writes until exit.
+    private var suppressedVenues: Set<String> = []
+    /// Yes for this visit.
+    private var acceptedVenues: Set<String> = []
+    /// Question dismissed; dwell write is allowed and the question stays down.
+    private var dismissedVenues: Set<String> = []
     private var waitPromptEligible = false
     /// True after we have deactivated because the user left the polygon but is still in the buffer.
     private var leftPolygonPendingExit = false
@@ -309,7 +318,12 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         manager.stopMonitoringVisits()
         clearMonitoredRegions(reason: "stopTracking")
         isRunning = false
-        onEngineQueue { detectInsideAtMsByVenue.removeAll() }
+        onEngineQueue {
+            detectInsideAtMsByVenue.removeAll()
+            suppressedVenues.removeAll()
+            acceptedVenues.removeAll()
+            dismissedVenues.removeAll()
+        }
         publishConfirmedInside([])
 
         if deactivate, stickyVenue != nil || lastWrittenVenue != nil {
@@ -755,6 +769,15 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             noteDetectInside(name: present.name, candidates: insidePolygon.count)
             publishConfirmedInside(insidePolygon.map(\.name))
             setSticky(present.name)
+            let gate = presenceWriteGate(for: present.name)
+            if gate == .suppressed {
+                suppressActiveWrite(venue: present.name, source: source)
+                return
+            }
+            if gate == .hold {
+                logPresence("presence held for confirm \(present.name)")
+                return
+            }
             let writeDecision = shouldUpsert(venue: present.name, force: force)
             if writeDecision.write {
                 performUpsert(
@@ -1040,7 +1063,12 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
     private func completeExit(source: String) {
         let venue = stickyVenue ?? exitCandidateVenue ?? "?"
         logPresence("exit confirmed \(venue) [\(source)] - deactivating")
-        onEngineQueue { detectInsideAtMsByVenue.removeAll() }
+        onEngineQueue {
+            detectInsideAtMsByVenue.removeAll()
+            suppressedVenues.removeAll()
+            acceptedVenues.removeAll()
+            dismissedVenues.removeAll()
+        }
         publishConfirmedInside([])
         clearSticky(reason: source)
         resetDwell()
@@ -1061,6 +1089,145 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         onEngineQueue {
             guard let start = detectInsideAtMsByVenue[venue] else { return nil }
             return Int(Date().timeIntervalSince1970 * 1000 - start)
+        }
+    }
+
+    /// Foreground holds the dwell write so the in-app question can decide the count.
+    func setAppIsActive(_ active: Bool) {
+        let becameInactive = appIsActive && !active
+        appIsActive = active
+        if becameInactive {
+            releaseHeldWrite(source: "background")
+        }
+    }
+
+    /// Mock check-ins skip the question and keep the normal dwell write.
+    func setPresencePromptsEnabled(_ enabled: Bool) {
+        let turnedOff = presencePromptsEnabled && !enabled
+        presencePromptsEnabled = enabled
+        if turnedOff {
+            releaseHeldWrite(source: "prompts-off")
+        }
+    }
+
+    /// Yes: count this bar now. Other bars in the question are not counted.
+    func acceptPresence(venue: String) {
+        onEngineQueue {
+            suppressedVenues.remove(venue)
+            dismissedVenues.remove(venue)
+            acceptedVenues.insert(venue)
+        }
+        logPresence("presence accepted \(venue)")
+        writeVenueNow(venue, source: "confirm-yes", force: true)
+    }
+
+    /// No: do not count these bars until this visit ends.
+    func declinePresence(venues: [String]) {
+        guard !venues.isEmpty else { return }
+        onEngineQueue {
+            for venue in venues {
+                suppressedVenues.insert(venue)
+                acceptedVenues.remove(venue)
+                dismissedVenues.remove(venue)
+            }
+        }
+        logPresence("presence declined \(venues.joined(separator: ", "))")
+        let written = onEngineQueue { lastWrittenVenue }
+        if let written, venues.contains(written) {
+            removeCountedPresence(venue: written, source: "declined")
+        }
+    }
+
+    /// Tap away: dwell write proceeds, and the question stays down for this visit.
+    func dismissPresenceQuestion(venues: [String]) {
+        onEngineQueue {
+            for venue in venues where !suppressedVenues.contains(venue) {
+                dismissedVenues.insert(venue)
+                acceptedVenues.remove(venue)
+            }
+        }
+        logPresence("presence question dismissed \(venues.joined(separator: ", "))")
+        releaseHeldWrite(source: "dismiss")
+    }
+
+    private enum PresenceWriteGate {
+        case suppressed
+        case hold
+        case dwell
+    }
+
+    private func presenceWriteGate(for venue: String) -> PresenceWriteGate {
+        onEngineQueue {
+            if suppressedVenues.contains(venue) { return .suppressed }
+            let answered = acceptedVenues.contains(venue) || dismissedVenues.contains(venue)
+            if appIsActive, presencePromptsEnabled, !answered { return .hold }
+            return .dwell
+        }
+    }
+
+    private func suppressActiveWrite(venue: String, source: String) {
+        logPresence("presence suppressed \(venue) [\(source)]")
+        let written = onEngineQueue { lastWrittenVenue }
+        guard written == venue else { return }
+        removeCountedPresence(venue: venue, source: source)
+    }
+
+    private func removeCountedPresence(venue: String, source: String) {
+        if skipSupabase {
+            expirePresenceVisit(venueName: venue, source: source)
+        } else {
+            enqueueOrSendDeactivate(source: "suppressed-\(source)")
+        }
+        onEngineQueue {
+            if lastWrittenVenue == venue {
+                lastWrittenVenue = nil
+                lastWriteAtMs = 0
+            }
+        }
+    }
+
+    private func releaseHeldWrite(source: String) {
+        let venue = onEngineQueue { stickyVenue }
+        guard let venue else { return }
+        guard presenceWriteGate(for: venue) != .suppressed else { return }
+        writeVenueNow(venue, source: source, force: false)
+    }
+
+    private func writeVenueNow(_ venue: String, source: String, force: Bool) {
+        guard let loc = onEngineQueue({ lastKnownLocation }) else {
+            logPresence("presence write[\(source)] skipped — no fix \(venue)")
+            return
+        }
+        let decision = shouldUpsert(venue: venue, force: force)
+        guard decision.write else {
+            logPresence("presence ok \(venue) - heartbeat not due yet [\(source)]")
+            return
+        }
+        performUpsert(
+            venueName: venue,
+            latitude: loc.coordinate.latitude,
+            longitude: loc.coordinate.longitude,
+            source: source,
+            venueChanged: decision.changed
+        )
+    }
+
+    private func expirePresenceVisit(venueName: String, source: String) {
+        ensureSupabaseAPI()
+        guard let api = supabase else {
+            logPresence("visit expire skipped[\(source)] — no API", level: "warn")
+            return
+        }
+        logPresence("visit expire[\(source)] \(venueName)")
+        api.expirePresenceVisit(userId: userId, venueName: venueName) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.logPresence("visit expired[\(source)] \(venueName)")
+                self.emitDidWrite(action: "visit-expire", venue: venueName)
+            case .failure(let err):
+                self.notifyWriteError(err)
+            }
         }
     }
 
@@ -1233,6 +1400,10 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         source: String,
         venueChanged: Bool
     ) {
+        if onEngineQueue({ suppressedVenues.contains(venueName) }) {
+            logPresence("write skipped suppressed \(venueName) [\(source)]")
+            return
+        }
         if skipSupabase {
             sendPresenceVisit(venueName: venueName, source: source, venueChanged: venueChanged)
             return
@@ -1286,6 +1457,10 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             guard let self else { return }
             switch result {
             case .success:
+                if self.onEngineQueue({ self.suppressedVenues.contains(venueName) }) {
+                    self.expirePresenceVisit(venueName: venueName, source: "declined-after-write")
+                    return
+                }
                 self.onEngineQueue {
                     self.lastWrittenVenue = venueName
                     self.lastWriteAtMs = Date().timeIntervalSince1970 * 1000
@@ -1342,6 +1517,10 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             guard let self else { return }
             switch result {
             case .success:
+                if self.onEngineQueue({ self.suppressedVenues.contains(venueName) }) {
+                    self.enqueueOrSendDeactivate(source: "declined-after-write")
+                    return
+                }
                 self.onEngineQueue {
                     self.lastWrittenVenue = venueName
                     self.lastWriteAtMs = Date().timeIntervalSince1970 * 1000

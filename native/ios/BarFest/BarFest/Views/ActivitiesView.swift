@@ -19,10 +19,6 @@ struct ActivitiesView: View {
     /// After splash, first unreported check-in waits 0.5s so Activities is visible first.
     @State private var allowCheckInOverlay = false
     @State private var checkInRevealTask: Task<Void, Never>?
-    /// While Using: bar the user said they are at. Drives the wait card.
-    @State private var confirmedPresenceVenue: String?
-    /// While Using: bars the user said they are not at, until they leave.
-    @State private var declinedPresenceVenues: Set<String> = []
     @State private var feedbackContext: CatalogFeedbackContext?
 
     private var searchQuery: String {
@@ -83,31 +79,9 @@ struct ActivitiesView: View {
         return locationAuth.canUseLocation
     }
 
-    /// While Using asks "Are you at this bar?" before the wait card. Always keeps the timed check-in.
+    /// Real location users answer before the wait card. Mock check-ins keep the timed card.
     private var asksPresenceConfirm: Bool {
-        locationAuth.needsAlwaysUpgrade && !(testMode.uiEnabled && testMode.useMockCheckIns)
-    }
-
-    /// Inside venues still waiting on a yes/no. Closest center is first.
-    private var questionVenues: [String] {
-        appModel.insideVenueNames.filter { name in
-            if declinedPresenceVenues.contains(name) { return false }
-            if appModel.myWaitMinutes(for: name) != nil,
-               appModel.waitSummary(for: name).mode != .none {
-                return false
-            }
-            return true
-        }
-    }
-
-    private var presenceQuestionIsPresented: Bool {
-        asksPresenceConfirm
-            && showBarAttendance
-            && appModel.splashDidDismiss
-            && allowCheckInOverlay
-            && manualWaitVenue == nil
-            && confirmedPresenceVenue == nil
-            && !questionVenues.isEmpty
+        locationAuth.canUseLocation && !(testMode.uiEnabled && testMode.useMockCheckIns)
     }
 
     var body: some View {
@@ -289,6 +263,10 @@ struct ActivitiesView: View {
                     } else {
                         ActivitiesLocationInlineGate()
                     }
+
+                    LegalLinks()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
                 }
                 .padding()
             }
@@ -296,20 +274,6 @@ struct ActivitiesView: View {
             .background(Color.black.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await reload(fromPullToRefresh: true) }
-
-                if presenceQuestionIsPresented {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                    PresenceConfirmCard(venueNames: questionVenues) { name in
-                        confirmPresence(name)
-                    } onDeclineAll: {
-                        declinePresence(questionVenues)
-                    }
-                    .id(questionVenues.joined(separator: "|"))
-                    .transition(
-                        .opacity.combined(with: .scale(scale: 0.96, anchor: .center))
-                    )
-                }
 
                 if waitPopupIsPresented {
                     Color.black.opacity(0.35)
@@ -363,15 +327,10 @@ struct ActivitiesView: View {
             .onChange(of: appModel.waitPromptEligible) { _, _ in
                 updateCheckInVisibility()
             }
-            .onChange(of: appModel.insideVenueNames) { _, names in
-                if names.isEmpty {
-                    confirmedPresenceVenue = nil
-                    declinedPresenceVenues = []
-                    dismissedCheckInVenue = nil
-                } else if let confirmed = confirmedPresenceVenue, !names.contains(confirmed) {
-                    confirmedPresenceVenue = nil
-                }
-                declinedPresenceVenues = declinedPresenceVenues.filter { names.contains($0) }
+            .onChange(of: appModel.insideVenueNames) { _, _ in
+                updateCheckInVisibility()
+            }
+            .onChange(of: appModel.confirmedPresenceVenue) { _, _ in
                 updateCheckInVisibility()
             }
             .onChange(of: appModel.splashDidDismiss) { _, dismissed in
@@ -510,13 +469,13 @@ struct ActivitiesView: View {
         }
     }
 
-    /// While Using: wait card only after the user confirms the bar. The question itself is separate.
+    /// Wait card only after Yes. The question itself is app-wide.
     private func updateWhileUsingCheckIn() {
         guard showBarAttendance, appModel.splashDidDismiss, allowCheckInOverlay else {
             showWaitCheckIn = false
             return
         }
-        guard let confirmed = confirmedPresenceVenue,
+        guard let confirmed = appModel.confirmedPresenceVenue,
               appModel.insideVenueNames.contains(confirmed) else {
             showWaitCheckIn = false
             return
@@ -536,34 +495,16 @@ struct ActivitiesView: View {
         }
     }
 
-    private func confirmPresence(_ name: String) {
-        confirmedPresenceVenue = name
-        checkInSelectedVenue = name
-        dismissedCheckInVenue = nil
-        updateCheckInVisibility()
-    }
-
-    private func declinePresence(_ names: [String]) {
-        declinedPresenceVenues.formUnion(names)
-        confirmedPresenceVenue = nil
-        showWaitCheckIn = false
-    }
-
     /// After splash, pause so Activities is readable before the first unreported check-in card.
     private func beginPostSplashCheckInReveal() {
         syncCheckInSelectedVenue()
         let venue = checkInSelectedVenue.isEmpty ? appModel.lastVenueName : checkInSelectedVenue
-        let whileUsingReady = asksPresenceConfirm && !questionVenues.isEmpty && confirmedPresenceVenue == nil
         let shouldDelay = showBarAttendance
-            && (
-                whileUsingReady
-                    || (
-                        appModel.waitPromptEligible
-                            && venue != nil
-                            && dismissedCheckInVenue != venue
-                            && venue.map { appModel.myWaitMinutes(for: $0) == nil } == true
-                    )
-            )
+            && !asksPresenceConfirm
+            && appModel.waitPromptEligible
+            && venue != nil
+            && dismissedCheckInVenue != venue
+            && venue.map { appModel.myWaitMinutes(for: $0) == nil } == true
 
         if shouldDelay {
             showWaitCheckIn = false

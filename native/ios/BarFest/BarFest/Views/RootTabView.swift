@@ -32,7 +32,9 @@ private enum AppTab: Hashable {
 }
 
 struct RootTabView: View {
+    @EnvironmentObject private var appModel: AppModel
     @ObservedObject private var testMode = TestModeStore.shared
+    @ObservedObject private var locationAuth = LocationAuthorizationStore.shared
     @ObservedObject private var keyboard = KeyboardObserver.shared
     @State private var selectedTab: AppTab = .activities
     @State private var shakeTriggers: [AppTab: Int] = [:]
@@ -46,14 +48,62 @@ struct RootTabView: View {
         return tabs
     }
 
+    private var asksPresenceConfirm: Bool {
+        locationAuth.canUseLocation && !(testMode.uiEnabled && testMode.useMockCheckIns)
+    }
+
+    /// Inside bars still waiting on a yes, no, or tap-away. Closest is first.
+    private var questionVenues: [String] {
+        appModel.insideVenueNames.filter { name in
+            if appModel.declinedPresenceVenues.contains(name) { return false }
+            if appModel.dismissedPresenceVenues.contains(name) { return false }
+            if appModel.confirmedPresenceVenue == name { return false }
+            if appModel.myWaitMinutes(for: name) != nil,
+               appModel.waitSummary(for: name).mode != .none {
+                return false
+            }
+            return true
+        }
+    }
+
+    private var showPresenceQuestion: Bool {
+        asksPresenceConfirm
+            && appModel.splashDidDismiss
+            && appModel.confirmedPresenceVenue == nil
+            && !questionVenues.isEmpty
+    }
+
     var body: some View {
         ZStack {
             mainStack
+            if showPresenceQuestion {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissPresenceQuestion() }
+                PresenceConfirmCard(venueNames: questionVenues) { name in
+                    appModel.acceptPresence(venue: name, otherInside: questionVenues)
+                } onDeclineAll: {
+                    appModel.declinePresence(venues: questionVenues)
+                }
+                .id(questionVenues.joined(separator: "|"))
+                .zIndex(2)
+            }
             if testMode.uiEnabled && testMode.useMockCheckIns && testMode.showMockWaitReport {
                 MockWaitReportOverlay(isPresented: $testMode.showMockWaitReport)
-                    .zIndex(2)
+                    .zIndex(3)
             }
         }
+        .onAppear { syncPresencePrompts() }
+        .onChange(of: testMode.useMockCheckIns) { _, _ in syncPresencePrompts() }
+        .onChange(of: locationAuth.canUseLocation) { _, _ in syncPresencePrompts() }
+    }
+
+    private func dismissPresenceQuestion() {
+        appModel.dismissPresenceQuestion(venues: questionVenues)
+    }
+
+    private func syncPresencePrompts() {
+        VenueLiveLocationEngine.shared.setPresencePromptsEnabled(asksPresenceConfirm)
     }
 
     private var mainStack: some View {

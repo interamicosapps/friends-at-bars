@@ -126,6 +126,36 @@ final class SupabaseLiveLocationAPI {
         run(request: request, label: "visit:\(venueName)", completion: completion)
     }
 
+    /// Drops a While Using visit out of the recent window after the user says they are not there.
+    func expirePresenceVisit(
+        userId: String,
+        venueName: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("rest/v1/presence_visits"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            completion(.failure(SupabaseAPIError.invalidURL))
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+            URLQueryItem(name: "venue_name", value: "eq.\(venueName)"),
+        ]
+        guard let url = components.url else {
+            completion(.failure(SupabaseAPIError.invalidURL))
+            return
+        }
+        let body = ["last_seen_at": "1970-01-01T00:00:00Z"]
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        applyHeaders(&request)
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        run(request: request, label: "visit-expire:\(venueName)", completion: completion)
+    }
+
     func deactivateLiveLocation(
         userId: String,
         completion: @escaping (Result<Void, Error>) -> Void

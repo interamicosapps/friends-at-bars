@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UIKit
 
 @main
 struct BarFestApp: App {
@@ -25,6 +26,7 @@ struct BarFestApp: App {
 private struct AppRootView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var showSplash = true
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -40,6 +42,12 @@ private struct AppRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: showSplash)
+        .onAppear {
+            VenueLiveLocationEngine.shared.setAppIsActive(scenePhase == .active)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            VenueLiveLocationEngine.shared.setAppIsActive(phase == .active)
+        }
         .task {
             DiagnosticLog.shared.append(
                 category: "system",
@@ -69,6 +77,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var proximityVenueNames: [String] = []
     /// Dwell-confirmed venues whose footprint contains the user (closest center first).
     @Published private(set) var insideVenueNames: [String] = []
+    /// Yes on the presence question. Wait card uses this. Cleared when the visit ends.
+    @Published var confirmedPresenceVenue: String?
+    /// No for this visit. These bars are not counted until the user leaves.
+    @Published var declinedPresenceVenues: Set<String> = []
+    /// Question tapped away. Dwell still counts them; the question stays down.
+    @Published var dismissedPresenceVenues: Set<String> = []
     /// True after ~20 s continuously in a proximity zone — drives the Always wait check-in popup.
     @Published private(set) var waitPromptEligible = false
     @Published var errorMessage: String?
@@ -128,6 +142,41 @@ final class AppModel: ObservableObject {
             coordinate: lastKnownCoordinate,
             from: geographies
         )
+    }
+
+    /// Yes: count this bar now. Any other bars in the question are declined.
+    func acceptPresence(venue: String, otherInside: [String]) {
+        let others = otherInside.filter { $0 != venue }
+        if !others.isEmpty {
+            VenueLiveLocationEngine.shared.declinePresence(venues: others)
+            declinedPresenceVenues.formUnion(others)
+        }
+        VenueLiveLocationEngine.shared.acceptPresence(venue: venue)
+        declinedPresenceVenues.remove(venue)
+        dismissedPresenceVenues.remove(venue)
+        confirmedPresenceVenue = venue
+    }
+
+    /// No: do not count these bars until this visit ends.
+    func declinePresence(venues: [String]) {
+        VenueLiveLocationEngine.shared.declinePresence(venues: venues)
+        declinedPresenceVenues.formUnion(venues)
+        dismissedPresenceVenues.subtract(venues)
+        if let confirmed = confirmedPresenceVenue, venues.contains(confirmed) {
+            confirmedPresenceVenue = nil
+        }
+    }
+
+    /// Tap away: let dwell count them, and do not ask again this visit.
+    func dismissPresenceQuestion(venues: [String]) {
+        VenueLiveLocationEngine.shared.dismissPresenceQuestion(venues: venues)
+        dismissedPresenceVenues.formUnion(venues)
+    }
+
+    private func resetPresenceAnswers() {
+        confirmedPresenceVenue = nil
+        declinedPresenceVenues = []
+        dismissedPresenceVenues = []
     }
 
     func markSplashDismissed() {
@@ -344,7 +393,7 @@ final class AppModel: ObservableObject {
                     if let name {
                         self?.lastVenueName = name
                     }
-                    if let name, name != previous, !LocationAuthorizationStore.shared.needsAlwaysUpgrade {
+                    if let name, name != previous, UIApplication.shared.applicationState != .active {
                         let reported = self?.myWaitMinutes(for: name) != nil
                         WaitTimeNotificationManager.notifyCheckInIfNeeded(
                             venueName: name,
@@ -368,7 +417,7 @@ final class AppModel: ObservableObject {
                     } else if candidates.isEmpty {
                         self.lastVenueName = nil
                     }
-                    if eligible, !previousEligible, let primary, !LocationAuthorizationStore.shared.needsAlwaysUpgrade {
+                    if eligible, !previousEligible, let primary, UIApplication.shared.applicationState != .active {
                         let reported = self.myWaitMinutes(for: primary) != nil
                         WaitTimeNotificationManager.notifyCheckInIfNeeded(
                             venueName: primary,
@@ -386,15 +435,20 @@ final class AppModel: ObservableObject {
             },
             onPresenceWrite: { [weak self] action, venueName in
                 Task { @MainActor in
+                    let countsThisVisit = action == "visit" || action == "upsert"
                     await self?.refreshLiveCountsOnly(
                         source: "presence-\(action)",
-                        expectVenue: action == "deactivate" ? nil : venueName
+                        expectVenue: countsThisVisit ? venueName : nil
                     )
                 }
             },
             onInside: { [weak self] names in
                 Task { @MainActor in
-                    self?.insideVenueNames = names
+                    guard let self else { return }
+                    self.insideVenueNames = names
+                    if names.isEmpty {
+                        self.resetPresenceAnswers()
+                    }
                 }
             },
             onCoordinate: { [weak self] coord in

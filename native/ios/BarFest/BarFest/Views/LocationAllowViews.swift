@@ -4,6 +4,22 @@ import SwiftUI
 enum LocationPrivacyCopy {
     static let underButton =
         "Your personal location is never shared, sold, or otherwise shown to anyone."
+    static let termsURL = URL(string: "https://iamicos.com/terms/")!
+    static let privacyURL = URL(string: "https://iamicos.com/privacy/")!
+}
+
+/// Quiet Terms and Privacy links. Opens in the browser.
+struct LegalLinks: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Link("Terms", destination: LocationPrivacyCopy.termsURL)
+            Text("·")
+            Link("Privacy", destination: LocationPrivacyCopy.privacyURL)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .tint(.secondary)
+    }
 }
 
 /// Persistent Activities reminder while location is While Using. Does not block the list.
@@ -81,6 +97,7 @@ struct LocationAllowOverlay: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
+                    LegalLinks()
                 }
                 .padding()
             }
@@ -185,6 +202,7 @@ struct LocationInlineGate: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
+            LegalLinks()
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
