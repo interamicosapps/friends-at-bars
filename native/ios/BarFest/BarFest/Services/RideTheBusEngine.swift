@@ -230,12 +230,22 @@ final class RideTheBusEngine: ObservableObject {
         pendingFailSubtitle = nil
     }
 
-    /// After ~2s reading pause: clear fail copy and deal next face-down active card.
-    func finishFailInterstitialAndDeal() {
+    /// Deal the next face-down card after a fail. Fail copy can stay visible while the board is playable again.
+    func finishFailInterstitialAndDeal(clearFailCopy: Bool = false) {
         guard phase == .failInterstitial else { return }
-        clearMessages()
+        if clearFailCopy {
+            clearMessages()
+        }
         lastResultCorrect = nil
         dealNextCard()
+    }
+
+    func dismissFailBanner() {
+        guard message != nil || messageSubtitle != nil else { return }
+        // Only clear fail-style copy once we're awaiting a guess again.
+        guard phase == .awaitingGuess || phase == .failInterstitial else { return }
+        clearMessages()
+        lastResultCorrect = nil
     }
 
     // MARK: - Draw / deck

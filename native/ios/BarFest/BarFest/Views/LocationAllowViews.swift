@@ -73,12 +73,6 @@ struct LocationAllowOverlay: View {
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
 
-                    Text("Enable location services to view a heat map of popular bars around you!")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-
                     Button {
                         auth.requestAllowLocation()
                     } label: {
@@ -92,7 +86,7 @@ struct LocationAllowOverlay: View {
                     }
                     .padding(.horizontal, 24)
 
-                    Text(LocationPrivacyCopy.underButton)
+                    Text("Enable location services to view a heat map of popular bars around you!")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -173,12 +167,6 @@ struct LocationInlineGate: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 8)
 
-            Text(auth.needsAlwaysUpgrade ? subtitleAlways : subtitleEnable)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 8)
-
             Button {
                 if let onAllow {
                     onAllow()
@@ -197,7 +185,7 @@ struct LocationInlineGate: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 24)
 
-            Text(LocationPrivacyCopy.underButton)
+            Text(auth.needsAlwaysUpgrade ? subtitleAlways : subtitleEnable)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

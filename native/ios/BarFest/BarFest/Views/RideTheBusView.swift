@@ -1,9 +1,11 @@
 import SwiftUI
+import UIKit
 
 /// Ride The Bus — presented via fullScreenCover from Games (no nav swipe-back).
 struct RideTheBusView: View {
     @StateObject private var engine = RideTheBusEngine()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var activeFlipDegrees: Double = 0
     @State private var activeScale: CGFloat = 1
@@ -13,11 +15,14 @@ struct RideTheBusView: View {
     @State private var glowColor: Color = .clear
     @State private var glowPulse = false
     @State private var slotsShake: CGFloat = 0
-    @State private var slotsFallOffset: CGFloat = 0
-    @State private var slotsOpacity: Double = 1
+    @State private var slotHighlightIndex: Int? = nil
     @State private var dealFromDeck = false
     @State private var isBusy = false
-    @State private var failMessageOpacity: Double = 1
+    @State private var cardFlightElevated = false
+    @State private var optionsOpacity: Double = 1
+    @State private var deckPulse = false
+    @State private var showCorrectChip = false
+    @State private var confettiBurst = false
 
     private let cardW: CGFloat = 110
     private let cardH: CGFloat = 154
@@ -25,6 +30,15 @@ struct RideTheBusView: View {
     private let slotH: CGFloat = 100
     private let pileW: CGFloat = 70
     private let pileH: CGFloat = 98
+
+    /// Springs used for card flights (one family).
+    private var cardSpring: Animation {
+        .spring(response: 0.42, dampingFraction: 0.78)
+    }
+
+    private var quickFade: Animation {
+        .easeOut(duration: 0.15)
+    }
 
     var body: some View {
         ZStack {
@@ -35,6 +49,12 @@ struct RideTheBusView: View {
                 lobbyScreen
             case .playing, .won:
                 gameScreen
+            }
+
+            if confettiBurst && !reduceMotion {
+                RTBConfettiBurst()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
             }
         }
         .interactiveDismissDisabled(true)
@@ -64,6 +84,7 @@ struct RideTheBusView: View {
             Spacer()
 
             Button {
+                hapticLight()
                 withAnimation(.easeOut(duration: 0.25)) {
                     engine.startGame()
                 }
@@ -89,22 +110,21 @@ struct RideTheBusView: View {
         VStack(spacing: 0) {
             topBar(showCongrats: engine.screen == .won)
 
-            failOrStatusBanner
-                .padding(.top, 6)
+            statusBanner
+                .padding(.top, 8)
+                .padding(.horizontal, 12)
 
             Spacer(minLength: 8)
 
             activeRow
                 .padding(.horizontal, 12)
+                .zIndex(cardFlightElevated ? 20 : 1)
 
             Spacer(minLength: 16)
 
-            if engine.phase != .failInterstitial {
-                slotsRow
-                    .padding(.horizontal, 24)
-            } else {
-                Color.clear.frame(height: slotH)
-            }
+            // Slots stay mounted the whole game — only opacity/transform animate, never removal.
+            slotsRow
+                .padding(.horizontal, 24)
 
             Spacer(minLength: 20)
 
@@ -115,33 +135,67 @@ struct RideTheBusView: View {
     }
 
     @ViewBuilder
-    private var failOrStatusBanner: some View {
-        if engine.screen == .playing, let message = engine.message {
-            VStack(spacing: 4) {
-                Text(message)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(bannerColor)
-                if let sub = engine.messageSubtitle {
-                    Text(sub)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(bannerColor.opacity(0.95))
+    private var statusBanner: some View {
+        if engine.screen == .playing || engine.screen == .won, let message = engine.message {
+            let fail = engine.lastResultCorrect == false
+                || (engine.messageSubtitle != nil && engine.lastResultCorrect != true)
+            let success = engine.lastResultCorrect == true || engine.screen == .won
+
+            Button {
+                if fail { engine.dismissFailBanner() }
+            } label: {
+                VStack(spacing: 6) {
+                    if showCorrectChip && success && engine.screen == .playing {
+                        Text("Correct!")
+                            .font(.caption.weight(.heavy))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.green))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                    Text(message)
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
+                    if let sub = engine.messageSubtitle, !sub.isEmpty {
+                        Text(sub)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.95))
+                            .multilineTextAlignment(.center)
+                    }
+                    if fail, engine.phase == .awaitingGuess {
+                        Text("Tap to dismiss")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.65))
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(bannerFill(fail: fail, success: success))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
             }
-            .opacity(failMessageOpacity)
-            .padding(.horizontal, 20)
-            .animation(.easeInOut(duration: 0.25), value: engine.messageSubtitle)
+            .buttonStyle(.plain)
+            .disabled(!fail)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .animation(quickFade, value: engine.message)
+            .animation(quickFade, value: engine.messageSubtitle)
         } else {
-            Color.clear.frame(height: 8)
+            Color.clear.frame(height: 12)
         }
     }
 
-    private var bannerColor: Color {
-        if engine.lastResultCorrect == true { return .green }
-        if engine.message?.contains("Engine") == true || engine.lastResultCorrect == false {
-            return Color(red: 1.0, green: 0.45, blue: 0.42)
-        }
-        return .white.opacity(0.85)
+    private func bannerFill(fail: Bool, success: Bool) -> Color {
+        if fail { return Color(red: 0.55, green: 0.12, blue: 0.12).opacity(0.92) }
+        if success { return Color(red: 0.08, green: 0.38, blue: 0.2).opacity(0.92) }
+        return Color.white.opacity(0.1)
     }
 
     private func topBar(showCongrats: Bool) -> some View {
@@ -159,8 +213,8 @@ struct RideTheBusView: View {
             .padding(.horizontal, 8)
 
             if showCongrats {
-                Text("Congrats! You’ve Conquered The Bus!")
-                    .font(.subheadline.weight(.semibold))
+                Text("Conquered the Bus")
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(Color.green)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
@@ -193,15 +247,11 @@ struct RideTheBusView: View {
                 winActivePlaceholder
                     .frame(width: cardW, height: cardH)
                 Spacer(minLength: 0)
-            } else if engine.phase == .failInterstitial {
-                leftOptions
-                    .frame(maxWidth: .infinity)
-                Color.clear.frame(width: cardW, height: cardH)
-                rightOptions
-                    .frame(maxWidth: .infinity)
             } else {
                 leftOptions
                     .frame(maxWidth: .infinity)
+                    .opacity(optionsOpacity)
+                    .allowsHitTesting(optionsOpacity > 0.5)
 
                 activeCard
                     .frame(width: cardW, height: cardH)
@@ -219,34 +269,35 @@ struct RideTheBusView: View {
                     .offset(activeOffset)
                     .opacity(activeOpacity)
                     .offset(x: slotsShake)
+                    .zIndex(cardFlightElevated ? 30 : 2)
 
                 rightOptions
                     .frame(maxWidth: .infinity)
+                    .opacity(optionsOpacity)
+                    .allowsHitTesting(optionsOpacity > 0.5)
             }
         }
-        .disabled(isBusy || (engine.phase != .awaitingGuess && engine.phase != .failInterstitial) || engine.screen == .won)
+        .disabled(isBusy || engine.phase != .awaitingGuess || engine.screen == .won)
     }
 
     private var winActivePlaceholder: some View {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(Color.green.opacity(0.45), lineWidth: 2)
+            .strokeBorder(Color.green.opacity(0.55), lineWidth: 2)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.green.opacity(0.08))
+                    .fill(Color.green.opacity(0.12))
             )
             .overlay(
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 36))
+                    .font(.system(size: 40))
                     .foregroundStyle(Color.green)
-                    .shadow(color: .green.opacity(0.6), radius: 12)
+                    .shadow(color: .green.opacity(0.7), radius: 14)
             )
     }
 
     @ViewBuilder
     private var leftOptions: some View {
-        // During fail interstitial, always show Red/Black (round 0).
-        let displayRound = engine.phase == .failInterstitial ? 0 : engine.round
-        switch displayRound {
+        switch engine.round {
         case 0:
             guessButton(
                 title: "Red",
@@ -289,8 +340,7 @@ struct RideTheBusView: View {
 
     @ViewBuilder
     private var rightOptions: some View {
-        let displayRound = engine.phase == .failInterstitial ? 0 : engine.round
-        switch displayRound {
+        switch engine.round {
         case 0:
             guessButton(
                 title: "Black",
@@ -356,13 +406,24 @@ struct RideTheBusView: View {
 
     private var slotsRow: some View {
         HStack(spacing: 14) {
-            ForEach(0..<3, id: \.self) { i in
+            ForEach(0 ..< 3, id: \.self) { i in
+                let fan: CGFloat = engine.screen == .won ? CGFloat(i - 1) * 10 : 0
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color(red: 0.12, green: 0.18, blue: 0.35))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                                .strokeBorder(
+                                    slotHighlightIndex == i
+                                        ? Color.yellow.opacity(0.9)
+                                        : Color.white.opacity(0.18),
+                                    lineWidth: slotHighlightIndex == i ? 2.5 : 1
+                                )
+                        )
+                        .shadow(
+                            color: engine.slots[i] != nil ? Color.black.opacity(0.35) : .clear,
+                            radius: 6,
+                            y: 3
                         )
                     if let card = engine.slots[i] {
                         RTBPlayingCardView(card: card)
@@ -374,11 +435,12 @@ struct RideTheBusView: View {
                     }
                 }
                 .frame(width: slotW, height: slotH)
+                .rotationEffect(.degrees(Double(fan)))
+                .offset(y: engine.screen == .won ? abs(fan) * 0.4 : 0)
             }
         }
         .offset(x: slotsShake)
-        .offset(y: slotsFallOffset)
-        .opacity(slotsOpacity)
+        .animation(cardSpring, value: engine.screen == .won)
     }
 
     // MARK: - Bottom piles
@@ -388,7 +450,9 @@ struct RideTheBusView: View {
             VStack(spacing: 8) {
                 RTBCardBackView(label: nil, showCount: engine.deck.count)
                     .frame(width: pileW, height: pileH)
-                    .shadow(color: .blue.opacity(0.35), radius: 8, y: 2)
+                    .scaleEffect(deckPulse ? 1.06 : 1)
+                    .shadow(color: .blue.opacity(deckPulse ? 0.55 : 0.35), radius: deckPulse ? 12 : 8, y: 2)
+                    .animation(.easeOut(duration: 0.18), value: deckPulse)
                 Text("Deck")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(0.55))
@@ -396,6 +460,8 @@ struct RideTheBusView: View {
 
             if engine.screen == .won {
                 Button {
+                    hapticLight()
+                    confettiBurst = false
                     withAnimation(.easeOut(duration: 0.2)) {
                         engine.newGameFromWin()
                     }
@@ -405,9 +471,10 @@ struct RideTheBusView: View {
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, 16)
                         .background(Color.green)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: .green.opacity(0.35), radius: 10, y: 2)
                 }
                 .buttonStyle(.plain)
             } else {
@@ -422,11 +489,13 @@ struct RideTheBusView: View {
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(Color.white.opacity(0.05))
                         )
-                    // Face-up most recent discarded / incorrectly guessed card (no count).
-                    if let top = engine.discard.last {
-                        RTBPlayingCardView(card: top)
+                    // Short stack of recent discards (top = most recent).
+                    ForEach(Array(trashStack.enumerated()), id: \.offset) { idx, card in
+                        RTBPlayingCardView(card: card)
                             .padding(4)
-                    } else {
+                            .offset(x: CGFloat(idx) * 3, y: CGFloat(idx) * -3)
+                    }
+                    if trashStack.isEmpty {
                         Image(systemName: "trash")
                             .font(.title3)
                             .foregroundStyle(.white.opacity(0.35))
@@ -440,6 +509,10 @@ struct RideTheBusView: View {
         }
     }
 
+    private var trashStack: [RTBCard] {
+        Array(engine.discard.suffix(3))
+    }
+
     // MARK: - Buttons (selection light-up / dim)
 
     private func optionOpacity(for guess: RTBGuess) -> Double {
@@ -449,7 +522,7 @@ struct RideTheBusView: View {
 
     private func optionScale(for guess: RTBGuess) -> CGFloat {
         guard let selected = engine.selectedGuess else { return 1 }
-        return selected == guess ? 1.06 : 0.96
+        return selected == guess ? 1.05 : 0.96
     }
 
     private func guessButton(
@@ -481,7 +554,7 @@ struct RideTheBusView: View {
             .shadow(color: lit ? tint.opacity(0.7) : .clear, radius: lit ? 14 : 0)
             .opacity(enabled || engine.selectedGuess != nil ? optionOpacity(for: guess) : 0.45)
             .scaleEffect(optionScale(for: guess))
-            .animation(.spring(response: 0.28, dampingFraction: 0.7), value: engine.selectedGuess)
+            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: engine.selectedGuess)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -512,10 +585,29 @@ struct RideTheBusView: View {
             .shadow(color: lit ? tint.opacity(0.7) : .clear, radius: lit ? 14 : 0)
             .opacity(enabled || engine.selectedGuess != nil ? optionOpacity(for: guess) : 0.45)
             .scaleEffect(optionScale(for: guess))
-            .animation(.spring(response: 0.28, dampingFraction: 0.7), value: engine.selectedGuess)
+            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: engine.selectedGuess)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+
+    // MARK: - Haptics
+
+    private func hapticLight() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func hapticSuccess() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    private func hapticError() {
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
+
+    private func hapticWin() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred(intensity: 1)
     }
 
     // MARK: - Flow / animation
@@ -523,21 +615,35 @@ struct RideTheBusView: View {
     private func handleGuess(_ guess: RTBGuess) async {
         guard canGuess else { return }
         isBusy = true
-        failMessageOpacity = 1
+        hapticLight()
+        showCorrectChip = false
         engine.submitGuess(guess)
 
-        await animateFlipReveal()
-        try? await Task.sleep(nanoseconds: 350_000_000)
+        withAnimation(quickFade) { optionsOpacity = 0.15 }
+
+        if reduceMotion {
+            showActiveFace = true
+            try? await Task.sleep(nanoseconds: 120_000_000)
+        } else {
+            await animateFlipReveal()
+        }
+
+        // Short hold (~450ms) instead of a long pause on the face.
+        try? await Task.sleep(nanoseconds: reduceMotion ? 200_000_000 : 450_000_000)
         engine.advanceAfterReveal()
 
         if engine.lastResultCorrect == true {
-            await animateSuccessGlowAndPop()
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            hapticSuccess()
+            await animateSuccessHold()
+            try? await Task.sleep(nanoseconds: 80_000_000)
 
             if engine.round == 3 {
                 engine.resolveSuccess()
+                hapticWin()
                 withAnimation(.easeInOut(duration: 0.3)) {
+                    confettiBurst = true
                     resetActiveTransforms()
+                    optionsOpacity = 1
                 }
                 isBusy = false
                 return
@@ -546,25 +652,33 @@ struct RideTheBusView: View {
             await animateSlideToSlot(slotIndex: engine.round)
             engine.resolveSuccess()
             resetActiveTransforms()
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            try? await Task.sleep(nanoseconds: 60_000_000)
             await playDealIn()
+            withAnimation(quickFade) { optionsOpacity = 1 }
         } else {
-            // Picture 1: short “Engine Overheated!” while still on this round.
-            await animateFailGlowAndShake()
-            await animateFailFall()
+            hapticError()
+            await animateFailHoldAndShake()
+            await animateFailToTrash()
             engine.enterFailInterstitial()
             resetActiveTransforms()
-            // Picture 2: longer copy + Red/Black, hold ~2s to read.
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            withAnimation(.easeOut(duration: 0.45)) {
-                failMessageOpacity = 0
-            }
-            try? await Task.sleep(nanoseconds: 450_000_000)
-            engine.finishFailInterstitialAndDeal()
-            failMessageOpacity = 1
+            // Deal immediately — no empty-board dead time. Banner stays readable while playable.
+            engine.finishFailInterstitialAndDeal(clearFailCopy: false)
             await playDealIn()
+            withAnimation(quickFade) { optionsOpacity = 1 }
+            scheduleFailBannerAutoDismiss()
         }
         isBusy = false
+    }
+
+    private func scheduleFailBannerAutoDismiss() {
+        Task {
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            if engine.messageSubtitle != nil || (engine.lastResultCorrect == false && engine.message != nil) {
+                withAnimation(quickFade) {
+                    engine.dismissFailBanner()
+                }
+            }
+        }
     }
 
     private func playDealIn() async {
@@ -572,97 +686,142 @@ struct RideTheBusView: View {
         isBusy = true
         showActiveFace = false
         dealFromDeck = true
+        cardFlightElevated = true
         glowColor = .clear
         glowPulse = false
-        activeOpacity = 0
-        activeOffset = CGSize(width: -120, height: 180)
-        activeScale = 0.65
-        activeFlipDegrees = 0
-        slotsFallOffset = 0
-        slotsOpacity = 1
+        showCorrectChip = false
 
-        withAnimation(.spring(response: 0.48, dampingFraction: 0.78)) {
+        if reduceMotion {
             activeOpacity = 1
             activeOffset = .zero
             activeScale = 1
+            activeFlipDegrees = 0
+            try? await Task.sleep(nanoseconds: 120_000_000)
+        } else {
+            // Originate near the Deck (bottom-left of the active card).
+            activeOpacity = 1
+            activeOffset = CGSize(width: -118, height: 210)
+            activeScale = 0.55
+            activeFlipDegrees = 0
+            deckPulse = true
+            withAnimation(cardSpring) {
+                activeOffset = .zero
+                activeScale = 1
+            }
+            try? await Task.sleep(nanoseconds: 380_000_000)
+            deckPulse = false
         }
-        try? await Task.sleep(nanoseconds: 480_000_000)
+
         dealFromDeck = false
+        cardFlightElevated = false
         isBusy = false
     }
 
     private func animateFlipReveal() async {
-        withAnimation(.easeIn(duration: 0.16)) {
+        withAnimation(.easeIn(duration: 0.14)) {
             activeFlipDegrees = 90
         }
-        try? await Task.sleep(nanoseconds: 160_000_000)
+        try? await Task.sleep(nanoseconds: 140_000_000)
         showActiveFace = true
         activeFlipDegrees = -90
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
             activeFlipDegrees = 0
         }
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 220_000_000)
     }
 
-    private func animateSuccessGlowAndPop() async {
+    private func animateSuccessHold() async {
         glowColor = .yellow
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) {
-            activeScale = 1.14
+        showCorrectChip = true
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.55)) {
+            activeScale = 1.1
+            glowPulse = true
         }
-        // Periodic yellow glow pulses (casino-style).
-        for _ in 0..<3 {
-            withAnimation(.easeInOut(duration: 0.18)) { glowPulse = true }
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            withAnimation(.easeInOut(duration: 0.18)) { glowPulse = false }
-            try? await Task.sleep(nanoseconds: 120_000_000)
-        }
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+        try? await Task.sleep(nanoseconds: reduceMotion ? 150_000_000 : 280_000_000)
+        withAnimation(.easeOut(duration: 0.2)) {
+            glowPulse = false
             activeScale = 1
         }
+        try? await Task.sleep(nanoseconds: 120_000_000)
     }
 
     private func animateSlideToSlot(slotIndex: Int) async {
         let xOffsets: [CGFloat] = [-86, 0, 86]
         let x = xOffsets[min(max(slotIndex, 0), 2)]
-        withAnimation(.easeInOut(duration: 0.42)) {
-            activeOffset = CGSize(width: x, height: 150)
-            activeScale = 0.58
-            activeOpacity = 0.25
-            glowPulse = false
-            glowColor = .yellow.opacity(0.4)
+        cardFlightElevated = true
+        if reduceMotion {
+            withAnimation(quickFade) {
+                activeOpacity = 0
+            }
+            try? await Task.sleep(nanoseconds: 120_000_000)
+        } else {
+            // Full opacity — no ghosting under buttons.
+            withAnimation(cardSpring) {
+                activeOffset = CGSize(width: x, height: 150)
+                activeScale = 0.58
+                activeOpacity = 1
+                glowPulse = false
+                glowColor = .yellow.opacity(0.55)
+            }
+            try? await Task.sleep(nanoseconds: 360_000_000)
         }
-        try? await Task.sleep(nanoseconds: 420_000_000)
+        slotHighlightIndex = slotIndex
         glowColor = .clear
+        cardFlightElevated = false
+        try? await Task.sleep(nanoseconds: 160_000_000)
+        withAnimation(quickFade) { slotHighlightIndex = nil }
+        showCorrectChip = false
     }
 
-    private func animateFailGlowAndShake() async {
+    private func animateFailHoldAndShake() async {
         glowColor = .red
-        for _ in 0..<3 {
-            withAnimation(.easeInOut(duration: 0.16)) { glowPulse = true }
-            try? await Task.sleep(nanoseconds: 160_000_000)
-            withAnimation(.easeInOut(duration: 0.16)) { glowPulse = false }
+        withAnimation(.easeInOut(duration: 0.14)) { glowPulse = true }
+        if reduceMotion {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            glowPulse = false
+            return
+        }
+        // Three quick horizontal oscillations (~6px).
+        for _ in 0 ..< 3 {
+            withAnimation(.easeInOut(duration: 0.05)) {
+                activeOffset = CGSize(width: 6, height: 0)
+                slotsShake = 4
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            withAnimation(.easeInOut(duration: 0.05)) {
+                activeOffset = CGSize(width: -6, height: 0)
+                slotsShake = -4
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        withAnimation(.easeOut(duration: 0.08)) {
+            activeOffset = .zero
+            slotsShake = 0
+            glowPulse = false
+        }
+        try? await Task.sleep(nanoseconds: 80_000_000)
+    }
+
+    private func animateFailToTrash() async {
+        cardFlightElevated = true
+        if reduceMotion {
+            withAnimation(quickFade) { activeOpacity = 0 }
+            try? await Task.sleep(nanoseconds: 120_000_000)
+        } else {
+            // Arc toward trash (bottom-right). Stay fully opaque while in flight.
+            withAnimation(.easeOut(duration: 0.28)) {
+                activeOffset = CGSize(width: 96, height: 240)
+                activeScale = 0.52
+                activeOpacity = 1
+                glowColor = .clear
+            }
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            withAnimation(.easeIn(duration: 0.12)) {
+                activeOpacity = 0
+            }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
-        withAnimation(.easeInOut(duration: 0.05).repeatCount(8, autoreverses: true)) {
-            slotsShake = 12
-            activeOffset = CGSize(width: 8, height: 0)
-        }
-        try? await Task.sleep(nanoseconds: 400_000_000)
-        slotsShake = 0
-        activeOffset = .zero
-    }
-
-    private func animateFailFall() async {
-        withAnimation(.easeIn(duration: 0.5)) {
-            activeOffset = CGSize(width: 50, height: 560)
-            activeOpacity = 0
-            activeScale = 0.8
-            slotsFallOffset = 520
-            slotsOpacity = 0
-            glowColor = .clear
-            glowPulse = false
-        }
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        cardFlightElevated = false
     }
 
     private func resetActiveTransforms() {
@@ -674,8 +833,34 @@ struct RideTheBusView: View {
         glowColor = .clear
         glowPulse = false
         slotsShake = 0
-        slotsFallOffset = 0
-        slotsOpacity = 1
+        cardFlightElevated = false
+        dealFromDeck = false
+        deckPulse = false
+    }
+}
+
+// MARK: - Light confetti (win)
+
+private struct RTBConfettiBurst: View {
+    private let colors: [Color] = [.green, .yellow, .white, .mint, .cyan]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                for i in 0 ..< 28 {
+                    let seed = Double(i)
+                    let x = size.width * CGFloat((sin(seed * 1.7) + 1) / 2)
+                    let y = size.height * 0.15 + CGFloat((t * (40 + seed * 3)).truncatingRemainder(dividingBy: Double(size.height)))
+                    let rect = CGRect(x: x, y: y, width: 6, height: 10)
+                    context.fill(
+                        Path(roundedRect: rect, cornerRadius: 2),
+                        with: .color(colors[i % colors.count].opacity(0.85))
+                    )
+                }
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 

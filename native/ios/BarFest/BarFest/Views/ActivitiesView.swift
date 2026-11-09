@@ -258,9 +258,11 @@ struct ActivitiesView: View {
                         ActivitiesLocationInlineGate()
                     }
 
-                    LegalLinks()
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 12)
+                    if showBarAttendance {
+                        LegalLinks()
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 12)
+                    }
                 }
                 .padding()
             }

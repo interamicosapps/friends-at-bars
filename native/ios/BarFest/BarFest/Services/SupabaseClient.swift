@@ -72,6 +72,23 @@ final class SupabaseClient {
         )
     }
 
+    /// PostgREST RPC that returns a JSON value (object/array) decoded as `T`.
+    func rpcJSON<T: Decodable>(_ name: String, params: [String: Any]) async throws -> T {
+        let json = try JSONSerialization.data(withJSONObject: params)
+        let data = try await request(
+            method: "POST",
+            path: "rest/v1/rpc/\(name)",
+            query: [],
+            bodyData: json,
+            prefer: nil
+        )
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw SupabaseError.decoding(error)
+        }
+    }
+
     private func request(
         method: String,
         path: String,

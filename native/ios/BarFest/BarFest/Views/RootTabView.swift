@@ -39,6 +39,10 @@ struct RootTabView: View {
     @State private var selectedTab: AppTab = .activities
     @State private var shakeTriggers: [AppTab: Int] = [:]
     @State private var dealsSearchFocused = false
+    /// Cold-start tab pick runs once after splash (and bootstrap when needed).
+    @State private var didApplyLaunchTab = false
+
+    private static let firstOpenKey = "barfest_has_completed_first_open"
 
     private var visibleTabs: [AppTab] {
         var tabs: [AppTab] = [.activities, .deals, .chat, .map, .games]
@@ -46,6 +50,24 @@ struct RootTabView: View {
             tabs.append(.log)
         }
         return tabs
+    }
+
+    /// Same gate Activity uses for showing the bar list.
+    private var canUseAttendance: Bool {
+        if testMode.uiEnabled && testMode.useMockCheckIns {
+            return testMode.simulateLocationAllowed
+        }
+        return locationAuth.canUseLocation
+    }
+
+    /// Matches Activity's default list: any scoped bar with live or recent count.
+    private var hasActivityContent: Bool {
+        let names = Set(appModel.scopedVenues.map(\.name))
+        for name in names {
+            if (appModel.venueCounts[name] ?? 0) > 0 { return true }
+            if (appModel.recentWhileUsingCounts[name] ?? 0) > 0 { return true }
+        }
+        return false
     }
 
     private var asksPresenceConfirm: Bool {
@@ -93,9 +115,16 @@ struct RootTabView: View {
                     .zIndex(3)
             }
         }
-        .onAppear { syncPresencePrompts() }
+        .onAppear {
+            syncPresencePrompts()
+            applyLaunchTabIfNeeded()
+        }
         .onChange(of: testMode.useMockCheckIns) { _, _ in syncPresencePrompts() }
         .onChange(of: locationAuth.canUseLocation) { _, _ in syncPresencePrompts() }
+        .onChange(of: appModel.splashDidDismiss) { _, _ in applyLaunchTabIfNeeded() }
+        .onChange(of: appModel.initialBootstrapFinished) { _, _ in applyLaunchTabIfNeeded() }
+        .onChange(of: appModel.venueCounts) { _, _ in applyLaunchTabIfNeeded() }
+        .onChange(of: appModel.recentWhileUsingCounts) { _, _ in applyLaunchTabIfNeeded() }
     }
 
     private func dismissPresenceQuestion() {
@@ -104,6 +133,52 @@ struct RootTabView: View {
 
     private func syncPresencePrompts() {
         VenueLiveLocationEngine.shared.setPresencePromptsEnabled(asksPresenceConfirm)
+    }
+
+    /// First open → Activity. Later: no location or empty Activity → Deals; else Activity.
+    private func applyLaunchTabIfNeeded() {
+        guard !didApplyLaunchTab else { return }
+        guard appModel.splashDidDismiss else { return }
+
+        let firstOpen = !UserDefaults.standard.bool(forKey: Self.firstOpenKey)
+        if firstOpen {
+            UserDefaults.standard.set(true, forKey: Self.firstOpenKey)
+            selectedTab = .activities
+            didApplyLaunchTab = true
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: "Launch tab=Activity reason=first-open"
+            )
+            return
+        }
+
+        if !canUseAttendance {
+            selectedTab = .deals
+            didApplyLaunchTab = true
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: "Launch tab=Deals reason=no-location"
+            )
+            return
+        }
+
+        guard appModel.initialBootstrapFinished else { return }
+
+        if hasActivityContent {
+            selectedTab = .activities
+            didApplyLaunchTab = true
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: "Launch tab=Activity reason=has-activity"
+            )
+        } else {
+            selectedTab = .deals
+            didApplyLaunchTab = true
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: "Launch tab=Deals reason=empty-activity"
+            )
+        }
     }
 
     private var mainStack: some View {

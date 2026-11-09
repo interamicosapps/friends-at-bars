@@ -7,7 +7,7 @@
  *
  * Set to `false` before production releases to end users.
  */
-export const ENABLE_DEV_TEST_MODE_UI = false;
+export const ENABLE_DEV_TEST_MODE_UI = true;
 
 export function isDevTestModeUiEnabled(): boolean {
   return ENABLE_DEV_TEST_MODE_UI;

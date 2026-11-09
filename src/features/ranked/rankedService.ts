@@ -20,6 +20,15 @@ function sortLeaderboard(
       if (wb !== wa) return wb - wa;
       return (b.time_left ?? 0) - (a.time_left ?? 0);
     });
+  } else if (gameType === "boozed") {
+    copy.sort((a, b) => {
+      const pa = a.score_points ?? 0;
+      const pb = b.score_points ?? 0;
+      if (pb !== pa) return pb - pa;
+      return (
+        new Date(a.finished_at).getTime() - new Date(b.finished_at).getTime()
+      );
+    });
   } else {
     copy.sort((a, b) => {
       const ca = a.completed === true ? 1 : 0;
@@ -145,6 +154,10 @@ export function formatLeaderboardScore(
     const w = row.words_found ?? 0;
     const t = row.time_left ?? 0;
     return `${w} word${w === 1 ? "" : "s"} · ${t}s left`;
+  }
+  if (gameType === "boozed") {
+    const p = row.score_points ?? 0;
+    return `${p} pt${p === 1 ? "" : "s"} · best cash-out`;
   }
   const d = row.drink_count ?? 0;
   return row.completed

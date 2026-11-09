@@ -10,6 +10,7 @@ import type { RankedGameType, RankedLeaderboardEntry } from "./types";
 const GAME_TITLES: Record<RankedGameType, string> = {
   "switch-search": "Switch Search",
   "ride-the-bus": "Ride the Bus",
+  boozed: "Boozed",
 };
 
 type RankedLeaderboardProps = {

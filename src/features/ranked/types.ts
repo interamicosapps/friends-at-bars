@@ -1,4 +1,4 @@
-export type RankedGameType = "switch-search" | "ride-the-bus";
+export type RankedGameType = "switch-search" | "ride-the-bus" | "boozed";
 
 export type RankedDailyScoreRow = {
   id: string;
@@ -10,6 +10,7 @@ export type RankedDailyScoreRow = {
   time_left: number | null;
   drink_count: number | null;
   completed: boolean | null;
+  score_points: number | null;
   finished_at: string;
 };
 

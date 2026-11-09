@@ -5,6 +5,7 @@ struct GamesHubView: View {
     @ObservedObject private var testMode = TestModeStore.shared
     @State private var showSwitchSearch = false
     @State private var showRideTheBus = false
+    @State private var showBoozed = false
     /// How far the scroll view is pulled past the bottom (rubber-band only).
     @State private var bottomOverscroll: CGFloat = 0
 
@@ -30,6 +31,13 @@ struct GamesHubView: View {
                         imageName: "RideTheBusCardIcon"
                     ) {
                         showRideTheBus = true
+                    }
+
+                    GameHubCard(
+                        title: "Boozed (beta)",
+                        imageName: nil
+                    ) {
+                        showBoozed = true
                     }
 
                     if testMode.uiEnabled {
@@ -78,6 +86,9 @@ struct GamesHubView: View {
             }
             .fullScreenCover(isPresented: $showRideTheBus) {
                 RideTheBusView()
+            }
+            .fullScreenCover(isPresented: $showBoozed) {
+                BoozedView()
             }
         }
     }

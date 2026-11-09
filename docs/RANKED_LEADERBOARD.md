@@ -8,13 +8,14 @@ Run this SQL in the Supabase SQL Editor before using Ranked mode in the app.
 CREATE TABLE ranked_daily_scores (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id TEXT NOT NULL,
-  game_type TEXT NOT NULL CHECK (game_type IN ('switch-search', 'ride-the-bus')),
+  game_type TEXT NOT NULL CHECK (game_type IN ('switch-search', 'ride-the-bus', 'boozed')),
   play_date DATE NOT NULL,
   venue_name TEXT NOT NULL,
   words_found INTEGER,
   time_left INTEGER,
   drink_count INTEGER,
   completed BOOLEAN,
+  score_points INTEGER,
   finished_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, game_type, play_date)
@@ -27,6 +28,10 @@ CREATE INDEX idx_ranked_switch_today
 CREATE INDEX idx_ranked_ride_today
   ON ranked_daily_scores (game_type, play_date, completed DESC, drink_count ASC, finished_at ASC)
   WHERE game_type = 'ride-the-bus';
+
+CREATE INDEX idx_ranked_boozed_today
+  ON ranked_daily_scores (game_type, play_date, score_points DESC, finished_at ASC)
+  WHERE game_type = 'boozed';
 
 ALTER TABLE ranked_daily_scores ENABLE ROW LEVEL SECURITY;
 
@@ -51,6 +56,9 @@ Leaderboard “today” uses **America/New_York** (`play_date` as `YYYY-MM-DD`).
 |------|------|
 | Switch Search | Higher `words_found`, then higher `time_left` |
 | Ride the Bus | `completed` first, then lower `drink_count`, then earlier `finished_at` |
+| Boozed | Higher `score_points` (best cash-out that Eastern day), then earlier `finished_at` |
+
+Boozed also uses `boozed_profiles` / `boozed_rounds` — see [`docs/BOOZED_SPEC.md`](BOOZED_SPEC.md) and [`supabase/boozed.sql`](../supabase/boozed.sql).
 
 ## Manual QA
 
