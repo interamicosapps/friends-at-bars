@@ -23,6 +23,10 @@ struct RideTheBusView: View {
     @State private var deckPulse = false
     @State private var showCorrectChip = false
     @State private var confettiBurst = false
+    /// Measured frames in the `rtbBoard` coordinate space (active / slots / trash).
+    @State private var boardFrames: [String: CGRect] = [:]
+    /// Independent flyer so engine can commit only after the motion finishes.
+    @State private var flight: RTBFlight?
 
     private let cardW: CGFloat = 110
     private let cardH: CGFloat = 154
@@ -30,14 +34,28 @@ struct RideTheBusView: View {
     private let slotH: CGFloat = 100
     private let pileW: CGFloat = 70
     private let pileH: CGFloat = 98
+    private let boardSpace = "rtbBoard"
+    private let flightDuration: TimeInterval = 0.42
 
-    /// Springs used for card flights (one family).
+    /// Springs used for card deal-ins (not for commit flights).
     private var cardSpring: Animation {
         .spring(response: 0.42, dampingFraction: 0.78)
     }
 
+    private var flightEase: Animation {
+        .easeInOut(duration: flightDuration)
+    }
+
     private var quickFade: Animation {
         .easeOut(duration: 0.15)
+    }
+
+    private struct RTBFlight: Equatable {
+        var card: RTBCard
+        var center: CGPoint
+        var width: CGFloat
+        var height: CGFloat
+        var opacity: Double
     }
 
     var body: some View {
@@ -107,86 +125,81 @@ struct RideTheBusView: View {
     // MARK: - Game / Win
 
     private var gameScreen: some View {
-        VStack(spacing: 0) {
-            topBar(showCongrats: engine.screen == .won)
+        ZStack {
+            VStack(spacing: 0) {
+                topBar(showCongrats: engine.screen == .won)
 
-            statusBanner
-                .padding(.top, 8)
-                .padding(.horizontal, 12)
+                statusBanner
+                    .padding(.top, 8)
+                    .padding(.horizontal, 12)
 
-            Spacer(minLength: 8)
+                Spacer(minLength: 8)
 
-            activeRow
-                .padding(.horizontal, 12)
-                .zIndex(cardFlightElevated ? 20 : 1)
+                activeRow
+                    .padding(.horizontal, 12)
+                    .zIndex(cardFlightElevated ? 20 : 1)
 
-            Spacer(minLength: 16)
+                Spacer(minLength: 16)
 
-            // Slots stay mounted the whole game — only opacity/transform animate, never removal.
-            slotsRow
-                .padding(.horizontal, 24)
+                // Slots stay mounted the whole game — only opacity/transform animate, never removal.
+                slotsRow
+                    .padding(.horizontal, 24)
+                    .background(RTBFrameReader(id: "slots", coordinateSpace: boardSpace))
 
-            Spacer(minLength: 20)
+                Spacer(minLength: 20)
 
-            bottomPiles
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
+                bottomPiles
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 28)
+            }
+
+            if let flight {
+                RTBPlayingCardView(card: flight.card)
+                    .frame(width: flight.width, height: flight.height)
+                    .opacity(flight.opacity)
+                    .position(flight.center)
+                    .zIndex(200)
+                    .allowsHitTesting(false)
+            }
         }
+        .coordinateSpace(name: boardSpace)
+        .onPreferenceChange(RTBFramePreferenceKey.self) { boardFrames = $0 }
     }
 
     @ViewBuilder
     private var statusBanner: some View {
         if engine.screen == .playing || engine.screen == .won, let message = engine.message {
             let fail = engine.lastResultCorrect == false
-                || (engine.messageSubtitle != nil && engine.lastResultCorrect != true)
             let success = engine.lastResultCorrect == true || engine.screen == .won
 
-            Button {
-                if fail { engine.dismissFailBanner() }
-            } label: {
-                VStack(spacing: 6) {
-                    if showCorrectChip && success && engine.screen == .playing {
-                        Text("Correct!")
-                            .font(.caption.weight(.heavy))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(Color.green))
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                    Text(message)
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                    if let sub = engine.messageSubtitle, !sub.isEmpty {
-                        Text(sub)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.95))
-                            .multilineTextAlignment(.center)
-                    }
-                    if fail, engine.phase == .awaitingGuess {
-                        Text("Tap to dismiss")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.65))
-                    }
+            VStack(spacing: 6) {
+                if showCorrectChip && success && engine.screen == .playing {
+                    Text("Correct!")
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.green))
+                        .transition(.scale.combined(with: .opacity))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(bannerFill(fail: fail, success: success))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                )
+                Text(message)
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
             }
-            .buttonStyle(.plain)
-            .disabled(!fail)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(bannerFill(fail: fail, success: success))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+            )
             .transition(.move(edge: .top).combined(with: .opacity))
             .animation(quickFade, value: engine.message)
-            .animation(quickFade, value: engine.messageSubtitle)
         } else {
             Color.clear.frame(height: 12)
         }
@@ -269,6 +282,7 @@ struct RideTheBusView: View {
                     .offset(activeOffset)
                     .opacity(activeOpacity)
                     .offset(x: slotsShake)
+                    .background(RTBFrameReader(id: "active", coordinateSpace: boardSpace))
                     .zIndex(cardFlightElevated ? 30 : 2)
 
                 rightOptions
@@ -404,39 +418,53 @@ struct RideTheBusView: View {
 
     // MARK: - Slots
 
+    /// Won cards only — no empty 1/2/3 placeholders. 1 centered, 2 as a centered pair, 3 full row.
+    private var filledSlotCards: [(index: Int, card: RTBCard)] {
+        engine.slots.enumerated().compactMap { index, card in
+            guard let card else { return nil }
+            return (index, card)
+        }
+    }
+
     private var slotsRow: some View {
-        HStack(spacing: 14) {
-            ForEach(0 ..< 3, id: \.self) { i in
-                let fan: CGFloat = engine.screen == .won ? CGFloat(i - 1) * 10 : 0
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(red: 0.12, green: 0.18, blue: 0.35))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(
-                                    slotHighlightIndex == i
-                                        ? Color.yellow.opacity(0.9)
-                                        : Color.white.opacity(0.18),
-                                    lineWidth: slotHighlightIndex == i ? 2.5 : 1
-                                )
-                        )
-                        .shadow(
-                            color: engine.slots[i] != nil ? Color.black.opacity(0.35) : .clear,
-                            radius: 6,
-                            y: 3
-                        )
-                    if let card = engine.slots[i] {
-                        RTBPlayingCardView(card: card)
-                            .padding(4)
-                    } else {
-                        Text("\(i + 1)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.35))
+        let filled = filledSlotCards
+        return Group {
+            if filled.isEmpty {
+                // Reserve height so the board doesn’t jump when the first card lands.
+                Color.clear.frame(height: slotH)
+            } else {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 14) {
+                        ForEach(Array(filled.enumerated()), id: \.element.index) { visibleIndex, item in
+                            let fan: CGFloat = {
+                                guard engine.screen == .won, filled.count == 3 else { return 0 }
+                                return CGFloat(visibleIndex - 1) * 10
+                            }()
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color(red: 0.12, green: 0.18, blue: 0.35))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .strokeBorder(
+                                                slotHighlightIndex == item.index
+                                                    ? Color.yellow.opacity(0.9)
+                                                    : Color.white.opacity(0.18),
+                                                lineWidth: slotHighlightIndex == item.index ? 2.5 : 1
+                                            )
+                                    )
+                                    .shadow(color: Color.black.opacity(0.35), radius: 6, y: 3)
+                                RTBPlayingCardView(card: item.card)
+                                    .padding(4)
+                            }
+                            .frame(width: slotW, height: slotH)
+                            .rotationEffect(.degrees(Double(fan)))
+                            .offset(y: engine.screen == .won ? abs(fan) * 0.4 : 0)
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                .frame(width: slotW, height: slotH)
-                .rotationEffect(.degrees(Double(fan)))
-                .offset(y: engine.screen == .won ? abs(fan) * 0.4 : 0)
+                .animation(cardSpring, value: filled.count)
             }
         }
         .offset(x: slotsShake)
@@ -448,7 +476,7 @@ struct RideTheBusView: View {
     private var bottomPiles: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(spacing: 8) {
-                RTBCardBackView(label: nil, showCount: engine.deck.count)
+                RTBCardBackView(label: nil, showCount: nil)
                     .frame(width: pileW, height: pileH)
                     .scaleEffect(deckPulse ? 1.06 : 1)
                     .shadow(color: .blue.opacity(deckPulse ? 0.55 : 0.35), radius: deckPulse ? 12 : 8, y: 2)
@@ -502,6 +530,7 @@ struct RideTheBusView: View {
                     }
                 }
                 .frame(width: pileW, height: pileH)
+                .background(RTBFrameReader(id: "trash", coordinateSpace: boardSpace))
                 Text("Trash")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(0.55))
@@ -649,36 +678,20 @@ struct RideTheBusView: View {
                 return
             }
 
-            await animateSlideToSlot(slotIndex: engine.round)
-            engine.resolveSuccess()
-            resetActiveTransforms()
+            await flyActiveCardToSlot(slotIndex: engine.round)
             try? await Task.sleep(nanoseconds: 60_000_000)
             await playDealIn()
             withAnimation(quickFade) { optionsOpacity = 1 }
         } else {
             hapticError()
             await animateFailHoldAndShake()
-            await animateFailToTrash()
-            engine.enterFailInterstitial()
-            resetActiveTransforms()
-            // Deal immediately — no empty-board dead time. Banner stays readable while playable.
-            engine.finishFailInterstitialAndDeal(clearFailCopy: false)
+            await flyActiveCardToTrash()
+            // Clear fail headline with the deal — same brief window as Correct!.
+            engine.finishFailInterstitialAndDeal(clearFailCopy: true)
             await playDealIn()
             withAnimation(quickFade) { optionsOpacity = 1 }
-            scheduleFailBannerAutoDismiss()
         }
         isBusy = false
-    }
-
-    private func scheduleFailBannerAutoDismiss() {
-        Task {
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
-            if engine.messageSubtitle != nil || (engine.lastResultCorrect == false && engine.message != nil) {
-                withAnimation(quickFade) {
-                    engine.dismissFailBanner()
-                }
-            }
-        }
     }
 
     private func playDealIn() async {
@@ -745,34 +758,6 @@ struct RideTheBusView: View {
         try? await Task.sleep(nanoseconds: 120_000_000)
     }
 
-    private func animateSlideToSlot(slotIndex: Int) async {
-        let xOffsets: [CGFloat] = [-86, 0, 86]
-        let x = xOffsets[min(max(slotIndex, 0), 2)]
-        cardFlightElevated = true
-        if reduceMotion {
-            withAnimation(quickFade) {
-                activeOpacity = 0
-            }
-            try? await Task.sleep(nanoseconds: 120_000_000)
-        } else {
-            // Full opacity — no ghosting under buttons.
-            withAnimation(cardSpring) {
-                activeOffset = CGSize(width: x, height: 150)
-                activeScale = 0.58
-                activeOpacity = 1
-                glowPulse = false
-                glowColor = .yellow.opacity(0.55)
-            }
-            try? await Task.sleep(nanoseconds: 360_000_000)
-        }
-        slotHighlightIndex = slotIndex
-        glowColor = .clear
-        cardFlightElevated = false
-        try? await Task.sleep(nanoseconds: 160_000_000)
-        withAnimation(quickFade) { slotHighlightIndex = nil }
-        showCorrectChip = false
-    }
-
     private func animateFailHoldAndShake() async {
         glowColor = .red
         withAnimation(.easeInOut(duration: 0.14)) { glowPulse = true }
@@ -802,33 +787,150 @@ struct RideTheBusView: View {
         try? await Task.sleep(nanoseconds: 80_000_000)
     }
 
-    private func animateFailToTrash() async {
-        cardFlightElevated = true
-        if reduceMotion {
-            withAnimation(quickFade) { activeOpacity = 0 }
-            try? await Task.sleep(nanoseconds: 120_000_000)
-        } else {
-            // Arc toward trash (bottom-right). Stay fully opaque while in flight.
-            withAnimation(.easeOut(duration: 0.28)) {
-                activeOffset = CGSize(width: 96, height: 240)
-                activeScale = 0.52
-                activeOpacity = 1
-                glowColor = .clear
-            }
-            try? await Task.sleep(nanoseconds: 260_000_000)
-            withAnimation(.easeIn(duration: 0.12)) {
-                activeOpacity = 0
-            }
-            try? await Task.sleep(nanoseconds: 100_000_000)
+    /// Fly a ghost of the active card into the dynamic slot layout, then commit engine state.
+    private func flyActiveCardToSlot(slotIndex: Int) async {
+        guard let card = engine.current else {
+            engine.resolveSuccess()
+            resetActiveTransforms(keepHidden: false)
+            return
         }
-        cardFlightElevated = false
+
+        glowColor = .clear
+        glowPulse = false
+        showCorrectChip = false
+
+        let from = boardFrames["active"] ?? CGRect(
+            x: UIScreen.main.bounds.midX - cardW / 2,
+            y: 220,
+            width: cardW,
+            height: cardH
+        )
+        let destCenter = slotDestinationCenter(slotIndex: slotIndex)
+
+        if reduceMotion {
+            activeOpacity = 0
+            engine.resolveSuccess()
+            slotHighlightIndex = slotIndex
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            withAnimation(quickFade) { slotHighlightIndex = nil }
+            resetActiveTransforms(keepHidden: true)
+            return
+        }
+
+        // Hide the live active card while the flyer owns the motion.
+        activeOpacity = 0
+        var flyer = RTBFlight(
+            card: card,
+            center: CGPoint(x: from.midX, y: from.midY),
+            width: cardW,
+            height: cardH,
+            opacity: 1
+        )
+        flight = flyer
+
+        flyer.center = destCenter
+        flyer.width = slotW
+        flyer.height = slotH
+        withAnimation(flightEase) {
+            flight = flyer
+        }
+        try? await Task.sleep(nanoseconds: UInt64(flightDuration * 1_000_000_000))
+
+        engine.resolveSuccess()
+        slotHighlightIndex = slotIndex
+
+        flyer.opacity = 0
+        withAnimation(.easeOut(duration: 0.1)) {
+            flight = flyer
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        flight = nil
+        withAnimation(quickFade) { slotHighlightIndex = nil }
+        resetActiveTransforms(keepHidden: true)
     }
 
-    private func resetActiveTransforms() {
+    /// Fly a ghost into the trash pile, then commit the fail interstitial.
+    private func flyActiveCardToTrash() async {
+        guard let card = engine.current else {
+            engine.enterFailInterstitial()
+            resetActiveTransforms(keepHidden: false)
+            return
+        }
+
+        glowColor = .clear
+        glowPulse = false
+
+        let from = boardFrames["active"] ?? CGRect(
+            x: UIScreen.main.bounds.midX - cardW / 2,
+            y: 220,
+            width: cardW,
+            height: cardH
+        )
+        let trash = boardFrames["trash"] ?? CGRect(
+            x: UIScreen.main.bounds.maxX - 100,
+            y: UIScreen.main.bounds.maxY - 180,
+            width: pileW,
+            height: pileH
+        )
+        let dest = CGPoint(x: trash.midX, y: trash.midY)
+
+        if reduceMotion {
+            activeOpacity = 0
+            engine.enterFailInterstitial()
+            resetActiveTransforms(keepHidden: true)
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            return
+        }
+
+        activeOpacity = 0
+        var flyer = RTBFlight(
+            card: card,
+            center: CGPoint(x: from.midX, y: from.midY),
+            width: cardW,
+            height: cardH,
+            opacity: 1
+        )
+        flight = flyer
+
+        flyer.center = dest
+        flyer.width = pileW * 0.92
+        flyer.height = pileH * 0.92
+        withAnimation(flightEase) {
+            flight = flyer
+        }
+        try? await Task.sleep(nanoseconds: UInt64(flightDuration * 1_000_000_000))
+
+        engine.enterFailInterstitial()
+
+        flyer.opacity = 0
+        withAnimation(.easeOut(duration: 0.1)) {
+            flight = flyer
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        flight = nil
+        resetActiveTransforms(keepHidden: true)
+    }
+
+    private func slotDestinationCenter(slotIndex: Int) -> CGPoint {
+        let countAfter = min(max(slotIndex, 0), 2) + 1
+        let step = slotW + 14
+        let totalWidth = CGFloat(countAfter) * slotW + CGFloat(countAfter - 1) * 14
+        let slots = boardFrames["slots"] ?? CGRect(
+            x: 24,
+            y: 420,
+            width: UIScreen.main.bounds.width - 48,
+            height: slotH
+        )
+        let startX = slots.midX - totalWidth / 2
+        let x = startX + CGFloat(slotIndex) * step + slotW / 2
+        return CGPoint(x: x, y: slots.midY)
+    }
+
+    private func resetActiveTransforms(keepHidden: Bool = false) {
         activeFlipDegrees = 0
         activeScale = 1
         activeOffset = .zero
-        activeOpacity = 1
+        activeOpacity = keepHidden ? 0 : 1
         showActiveFace = false
         glowColor = .clear
         glowPulse = false
@@ -836,6 +938,29 @@ struct RideTheBusView: View {
         cardFlightElevated = false
         dealFromDeck = false
         deckPulse = false
+    }
+}
+
+// MARK: - Frame measuring
+
+private struct RTBFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private struct RTBFrameReader: View {
+    let id: String
+    let coordinateSpace: String
+
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear.preference(
+                key: RTBFramePreferenceKey.self,
+                value: [id: geo.frame(in: .named(coordinateSpace))]
+            )
+        }
     }
 }
 

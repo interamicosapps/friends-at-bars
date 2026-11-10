@@ -41,6 +41,9 @@ struct RootTabView: View {
     @State private var dealsSearchFocused = false
     /// Cold-start tab pick runs once after splash (and bootstrap when needed).
     @State private var didApplyLaunchTab = false
+    /// Empty Activity → Deals at launch; upgrade to Activity if a venue is detected before the user picks a tab.
+    @State private var launchChoseDealsForEmpty = false
+    @State private var userPickedTab = false
 
     private static let firstOpenKey = "barfest_has_completed_first_open"
 
@@ -97,15 +100,19 @@ struct RootTabView: View {
 
     var body: some View {
         ZStack {
+            Color.black.ignoresSafeArea()
             mainStack
+                // Hide tabs until launch tab is chosen so splash never reveals Activity then Deals.
+                .opacity(didApplyLaunchTab ? 1 : 0)
+                .accessibilityHidden(!didApplyLaunchTab)
             if showPresenceQuestion {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
                     .onTapGesture { dismissPresenceQuestion() }
                 PresenceConfirmCard(venueNames: questionVenues) { name in
-                    appModel.acceptPresence(venue: name, otherInside: questionVenues)
+                    acceptPresenceAndShowActivity(name)
                 } onDeclineAll: {
-                    appModel.declinePresence(venues: questionVenues)
+                    declinePresenceAndShowDeals(questionVenues)
                 }
                 .id(questionVenues.joined(separator: "|"))
                 .zIndex(2)
@@ -116,29 +123,62 @@ struct RootTabView: View {
             }
         }
         .onAppear {
+            locationAuth.refresh()
             syncPresencePrompts()
             applyLaunchTabIfNeeded()
         }
-        .onChange(of: testMode.useMockCheckIns) { _, _ in syncPresencePrompts() }
-        .onChange(of: locationAuth.canUseLocation) { _, _ in syncPresencePrompts() }
+        .onChange(of: testMode.useMockCheckIns) { _, _ in
+            syncPresencePrompts()
+            applyLaunchTabIfNeeded()
+        }
+        .onChange(of: locationAuth.canUseLocation) { _, _ in
+            syncPresencePrompts()
+            applyLaunchTabIfNeeded()
+        }
+        .onChange(of: locationAuth.status) { _, _ in applyLaunchTabIfNeeded() }
         .onChange(of: appModel.splashDidDismiss) { _, _ in applyLaunchTabIfNeeded() }
         .onChange(of: appModel.initialBootstrapFinished) { _, _ in applyLaunchTabIfNeeded() }
         .onChange(of: appModel.venueCounts) { _, _ in applyLaunchTabIfNeeded() }
         .onChange(of: appModel.recentWhileUsingCounts) { _, _ in applyLaunchTabIfNeeded() }
+        .onChange(of: appModel.insideVenueNames) { _, names in
+            applyLaunchTabIfNeeded()
+            promoteToActivityIfDetectedAtVenue(names)
+        }
     }
 
     private func dismissPresenceQuestion() {
         appModel.dismissPresenceQuestion(venues: questionVenues)
     }
 
+    private func acceptPresenceAndShowActivity(_ name: String) {
+        appModel.acceptPresence(venue: name, otherInside: questionVenues)
+        launchChoseDealsForEmpty = false
+        selectedTab = .activities
+        DiagnosticLog.shared.append(
+            category: "system",
+            message: "Presence Yes → Activity venue=\(name)"
+        )
+    }
+
+    private func declinePresenceAndShowDeals(_ venues: [String]) {
+        appModel.declinePresence(venues: venues)
+        launchChoseDealsForEmpty = false
+        selectedTab = .deals
+        DiagnosticLog.shared.append(
+            category: "system",
+            message: "Presence No → Deals venues=\(venues.joined(separator: ","))"
+        )
+    }
+
     private func syncPresencePrompts() {
         VenueLiveLocationEngine.shared.setPresencePromptsEnabled(asksPresenceConfirm)
     }
 
-    /// First open → Activity. Later: no location or empty Activity → Deals; else Activity.
+    /// First open → Activity. Later: no location or empty Activity (and not at a bar) → Deals;
+    /// at a bar with empty Activity → Activity so the presence question / wait card can show.
+    /// Runs under the splash when possible so the first visible tab is already correct.
     private func applyLaunchTabIfNeeded() {
         guard !didApplyLaunchTab else { return }
-        guard appModel.splashDidDismiss else { return }
 
         let firstOpen = !UserDefaults.standard.bool(forKey: Self.firstOpenKey)
         if firstOpen {
@@ -171,14 +211,38 @@ struct RootTabView: View {
                 category: "system",
                 message: "Launch tab=Activity reason=has-activity"
             )
-        } else {
-            selectedTab = .deals
+            return
+        }
+
+        if !appModel.insideVenueNames.isEmpty {
+            selectedTab = .activities
             didApplyLaunchTab = true
             DiagnosticLog.shared.append(
                 category: "system",
-                message: "Launch tab=Deals reason=empty-activity"
+                message: "Launch tab=Activity reason=at-venue-empty-activity"
             )
+            return
         }
+
+        selectedTab = .deals
+        didApplyLaunchTab = true
+        launchChoseDealsForEmpty = true
+        DiagnosticLog.shared.append(
+            category: "system",
+            message: "Launch tab=Deals reason=empty-activity"
+        )
+    }
+
+    /// GPS may confirm a venue after the empty → Deals decision; move to Activity once.
+    private func promoteToActivityIfDetectedAtVenue(_ names: [String]) {
+        guard launchChoseDealsForEmpty, !userPickedTab else { return }
+        guard canUseAttendance, !names.isEmpty else { return }
+        launchChoseDealsForEmpty = false
+        selectedTab = .activities
+        DiagnosticLog.shared.append(
+            category: "system",
+            message: "Launch tab=Activity reason=at-venue-after-empty-deals"
+        )
     }
 
     private var mainStack: some View {
@@ -272,6 +336,8 @@ struct RootTabView: View {
 
     private func select(_ tab: AppTab) {
         KeyboardObserver.dismiss()
+        userPickedTab = true
+        launchChoseDealsForEmpty = false
         selectedTab = tab
         shakeTriggers[tab, default: 0] += 1
     }

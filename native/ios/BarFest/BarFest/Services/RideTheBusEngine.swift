@@ -90,15 +90,12 @@ final class RideTheBusEngine: ObservableObject {
     @Published var phase: RTBPhase = .awaitingGuess
     @Published var lastResultCorrect: Bool?
     @Published var message: String?
-    @Published var messageSubtitle: String?
     /// Highlights the player’s pick; others dim while resolving.
     @Published var selectedGuess: RTBGuess?
 
     private var runCards: [RTBCard] = []
     private var lastDrawnRank: Int?
     private var failCycleIndex = 0
-    private var tieFailCycleIndex = 0
-    private var pendingFailSubtitle: String?
 
     // MARK: - Public actions
 
@@ -110,7 +107,6 @@ final class RideTheBusEngine: ObservableObject {
         clearMessages()
         selectedGuess = nil
         failCycleIndex = 0
-        tieFailCycleIndex = 0
     }
 
     /// Lobby → playing with a fresh 52-card session.
@@ -153,14 +149,8 @@ final class RideTheBusEngine: ObservableObject {
         phase = .revealing
         if correct {
             message = "Correct!"
-            messageSubtitle = nil
-            pendingFailSubtitle = nil
         } else {
-            let tie = Self.isRankTie(round: round, runCards: runCards, current: card)
-            let copy = nextFailCopy(isTie: tie)
-            message = copy.headline
-            messageSubtitle = nil
-            pendingFailSubtitle = copy.subtitle
+            message = nextFailHeadline()
         }
     }
 
@@ -184,7 +174,6 @@ final class RideTheBusEngine: ObservableObject {
             phase = .awaitingGuess
             screen = .won
             message = "Congrats! You’ve Conquered The Bus!"
-            messageSubtitle = nil
             return
         }
 
@@ -225,27 +214,17 @@ final class RideTheBusEngine: ObservableObject {
         lastDrawnRank = nil
         lastResultCorrect = false
         phase = .failInterstitial
-        // Keep headline; reveal subtitle after cards fall (picture 2).
-        messageSubtitle = pendingFailSubtitle
-        pendingFailSubtitle = nil
+        // Headline already set at guess time; keep it through the trash flight only.
     }
 
-    /// Deal the next face-down card after a fail. Fail copy can stay visible while the board is playable again.
-    func finishFailInterstitialAndDeal(clearFailCopy: Bool = false) {
+    /// Deal the next face-down card after a fail. Clears the brief fail headline (same window as Correct!).
+    func finishFailInterstitialAndDeal(clearFailCopy: Bool = true) {
         guard phase == .failInterstitial else { return }
         if clearFailCopy {
             clearMessages()
         }
         lastResultCorrect = nil
         dealNextCard()
-    }
-
-    func dismissFailBanner() {
-        guard message != nil || messageSubtitle != nil else { return }
-        // Only clear fail-style copy once we're awaiting a guess again.
-        guard phase == .awaitingGuess || phase == .failInterstitial else { return }
-        clearMessages()
-        lastResultCorrect = nil
     }
 
     // MARK: - Draw / deck
@@ -338,21 +317,13 @@ final class RideTheBusEngine: ObservableObject {
 
     private func clearMessages() {
         message = nil
-        messageSubtitle = nil
-        pendingFailSubtitle = nil
     }
 
-    private func nextFailCopy(isTie: Bool) -> RTBFailCopy {
-        if isTie {
-            let pool = RTBFailMessages.twoSip
-            let copy = pool[tieFailCycleIndex % pool.count]
-            tieFailCycleIndex += 1
-            return copy
-        }
+    private func nextFailHeadline() -> String {
         let pool = RTBFailMessages.all
-        let copy = pool[failCycleIndex % pool.count]
+        let headline = pool[failCycleIndex % pool.count]
         failCycleIndex += 1
-        return copy
+        return headline
     }
 
     private func guessMatchesRound(_ guess: RTBGuess) -> Bool {
@@ -366,21 +337,6 @@ final class RideTheBusEngine: ObservableObject {
     }
 
     // MARK: - Evaluate
-
-    /// True when Higher/Lower or Inside/Outside draws the same rank as a bound card.
-    static func isRankTie(round: Int, runCards: [RTBCard], current: RTBCard) -> Bool {
-        let v = current.rank.value
-        switch round {
-        case 1:
-            guard let first = runCards.first else { return false }
-            return v == first.rank.value
-        case 2:
-            guard runCards.count >= 2 else { return false }
-            return v == runCards[0].rank.value || v == runCards[1].rank.value
-        default:
-            return false
-        }
-    }
 
     static func isCorrect(
         guess: RTBGuess,

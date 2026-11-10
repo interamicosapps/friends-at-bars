@@ -86,7 +86,7 @@ struct LocationAllowOverlay: View {
                     }
                     .padding(.horizontal, 24)
 
-                    Text("Enable location services to view a heat map of popular bars around you!")
+                    Text("Enable location to view activity at bars near you")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -121,8 +121,8 @@ struct ActivitiesLocationInlineGate: View {
         LocationInlineGate(
             systemImage: "map.fill",
             title: "Who Wants to Guess Which Bars are Popular?",
-            subtitleAlways: "Always allow location to see real headcounts at bars near you and add yourself to the count.",
-            subtitleEnable: "Enable Location to see real headcounts at bars near you and add yourself to the count.",
+            subtitleAlways: "Enable location to view activity at bars near you",
+            subtitleEnable: "Enable location to view activity at bars near you",
             cta: "Show Me What's Busy"
         )
     }

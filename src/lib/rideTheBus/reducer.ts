@@ -1,34 +1,19 @@
 import { freshShuffledDeck, rankValue, shuffle } from "./deck";
 import { pickNextCard } from "./draw";
-import { isCorrectGuess, isRankTie } from "./evaluate";
-import {
-  ALL_FAIL_MESSAGES,
-  TWO_SIP_FAIL_MESSAGES,
-  type FailCopy,
-} from "./failMessages";
+import { isCorrectGuess } from "./evaluate";
+import { ALL_FAIL_HEADLINES } from "./failMessages";
 import type { Card, Guess, RideTheBusState } from "./types";
 import { emptyRoundSlots, slotIndexForRound } from "./types";
 
-function nextFailCopy(state: RideTheBusState, isTie: boolean): {
-  copy: FailCopy;
+function nextFailHeadline(state: RideTheBusState): {
+  headline: string;
   failCycleIndex: number;
-  tieFailCycleIndex: number;
 } {
-  if (isTie) {
-    const pool = TWO_SIP_FAIL_MESSAGES;
-    const idx = state.tieFailCycleIndex % pool.length;
-    return {
-      copy: pool[idx]!,
-      failCycleIndex: state.failCycleIndex,
-      tieFailCycleIndex: state.tieFailCycleIndex + 1,
-    };
-  }
-  const pool = ALL_FAIL_MESSAGES;
+  const pool = ALL_FAIL_HEADLINES;
   const idx = state.failCycleIndex % pool.length;
   return {
-    copy: pool[idx]!,
+    headline: pool[idx]!,
     failCycleIndex: state.failCycleIndex + 1,
-    tieFailCycleIndex: state.tieFailCycleIndex,
   };
 }
 function reshuffleIfNeeded(state: RideTheBusState): RideTheBusState {
@@ -211,20 +196,15 @@ export function applyGuess(
   );
 
   if (!correct) {
-    const tie = isRankTie(working.round, working.runCards, working.current);
-    const { copy, failCycleIndex, tieFailCycleIndex } = nextFailCopy(
-      working,
-      tie
-    );
+    const { headline, failCycleIndex } = nextFailHeadline(working);
     return {
       ...working,
       selectedGuess: guess,
       phase: "failing",
-      failHeadline: copy.headline,
+      failHeadline: headline,
       failSubtitle: null,
-      pendingFailSubtitle: copy.subtitle,
+      pendingFailSubtitle: null,
       failCycleIndex,
-      tieFailCycleIndex,
     };
   }
 
@@ -249,7 +229,7 @@ export function enterFailInterstitial(state: RideTheBusState): RideTheBusState {
     lastDrawnRank: null,
     phase: "failInterstitial",
     failHeadline: state.failHeadline,
-    failSubtitle: state.pendingFailSubtitle,
+    failSubtitle: null,
     pendingFailSubtitle: null,
   };
 }

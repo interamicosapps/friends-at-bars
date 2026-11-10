@@ -134,12 +134,12 @@ export default function RideTheBus() {
     void submitRankedRun(true);
   }, [playMode, state.modal, submitRankedRun]);
 
-  // Fail interstitial: short banner → clear cards + long copy → ~2s → deal.
+  // Fail: brief headline (same window as Correct!), then reset and deal.
   useEffect(() => {
     if (state.phase !== "failing") return;
     const t = window.setTimeout(() => {
       setState((prev) => enterFailInterstitial(prev));
-    }, 900);
+    }, 700);
     return () => window.clearTimeout(t);
   }, [state.phase]);
 
@@ -147,7 +147,7 @@ export default function RideTheBus() {
     if (state.phase !== "failInterstitial") return;
     const t = window.setTimeout(() => {
       setState((prev) => finishFailInterstitial(prev));
-    }, 2000);
+    }, 400);
     return () => window.clearTimeout(t);
   }, [state.phase]);
 
