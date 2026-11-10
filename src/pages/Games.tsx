@@ -97,7 +97,6 @@ export default function Games() {
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           {games.map((game) => {
-            const hasPath = Boolean(game.path);
             const TileContent = (
               <Card
                 className={cn(
