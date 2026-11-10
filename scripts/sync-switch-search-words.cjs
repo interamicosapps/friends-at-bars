@@ -1,17 +1,28 @@
+/**
+ * Keep native wordLibrary.json in sync with the web bundle, and refresh the
+ * CMS seed to schema-2 extras/bans overlay (NOT the full dictionary).
+ *
+ * Usage: node scripts/sync-switch-search-words.cjs
+ */
 const fs = require("fs");
 
 const lib = JSON.parse(fs.readFileSync("src/data/wordLibrary.json", "utf8"));
-const payload = {
-  fourLetter: lib.fourLetter || [],
-  fiveLetter: lib.fiveLetter || [],
-  sixLetter: lib.sixLetter || [],
-  sevenLetter: lib.sevenLetter || [],
+const overlay = {
+  schema: 2,
+  extras: {
+    fourLetter: [],
+    fiveLetter: [],
+    sixLetter: [],
+    sevenLetter: [],
+  },
+  bans: [],
 };
-const compact = JSON.stringify(payload);
+const compact = JSON.stringify(overlay);
 const escaped = compact.replace(/'/g, "''");
 
-const upsert = `-- Switch Search word pack (synced from src/data/wordLibrary.json)
--- Run in the Supabase SQL editor to update the admin CMS pack.
+const upsert = `-- Switch Search word pack overlay (schema 2)
+-- Bundled base lives in src/data/wordLibrary.json (and native Resources).
+-- CMS payload = extras + bans only. Run in Supabase SQL editor.
 
 INSERT INTO catalog_game_content (game_key, pack_key, payload, is_active)
 VALUES (
@@ -54,10 +65,9 @@ fs.copyFileSync(
   "native/ios/BarFest/BarFest/Resources/wordLibrary.json"
 );
 
-console.log(
-  "synced buckets:",
-  payload.fourLetter.length,
-  payload.fiveLetter.length,
-  payload.sixLetter.length,
-  payload.sevenLetter.length
-);
+console.log("synced overlay (schema 2 empty extras/bans); bundled buckets:", {
+  fourLetter: (lib.fourLetter || []).length,
+  fiveLetter: (lib.fiveLetter || []).length,
+  sixLetter: (lib.sixLetter || []).length,
+  sevenLetter: (lib.sevenLetter || []).length,
+});

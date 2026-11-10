@@ -139,6 +139,29 @@ select {
   flex-wrap: wrap;
 }
 
+.games-cms .linkish {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: #1f3d2b;
+  font-weight: 600;
+  text-align: left;
+}
+
+.games-cms tr.row-selected td {
+  background: #f3f0ea;
+}
+
+.games-cms .switch-search-details {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+}
+
+.games-cms .switch-search-details > .full {
+  grid-column: 1 / -1;
+}
+
 .danger {
   color: #a11;
   border-color: #e0b4b4;

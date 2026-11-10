@@ -1,39 +1,94 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 import { ENABLE_DEV_TEST_MODE_UI } from "@/config/devTestMode";
+import { catalogService, type CatalogGame } from "@/lib/catalogService";
 
 type GameTile = {
-  id: number;
+  key: string;
   title: string;
   path?: string;
   image?: string;
 };
 
-/** Shipped on production Games hub. */
-const productionGames: GameTile[] = [
+const PATHS: Record<string, string> = {
+  "switch-search": "/games/switch-search",
+  "ride-the-bus": "/games/ride-the-bus",
+  "mega-toe": "/games/mega-toe",
+};
+
+const IMAGES: Record<string, string> = {
+  "switch-search": "/images/games/switchsearchpic.png",
+};
+
+const FALLBACK: CatalogGame[] = [
   {
-    id: 1,
+    game_key: "switch-search",
     title: "Switch Search",
-    path: "/games/switch-search",
-    image: "/images/games/switchsearchpic.png",
+    sort_order: 10,
+    enabled_in_test: true,
+    enabled_in_production: true,
+    has_details: true,
+  },
+  {
+    game_key: "ride-the-bus",
+    title: "Ride the Bus",
+    sort_order: 20,
+    enabled_in_test: true,
+    enabled_in_production: true,
+    has_details: false,
+  },
+  {
+    game_key: "boozed",
+    title: "Boozed",
+    sort_order: 30,
+    enabled_in_test: true,
+    enabled_in_production: true,
+    has_details: false,
+  },
+  {
+    game_key: "mega-toe",
+    title: "Mega Toe",
+    sort_order: 40,
+    enabled_in_test: true,
+    enabled_in_production: false,
+    has_details: false,
   },
 ];
 
-/** WIP games — only listed when ENABLE_DEV_TEST_MODE_UI is on. */
-const testOnlyGames: GameTile[] = [
-  { id: 2, title: "Mega Toe", path: "/games/mega-toe" },
-  { id: 3, title: "Ride the Bus", path: "/games/ride-the-bus" },
-];
-
-const games: GameTile[] = ENABLE_DEV_TEST_MODE_UI
-  ? [...productionGames, ...testOnlyGames]
-  : productionGames;
+function toTile(game: CatalogGame): GameTile {
+  return {
+    key: game.game_key,
+    title: game.title,
+    path: PATHS[game.game_key],
+    image: IMAGES[game.game_key],
+  };
+}
 
 export default function Games() {
-  const handleTileClick = (gameId: number) => {
-    console.log(`Clicked game ${gameId} (animation test)`);
-  };
+  const [catalogGames, setCatalogGames] = useState<CatalogGame[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const rows = await catalogService.fetchGames();
+      if (!cancelled) setCatalogGames(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const games = useMemo(() => {
+    const source = catalogGames.length ? catalogGames : FALLBACK;
+    const includeTest = ENABLE_DEV_TEST_MODE_UI;
+    return source
+      .filter((g) =>
+        includeTest ? g.enabled_in_test : g.enabled_in_production
+      )
+      .map(toTile);
+  }, [catalogGames]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -51,7 +106,6 @@ export default function Games() {
                   "active:scale-95",
                   "cursor-pointer"
                 )}
-                onClick={() => !hasPath && handleTileClick(game.id)}
               >
                 <div className="relative flex aspect-[4/3] w-full items-center justify-center bg-white overflow-hidden">
                   {game.image ? (
@@ -75,13 +129,13 @@ export default function Games() {
 
             if (game.path) {
               return (
-                <Link key={game.id} to={game.path} className="block">
+                <Link key={game.key} to={game.path} className="block">
                   {TileContent}
                 </Link>
               );
             }
 
-            return <div key={game.id}>{TileContent}</div>;
+            return <div key={game.key}>{TileContent}</div>;
           })}
         </div>
       </div>

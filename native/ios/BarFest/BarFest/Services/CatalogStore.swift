@@ -9,8 +9,10 @@ actor CatalogStore {
     private(set) var areas: [CatalogArea] = []
     private(set) var contentVersion: Int?
     private(set) var wordPack: [String] = []
-    /// Bucketed Switch Search pack from `catalog_game_content` (nil if CMS missing/empty).
+    /// Resolved Switch Search library (bundled ∪ extras − bans). Nil only if nothing could load.
     private(set) var switchSearchLibrary: WordLibrary?
+    /// Games hub registry from `catalog_games`.
+    private(set) var games: [CatalogGame] = []
 
     private let cacheURL: URL = {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -102,6 +104,7 @@ actor CatalogStore {
         }
 
         await loadWordPack()
+        await loadGames()
     }
 
     func loadCachedCatalogIfNeeded() {
@@ -133,9 +136,10 @@ actor CatalogStore {
 
     private func loadWordPack() async {
         struct PackRow: Decodable {
-            let payload: WordLibrary
+            let payload: SwitchSearchCMSPayload
         }
 
+        let base = WordLibrary.loadBundled()
         if let rows: [PackRow] = try? await SupabaseClient.shared.get(
             path: "rest/v1/catalog_game_content",
             query: [
@@ -144,13 +148,30 @@ actor CatalogStore {
                 URLQueryItem(name: "is_active", value: "eq.true"),
                 URLQueryItem(name: "select", value: "payload"),
             ]
-        ), let lib = rows.first?.payload, !lib.isEmpty {
+        ), let payload = rows.first?.payload {
+            let lib = payload.resolved(base: base)
             switchSearchLibrary = lib
             wordPack = lib.allWords
         } else {
-            switchSearchLibrary = nil
-            wordPack = []
+            switchSearchLibrary = base
+            wordPack = base.allWords
         }
+    }
+
+    private func loadGames() async {
+        if let rows: [CatalogGame] = try? await SupabaseClient.shared.get(
+            path: "rest/v1/catalog_games",
+            query: [
+                URLQueryItem(name: "order", value: "sort_order.asc"),
+                URLQueryItem(name: "select", value: "*"),
+            ]
+        ) {
+            games = rows
+        }
+    }
+
+    func visibleGames(includeTest: Bool) -> [CatalogGame] {
+        games.filter { includeTest ? $0.enabledInTest : $0.enabledInProduction }
     }
 }
 

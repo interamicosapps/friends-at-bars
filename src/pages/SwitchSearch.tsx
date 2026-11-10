@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
-import wordLibrary from "@/data/wordLibrary.json";
 import { cn } from "@/lib/utils";
 import { useGameImmersive } from "@/contexts/GameImmersiveContext";
 import {
@@ -14,6 +13,12 @@ import {
   submitRankedScore,
   useRankedEntry,
 } from "@/features/ranked";
+import { catalogService } from "@/lib/catalogService";
+import {
+  loadBundledWordLibrary,
+  resolveActiveWordLibrary,
+  type WordBuckets,
+} from "@/lib/switchSearchWords";
 
 type PlayMode = "casual" | "ranked";
 
@@ -67,6 +72,9 @@ const SwitchSearch = () => {
   const { setImmersive } = useGameImmersive();
   const [view, setView] = useState<View>("homescreen");
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
+  const [wordLibrary, setWordLibrary] = useState<WordBuckets>(() =>
+    loadBundledWordLibrary()
+  );
   const [currentWords, setCurrentWords] = useState<string[]>([]);
   const [foundWords, setFoundWords] = useState<string[]>([]);
   const [totalFoundWords, setTotalFoundWords] = useState(0);
@@ -91,6 +99,18 @@ const SwitchSearch = () => {
   const rankedVenueRef = useRef<string | null>(null);
   const rankedSubmittedRef = useRef(false);
   const startGameRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const row = await catalogService.fetchGameContent("switch-search");
+      if (cancelled) return;
+      setWordLibrary(resolveActiveWordLibrary(row?.payload ?? null));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const ranked = useRankedEntry({
     gameType: "switch-search",
@@ -275,7 +295,7 @@ const SwitchSearch = () => {
     setUsedWords(newUsedWords);
     setCurrentWords(newCurrentWords);
     return newCurrentWords;
-  }, [difficulty, usedWords, getRandomWord]);
+  }, [difficulty, usedWords, getRandomWord, wordLibrary]);
 
   // Check if word can be placed
   const canPlaceWord = useCallback(

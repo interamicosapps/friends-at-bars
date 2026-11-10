@@ -39,6 +39,15 @@ export type CatalogGameContent = {
   is_active: boolean;
 };
 
+export type CatalogGame = {
+  game_key: string;
+  title: string;
+  sort_order: number;
+  enabled_in_test: boolean;
+  enabled_in_production: boolean;
+  has_details: boolean;
+};
+
 const CACHE_KEY = "barfest_catalog_venues_v1";
 const VERSION_KEY = "barfest_catalog_version_v1";
 
@@ -146,6 +155,24 @@ export const catalogService = {
       }
       console.warn("fetchGameContent", err);
       return null;
+    }
+  },
+
+  async fetchGames(): Promise<CatalogGame[]> {
+    try {
+      const { data, error } = await supabase
+        .from("catalog_games")
+        .select("*")
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CatalogGame[];
+    } catch (err) {
+      if (isSupabaseNetworkError(err)) {
+        logSupabaseNetworkOnce(err);
+        return [];
+      }
+      console.warn("fetchGames", err);
+      return [];
     }
   },
 

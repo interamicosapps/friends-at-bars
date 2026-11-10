@@ -21,7 +21,6 @@ struct RideTheBusView: View {
     @State private var cardFlightElevated = false
     @State private var optionsOpacity: Double = 1
     @State private var deckPulse = false
-    @State private var showCorrectChip = false
     @State private var confettiBurst = false
     /// Measured frames in the `rtbBoard` coordinate space (active / slots / trash).
     @State private var boardFrames: [String: CGRect] = [:]
@@ -127,7 +126,7 @@ struct RideTheBusView: View {
     private var gameScreen: some View {
         ZStack {
             VStack(spacing: 0) {
-                topBar(showCongrats: engine.screen == .won)
+                topBar
 
                 statusBanner
                     .padding(.top, 8)
@@ -135,16 +134,23 @@ struct RideTheBusView: View {
 
                 Spacer(minLength: 8)
 
-                activeRow
-                    .padding(.horizontal, 12)
-                    .zIndex(cardFlightElevated ? 20 : 1)
+                if engine.screen == .won {
+                    // Victory: fan sits in the former active-card band (no checkmark card).
+                    slotsRow
+                        .padding(.horizontal, 24)
+                        .background(RTBFrameReader(id: "slots", coordinateSpace: boardSpace))
+                } else {
+                    activeRow
+                        .padding(.horizontal, 12)
+                        .zIndex(cardFlightElevated ? 20 : 1)
 
-                Spacer(minLength: 16)
+                    Spacer(minLength: 16)
 
-                // Slots stay mounted the whole game — only opacity/transform animate, never removal.
-                slotsRow
-                    .padding(.horizontal, 24)
-                    .background(RTBFrameReader(id: "slots", coordinateSpace: boardSpace))
+                    // Slots stay mounted the whole game — only opacity/transform animate, never removal.
+                    slotsRow
+                        .padding(.horizontal, 24)
+                        .background(RTBFrameReader(id: "slots", coordinateSpace: boardSpace))
+                }
 
                 Spacer(minLength: 20)
 
@@ -172,34 +178,23 @@ struct RideTheBusView: View {
             let fail = engine.lastResultCorrect == false
             let success = engine.lastResultCorrect == true || engine.screen == .won
 
-            VStack(spacing: 6) {
-                if showCorrectChip && success && engine.screen == .playing {
-                    Text("Correct!")
-                        .font(.caption.weight(.heavy))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.green))
-                        .transition(.scale.combined(with: .opacity))
-                }
-                Text(message)
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(bannerFill(fail: fail, success: success))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-            )
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .animation(quickFade, value: engine.message)
+            Text(message)
+                .font(.body.weight(.bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(bannerFill(fail: fail, success: success))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(quickFade, value: engine.message)
         } else {
             Color.clear.frame(height: 12)
         }
@@ -211,29 +206,18 @@ struct RideTheBusView: View {
         return Color.white.opacity(0.1)
     }
 
-    private func topBar(showCongrats: Bool) -> some View {
-        VStack(spacing: 6) {
-            ZStack {
-                HStack {
-                    backButton
-                    Spacer()
-                }
-                Text("Ride The Bus")
-                    .font(.title2.bold())
-                    .foregroundStyle(.white)
-                    .shadow(color: .white.opacity(0.25), radius: 6)
+    private var topBar: some View {
+        ZStack {
+            HStack {
+                backButton
+                Spacer()
             }
-            .padding(.horizontal, 8)
-
-            if showCongrats {
-                Text("Conquered the Bus")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(Color.green)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            Text("Ride The Bus")
+                .font(.title2.bold())
+                .foregroundStyle(.white)
+                .shadow(color: .white.opacity(0.25), radius: 6)
         }
+        .padding(.horizontal, 8)
         .padding(.top, 4)
     }
 
@@ -255,58 +239,36 @@ struct RideTheBusView: View {
 
     private var activeRow: some View {
         HStack(alignment: .center, spacing: 10) {
-            if engine.screen == .won {
-                Spacer(minLength: 0)
-                winActivePlaceholder
-                    .frame(width: cardW, height: cardH)
-                Spacer(minLength: 0)
-            } else {
-                leftOptions
-                    .frame(maxWidth: .infinity)
-                    .opacity(optionsOpacity)
-                    .allowsHitTesting(optionsOpacity > 0.5)
+            leftOptions
+                .frame(maxWidth: .infinity)
+                .opacity(optionsOpacity)
+                .allowsHitTesting(optionsOpacity > 0.5)
 
-                activeCard
-                    .frame(width: cardW, height: cardH)
-                    .scaleEffect(activeScale)
-                    .rotation3DEffect(
-                        .degrees(activeFlipDegrees),
-                        axis: (x: 0, y: 1, z: 0),
-                        perspective: 0.65
-                    )
-                    .shadow(color: glowColor.opacity(glowPulse ? 0.95 : 0.35), radius: glowPulse ? 28 : 10)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(glowColor.opacity(glowPulse ? 0.9 : 0.35), lineWidth: glowPulse ? 3 : 1.5)
-                    )
-                    .offset(activeOffset)
-                    .opacity(activeOpacity)
-                    .offset(x: slotsShake)
-                    .background(RTBFrameReader(id: "active", coordinateSpace: boardSpace))
-                    .zIndex(cardFlightElevated ? 30 : 2)
+            activeCard
+                .frame(width: cardW, height: cardH)
+                .scaleEffect(activeScale)
+                .rotation3DEffect(
+                    .degrees(activeFlipDegrees),
+                    axis: (x: 0, y: 1, z: 0),
+                    perspective: 0.65
+                )
+                .shadow(color: glowColor.opacity(glowPulse ? 0.95 : 0.35), radius: glowPulse ? 28 : 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(glowColor.opacity(glowPulse ? 0.9 : 0.35), lineWidth: glowPulse ? 3 : 1.5)
+                )
+                .offset(activeOffset)
+                .opacity(activeOpacity)
+                .offset(x: slotsShake)
+                .background(RTBFrameReader(id: "active", coordinateSpace: boardSpace))
+                .zIndex(cardFlightElevated ? 30 : 2)
 
-                rightOptions
-                    .frame(maxWidth: .infinity)
-                    .opacity(optionsOpacity)
-                    .allowsHitTesting(optionsOpacity > 0.5)
-            }
+            rightOptions
+                .frame(maxWidth: .infinity)
+                .opacity(optionsOpacity)
+                .allowsHitTesting(optionsOpacity > 0.5)
         }
         .disabled(isBusy || engine.phase != .awaitingGuess || engine.screen == .won)
-    }
-
-    private var winActivePlaceholder: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(Color.green.opacity(0.55), lineWidth: 2)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.green.opacity(0.12))
-            )
-            .overlay(
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 40))
-                    .foregroundStyle(Color.green)
-                    .shadow(color: .green.opacity(0.7), radius: 14)
-            )
     }
 
     @ViewBuilder
@@ -418,9 +380,12 @@ struct RideTheBusView: View {
 
     // MARK: - Slots
 
-    /// Won cards only — no empty 1/2/3 placeholders. 1 centered, 2 as a centered pair, 3 full row.
+    /// In-play slots, or win fan (final flipped card centered).
     private var filledSlotCards: [(index: Int, card: RTBCard)] {
-        engine.slots.enumerated().compactMap { index, card in
+        if engine.screen == .won, !engine.winFanCards.isEmpty {
+            return engine.winFanCards.enumerated().map { ($0.offset, $0.element) }
+        }
+        return engine.slots.enumerated().compactMap { index, card in
             guard let card else { return nil }
             return (index, card)
         }
@@ -428,6 +393,10 @@ struct RideTheBusView: View {
 
     private var slotsRow: some View {
         let filled = filledSlotCards
+        let isWinFan = engine.screen == .won && filled.count == 3
+        // Slightly larger cards when the fan is the win hero.
+        let w = isWinFan ? slotW * 1.15 : slotW
+        let h = isWinFan ? slotH * 1.15 : slotH
         return Group {
             if filled.isEmpty {
                 // Reserve height so the board doesn’t jump when the first card lands.
@@ -435,31 +404,35 @@ struct RideTheBusView: View {
             } else {
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    HStack(spacing: 14) {
+                    HStack(spacing: isWinFan ? 10 : 14) {
                         ForEach(Array(filled.enumerated()), id: \.element.index) { visibleIndex, item in
                             let fan: CGFloat = {
-                                guard engine.screen == .won, filled.count == 3 else { return 0 }
-                                return CGFloat(visibleIndex - 1) * 10
+                                guard isWinFan else { return 0 }
+                                return CGFloat(visibleIndex - 1) * 12
                             }()
+                            let isCenter = isWinFan && visibleIndex == 1
                             ZStack {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(Color(red: 0.12, green: 0.18, blue: 0.35))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                                             .strokeBorder(
-                                                slotHighlightIndex == item.index
-                                                    ? Color.yellow.opacity(0.9)
-                                                    : Color.white.opacity(0.18),
-                                                lineWidth: slotHighlightIndex == item.index ? 2.5 : 1
+                                                isCenter
+                                                    ? Color.green.opacity(0.85)
+                                                    : (slotHighlightIndex == item.index
+                                                        ? Color.yellow.opacity(0.9)
+                                                        : Color.white.opacity(0.18)),
+                                                lineWidth: isCenter || slotHighlightIndex == item.index ? 2.5 : 1
                                             )
                                     )
                                     .shadow(color: Color.black.opacity(0.35), radius: 6, y: 3)
                                 RTBPlayingCardView(card: item.card)
                                     .padding(4)
                             }
-                            .frame(width: slotW, height: slotH)
+                            .frame(width: isCenter ? w * 1.08 : w, height: isCenter ? h * 1.08 : h)
                             .rotationEffect(.degrees(Double(fan)))
-                            .offset(y: engine.screen == .won ? abs(fan) * 0.4 : 0)
+                            .offset(y: isWinFan ? (isCenter ? -6 : abs(fan) * 0.45) : 0)
+                            .zIndex(isCenter ? 2 : 0)
                         }
                     }
                     Spacer(minLength: 0)
@@ -505,6 +478,29 @@ struct RideTheBusView: View {
                         .shadow(color: .green.opacity(0.35), radius: 10, y: 2)
                 }
                 .buttonStyle(.plain)
+            } else if DevTestMode.isUIEnabled {
+                Button {
+                    hapticWin()
+                    isBusy = false
+                    flight = nil
+                    resetActiveTransforms()
+                    optionsOpacity = 1
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        engine.jumpToVictoryForTesting()
+                        confettiBurst = true
+                    }
+                } label: {
+                    Text("Victory")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.yellow)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: .yellow.opacity(0.35), radius: 8, y: 2)
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
             } else {
                 Spacer(minLength: 0)
             }
@@ -645,7 +641,6 @@ struct RideTheBusView: View {
         guard canGuess else { return }
         isBusy = true
         hapticLight()
-        showCorrectChip = false
         engine.submitGuess(guess)
 
         withAnimation(quickFade) { optionsOpacity = 0.15 }
@@ -702,7 +697,6 @@ struct RideTheBusView: View {
         cardFlightElevated = true
         glowColor = .clear
         glowPulse = false
-        showCorrectChip = false
 
         if reduceMotion {
             activeOpacity = 1
@@ -745,7 +739,6 @@ struct RideTheBusView: View {
 
     private func animateSuccessHold() async {
         glowColor = .yellow
-        showCorrectChip = true
         withAnimation(.spring(response: 0.28, dampingFraction: 0.55)) {
             activeScale = 1.1
             glowPulse = true
@@ -797,7 +790,6 @@ struct RideTheBusView: View {
 
         glowColor = .clear
         glowPulse = false
-        showCorrectChip = false
 
         let from = boardFrames["active"] ?? CGRect(
             x: UIScreen.main.bounds.midX - cardW / 2,

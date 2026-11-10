@@ -99,7 +99,7 @@ export default function App() {
         <div>
           <div className="cms-title-row">
             <h1>Bar Fest CMS</h1>
-            <span className="cms-version">v1.0.3</span>
+            <span className="cms-version">v1.0.4</span>
           </div>
           <p className="muted">{session.user.email}</p>
         </div>
@@ -113,7 +113,7 @@ export default function App() {
           [
             ["venues", "Venues", "Venues"],
             ["listings", "Deals / Events", "Deals"],
-            ["games", "Game content", "Games"],
+            ["games", "Games", "Games"],
             ["geographies", "Geographies", "Geos"],
             ["mock", "Mock live", "Live"],
             ["mockWait", "Mock wait", "Wait"],

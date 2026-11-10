@@ -66,13 +66,13 @@ final class SwitchSearchEngine: ObservableObject {
     }
 
     func refreshLibraryFromCatalog() async {
-        let cms = await CatalogStore.shared.switchSearchLibrary
-        if let cms, !cms.isEmpty {
-            library = cms
-            librarySource = "cms"
+        let resolved = await CatalogStore.shared.switchSearchLibrary
+        if let resolved, !resolved.isEmpty {
+            library = resolved
+            librarySource = "active"
             DiagnosticLog.shared.append(
                 category: "system",
-                message: "Switch Search words from CMS (\(cms.allWords.count) words)"
+                message: "Switch Search active words (\(resolved.allWords.count) = bundled ∪ extras − bans)"
             )
         } else {
             library = WordLibrary.loadBundled()

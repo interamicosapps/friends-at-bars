@@ -6,6 +6,8 @@ struct GamesHubView: View {
     @State private var showSwitchSearch = false
     @State private var showRideTheBus = false
     @State private var showBoozed = false
+    @State private var showMegaToe = false
+    @State private var catalogGames: [CatalogGame] = []
     /// How far the scroll view is pulled past the bottom (rubber-band only).
     @State private var bottomOverscroll: CGFloat = 0
 
@@ -15,42 +17,64 @@ struct GamesHubView: View {
         Double(min(1, max(0, bottomOverscroll / overscrollFadeDistance)))
     }
 
+    private var visibleGames: [CatalogGame] {
+        let includeTest = testMode.uiEnabled
+        let fromCatalog = catalogGames.filter {
+            includeTest ? $0.enabledInTest : $0.enabledInProduction
+        }
+        if !fromCatalog.isEmpty { return fromCatalog }
+        // Offline / pre-migration fallback
+        return Self.fallbackGames.filter {
+            includeTest ? $0.enabledInTest : $0.enabledInProduction
+        }
+    }
+
+    private static let fallbackGames: [CatalogGame] = [
+        CatalogGame(
+            gameKey: "switch-search",
+            title: "Switch Search",
+            sortOrder: 10,
+            enabledInTest: true,
+            enabledInProduction: true,
+            hasDetails: true
+        ),
+        CatalogGame(
+            gameKey: "ride-the-bus",
+            title: "Ride The Bus (beta)",
+            sortOrder: 20,
+            enabledInTest: true,
+            enabledInProduction: true,
+            hasDetails: false
+        ),
+        CatalogGame(
+            gameKey: "boozed",
+            title: "Boozed (beta)",
+            sortOrder: 30,
+            enabledInTest: true,
+            enabledInProduction: true,
+            hasDetails: false
+        ),
+        CatalogGame(
+            gameKey: "mega-toe",
+            title: "Megatoe",
+            sortOrder: 40,
+            enabledInTest: true,
+            enabledInProduction: false,
+            hasDetails: false
+        ),
+    ]
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    GameHubCard(
-                        title: "Switch Search",
-                        imageName: "SwitchSearchCardIcon"
-                    ) {
-                        showSwitchSearch = true
-                    }
-
-                    GameHubCard(
-                        title: "Ride The Bus (beta)",
-                        imageName: "RideTheBusCardIcon"
-                    ) {
-                        showRideTheBus = true
-                    }
-
-                    GameHubCard(
-                        title: "Boozed (beta)",
-                        imageName: nil
-                    ) {
-                        showBoozed = true
-                    }
-
-                    if testMode.uiEnabled {
-                        NavigationLink {
-                            Text("Mega Toe — placeholder board. Port full rules from React in a follow-up.")
-                                .padding()
-                        } label: {
-                            GameHubCardLabel(
-                                title: "Megatoe",
-                                imageName: nil
-                            )
+                    ForEach(visibleGames) { game in
+                        GameHubCard(
+                            title: game.title,
+                            imageName: Self.imageName(for: game.gameKey)
+                        ) {
+                            open(game.gameKey)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -81,6 +105,10 @@ struct GamesHubView: View {
             .navigationTitle("Games")
             .toolbarBackground(Color.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .task { await refreshGames() }
+            .onChange(of: testMode.uiEnabled) { _, _ in
+                Task { await refreshGames() }
+            }
             .fullScreenCover(isPresented: $showSwitchSearch) {
                 SwitchSearchView()
             }
@@ -90,6 +118,42 @@ struct GamesHubView: View {
             .fullScreenCover(isPresented: $showBoozed) {
                 BoozedView()
             }
+            .fullScreenCover(isPresented: $showMegaToe) {
+                NavigationStack {
+                    Text("Mega Toe — placeholder board. Port full rules from React in a follow-up.")
+                        .padding()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Close") { showMegaToe = false }
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    private func refreshGames() async {
+        let rows = await CatalogStore.shared.games
+        await MainActor.run {
+            catalogGames = rows
+        }
+    }
+
+    private func open(_ key: String) {
+        switch key {
+        case "switch-search": showSwitchSearch = true
+        case "ride-the-bus": showRideTheBus = true
+        case "boozed": showBoozed = true
+        case "mega-toe": showMegaToe = true
+        default: break
+        }
+    }
+
+    private static func imageName(for key: String) -> String? {
+        switch key {
+        case "switch-search": return "SwitchSearchCardIcon"
+        case "ride-the-bus": return "RideTheBusCardIcon"
+        default: return nil
         }
     }
 }

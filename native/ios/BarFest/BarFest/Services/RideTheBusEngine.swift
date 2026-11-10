@@ -92,6 +92,8 @@ final class RideTheBusEngine: ObservableObject {
     @Published var message: String?
     /// Highlights the player’s pick; others dim while resolving.
     @Published var selectedGuess: RTBGuess?
+    /// Win fan: [left, center, right] with the final flipped card in the center.
+    @Published var winFanCards: [RTBCard] = []
 
     private var runCards: [RTBCard] = []
     private var lastDrawnRank: Int?
@@ -125,6 +127,49 @@ final class RideTheBusEngine: ObservableObject {
         selectedGuess = nil
         screen = .playing
         dealNextCard()
+    }
+
+    /// Test-app only: skip to the victory fan. Keeps filled slots; fills empty places with random unique cards.
+    func jumpToVictoryForTesting() {
+        var used = Set(slots.compactMap { $0?.id })
+        if let current { used.insert(current.id) }
+        used.formUnion(runCards.map(\.id))
+
+        func takeRandom() -> RTBCard {
+            let pool = (deck + discard + Self.freshShuffledDeck()).filter { !used.contains($0.id) }
+            let card = pool.randomElement() ?? RTBCard(
+                id: "test-\(UUID().uuidString)",
+                suit: RTBSuit.allCases.randomElement()!,
+                rank: RTBRank.allCases.randomElement()!
+            )
+            used.insert(card.id)
+            return card
+        }
+
+        var nextSlots = slots
+        for i in 0 ..< 3 {
+            if nextSlots[i] == nil {
+                nextSlots[i] = takeRandom()
+            }
+        }
+        slots = nextSlots
+
+        let left = nextSlots[0]!
+        let mid: RTBCard = {
+            // On the final suit round, center matches a real win (last flipped card).
+            if round == 3, let current { return current }
+            return nextSlots[1]!
+        }()
+        let right = nextSlots[2]!
+        winFanCards = [left, mid, right]
+        runCards = [left, nextSlots[1]!, right, mid]
+        current = nil
+        currentRevealed = false
+        selectedGuess = nil
+        lastResultCorrect = true
+        phase = .awaitingGuess
+        screen = .won
+        message = "Congrats! You’ve Conquered The Bus!"
     }
 
     func submitGuess(_ guess: RTBGuess) {
@@ -168,6 +213,13 @@ final class RideTheBusEngine: ObservableObject {
 
         if round == 3 {
             runCards.append(card)
+            // Victory fan: keep first + third slot cards; final flip is the center hero.
+            if let left = slots[0], let right = slots[2] {
+                winFanCards = [left, card, right]
+            } else {
+                let prior = slots.compactMap { $0 }
+                winFanCards = (prior + [card]).suffix(3).map { $0 }
+            }
             current = nil
             currentRevealed = false
             selectedGuess = nil
@@ -207,6 +259,7 @@ final class RideTheBusEngine: ObservableObject {
 
         slots = [nil, nil, nil]
         runCards = []
+        winFanCards = []
         current = nil
         currentRevealed = false
         round = 0
@@ -310,6 +363,7 @@ final class RideTheBusEngine: ObservableObject {
         slots = [nil, nil, nil]
         round = 0
         runCards = []
+        winFanCards = []
         lastDrawnRank = nil
         lastResultCorrect = nil
         selectedGuess = nil
