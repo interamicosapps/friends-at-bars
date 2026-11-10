@@ -92,8 +92,10 @@ final class RideTheBusEngine: ObservableObject {
     @Published var message: String?
     /// Highlights the player’s pick; others dim while resolving.
     @Published var selectedGuess: RTBGuess?
-    /// Win fan: [left, center, right] with the final flipped card in the center.
+    /// Win fan: first three correctly cleared slot cards (spread).
     @Published var winFanCards: [RTBCard] = []
+    /// Win solo: the final (4th) flipped card, shown under the fan.
+    @Published var winFinalCard: RTBCard?
 
     private var runCards: [RTBCard] = []
     private var lastDrawnRank: Int?
@@ -129,7 +131,7 @@ final class RideTheBusEngine: ObservableObject {
         dealNextCard()
     }
 
-    /// Test-app only: skip to the victory fan. Keeps filled slots; fills empty places with random unique cards.
+    /// Test-app only: skip to victory. Keeps filled slots; fills gaps + final with random unique cards.
     func jumpToVictoryForTesting() {
         var used = Set(slots.compactMap { $0?.id })
         if let current { used.insert(current.id) }
@@ -154,15 +156,14 @@ final class RideTheBusEngine: ObservableObject {
         }
         slots = nextSlots
 
-        let left = nextSlots[0]!
-        let mid: RTBCard = {
-            // On the final suit round, center matches a real win (last flipped card).
+        let final: RTBCard = {
             if round == 3, let current { return current }
-            return nextSlots[1]!
+            return takeRandom()
         }()
-        let right = nextSlots[2]!
-        winFanCards = [left, mid, right]
-        runCards = [left, nextSlots[1]!, right, mid]
+
+        winFanCards = [nextSlots[0]!, nextSlots[1]!, nextSlots[2]!]
+        winFinalCard = final
+        runCards = winFanCards + [final]
         current = nil
         currentRevealed = false
         selectedGuess = nil
@@ -213,13 +214,9 @@ final class RideTheBusEngine: ObservableObject {
 
         if round == 3 {
             runCards.append(card)
-            // Victory fan: keep first + third slot cards; final flip is the center hero.
-            if let left = slots[0], let right = slots[2] {
-                winFanCards = [left, card, right]
-            } else {
-                let prior = slots.compactMap { $0 }
-                winFanCards = (prior + [card]).suffix(3).map { $0 }
-            }
+            // Victory: 3-card fan from slots + final flipped card alone underneath.
+            winFanCards = slots.compactMap { $0 }
+            winFinalCard = card
             current = nil
             currentRevealed = false
             selectedGuess = nil
@@ -260,6 +257,7 @@ final class RideTheBusEngine: ObservableObject {
         slots = [nil, nil, nil]
         runCards = []
         winFanCards = []
+        winFinalCard = nil
         current = nil
         currentRevealed = false
         round = 0
@@ -364,6 +362,7 @@ final class RideTheBusEngine: ObservableObject {
         round = 0
         runCards = []
         winFanCards = []
+        winFinalCard = nil
         lastDrawnRank = nil
         lastResultCorrect = nil
         selectedGuess = nil

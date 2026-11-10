@@ -132,14 +132,15 @@ struct RideTheBusView: View {
                     .padding(.top, 8)
                     .padding(.horizontal, 12)
 
-                Spacer(minLength: 8)
-
                 if engine.screen == .won {
-                    // Victory: fan sits in the former active-card band (no checkmark card).
-                    slotsRow
+                    // Tight top spacing so the 3-card fan sits higher; flexible spacer below pushes piles down.
+                    Spacer(minLength: 6)
+                    winLayout
                         .padding(.horizontal, 24)
-                        .background(RTBFrameReader(id: "slots", coordinateSpace: boardSpace))
+                    Spacer()
                 } else {
+                    Spacer(minLength: 8)
+
                     activeRow
                         .padding(.horizontal, 12)
                         .zIndex(cardFlightElevated ? 20 : 1)
@@ -150,9 +151,9 @@ struct RideTheBusView: View {
                     slotsRow
                         .padding(.horizontal, 24)
                         .background(RTBFrameReader(id: "slots", coordinateSpace: boardSpace))
-                }
 
-                Spacer(minLength: 20)
+                    Spacer(minLength: 20)
+                }
 
                 bottomPiles
                     .padding(.horizontal, 28)
@@ -380,23 +381,57 @@ struct RideTheBusView: View {
 
     // MARK: - Slots
 
-    /// In-play slots, or win fan (final flipped card centered).
+    /// In-play filled slots only.
     private var filledSlotCards: [(index: Int, card: RTBCard)] {
-        if engine.screen == .won, !engine.winFanCards.isEmpty {
-            return engine.winFanCards.enumerated().map { ($0.offset, $0.element) }
-        }
-        return engine.slots.enumerated().compactMap { index, card in
+        engine.slots.enumerated().compactMap { index, card in
             guard let card else { return nil }
             return (index, card)
         }
     }
 
+    /// Victory: 3-card fan higher up, final (4th) card alone underneath. Uniform blue mats.
+    private var winLayout: some View {
+        let fan = engine.winFanCards
+        let fanW = slotW * 1.12
+        let fanH = slotH * 1.12
+        return VStack(spacing: 18) {
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                HStack(spacing: 10) {
+                    ForEach(Array(fan.enumerated()), id: \.offset) { visibleIndex, card in
+                        let tilt = CGFloat(visibleIndex - 1) * 11
+                        winCardMat(card: card, width: fanW, height: fanH)
+                            .rotationEffect(.degrees(Double(tilt)))
+                            .offset(y: abs(tilt) * 0.4)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            if let final = engine.winFinalCard {
+                winCardMat(card: final, width: cardW * 0.92, height: cardH * 0.92)
+            }
+        }
+        .animation(cardSpring, value: engine.screen == .won)
+    }
+
+    private func winCardMat(card: RTBCard, width: CGFloat, height: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(red: 0.12, green: 0.18, blue: 0.35))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.35), radius: 6, y: 3)
+            RTBPlayingCardView(card: card)
+                .padding(4)
+        }
+        .frame(width: width, height: height)
+    }
+
     private var slotsRow: some View {
         let filled = filledSlotCards
-        let isWinFan = engine.screen == .won && filled.count == 3
-        // Slightly larger cards when the fan is the win hero.
-        let w = isWinFan ? slotW * 1.15 : slotW
-        let h = isWinFan ? slotH * 1.15 : slotH
         return Group {
             if filled.isEmpty {
                 // Reserve height so the board doesn’t jump when the first card lands.
@@ -404,35 +439,25 @@ struct RideTheBusView: View {
             } else {
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    HStack(spacing: isWinFan ? 10 : 14) {
-                        ForEach(Array(filled.enumerated()), id: \.element.index) { visibleIndex, item in
-                            let fan: CGFloat = {
-                                guard isWinFan else { return 0 }
-                                return CGFloat(visibleIndex - 1) * 12
-                            }()
-                            let isCenter = isWinFan && visibleIndex == 1
+                    HStack(spacing: 14) {
+                        ForEach(Array(filled.enumerated()), id: \.element.index) { _, item in
                             ZStack {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(Color(red: 0.12, green: 0.18, blue: 0.35))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                                             .strokeBorder(
-                                                isCenter
-                                                    ? Color.green.opacity(0.85)
-                                                    : (slotHighlightIndex == item.index
-                                                        ? Color.yellow.opacity(0.9)
-                                                        : Color.white.opacity(0.18)),
-                                                lineWidth: isCenter || slotHighlightIndex == item.index ? 2.5 : 1
+                                                slotHighlightIndex == item.index
+                                                    ? Color.yellow.opacity(0.9)
+                                                    : Color.white.opacity(0.18),
+                                                lineWidth: slotHighlightIndex == item.index ? 2.5 : 1
                                             )
                                     )
                                     .shadow(color: Color.black.opacity(0.35), radius: 6, y: 3)
                                 RTBPlayingCardView(card: item.card)
                                     .padding(4)
                             }
-                            .frame(width: isCenter ? w * 1.08 : w, height: isCenter ? h * 1.08 : h)
-                            .rotationEffect(.degrees(Double(fan)))
-                            .offset(y: isWinFan ? (isCenter ? -6 : abs(fan) * 0.45) : 0)
-                            .zIndex(isCenter ? 2 : 0)
+                            .frame(width: slotW, height: slotH)
                         }
                     }
                     Spacer(minLength: 0)
@@ -441,7 +466,6 @@ struct RideTheBusView: View {
             }
         }
         .offset(x: slotsShake)
-        .animation(cardSpring, value: engine.screen == .won)
     }
 
     // MARK: - Bottom piles
