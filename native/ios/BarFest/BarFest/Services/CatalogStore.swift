@@ -159,14 +159,31 @@ actor CatalogStore {
     }
 
     private func loadGames() async {
-        if let rows: [CatalogGame] = try? await SupabaseClient.shared.get(
-            path: "rest/v1/catalog_games",
-            query: [
-                URLQueryItem(name: "order", value: "sort_order.asc"),
-                URLQueryItem(name: "select", value: "*"),
-            ]
-        ) {
+        _ = await refreshGames()
+    }
+
+    /// Reloads `catalog_games`. Returns true when the network response was applied.
+    @discardableResult
+    func refreshGames() async -> Bool {
+        do {
+            let rows: [CatalogGame] = try await SupabaseClient.shared.get(
+                path: "rest/v1/catalog_games",
+                query: [
+                    URLQueryItem(name: "order", value: "sort_order.asc"),
+                    URLQueryItem(name: "select", value: "*"),
+                ]
+            )
             games = rows
+            return true
+        } catch {
+            await MainActor.run {
+                DiagnosticLog.shared.append(
+                    category: "system",
+                    message: "catalog_games fetch failed: \(error.localizedDescription)",
+                    level: "error"
+                )
+            }
+            return false
         }
     }
 

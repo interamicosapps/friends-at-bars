@@ -3,11 +3,14 @@ import UIKit
 
 struct GamesHubView: View {
     @ObservedObject private var testMode = TestModeStore.shared
+    @EnvironmentObject private var appModel: AppModel
     @State private var showSwitchSearch = false
     @State private var showRideTheBus = false
     @State private var showBoozed = false
     @State private var showMegaToe = false
     @State private var catalogGames: [CatalogGame] = []
+    /// True after a successful `catalog_games` fetch this session (empty list is still success).
+    @State private var catalogFetchSucceeded = false
     /// How far the scroll view is pulled past the bottom (rubber-band only).
     @State private var bottomOverscroll: CGFloat = 0
 
@@ -17,15 +20,33 @@ struct GamesHubView: View {
         Double(min(1, max(0, bottomOverscroll / overscrollFadeDistance)))
     }
 
-    private var visibleGames: [CatalogGame] {
-        let includeTest = testMode.uiEnabled
-        let fromCatalog = catalogGames.filter {
-            includeTest ? $0.enabledInTest : $0.enabledInProduction
+    /// Production app → production CMS column.
+    /// Test app → Test Mode on uses test column; Test Mode off uses production column.
+    private var useTestGameFlags: Bool {
+        testMode.uiEnabled && testMode.useMockCheckIns
+    }
+
+    private var filterLabel: String {
+        useTestGameFlags ? "test" : "production"
+    }
+
+    private var sourceGames: [CatalogGame] {
+        if catalogFetchSucceeded {
+            return catalogGames
         }
-        if !fromCatalog.isEmpty { return fromCatalog }
-        // Offline / pre-migration fallback
-        return Self.fallbackGames.filter {
-            includeTest ? $0.enabledInTest : $0.enabledInProduction
+        if !catalogGames.isEmpty {
+            return catalogGames
+        }
+        return Self.fallbackGames
+    }
+
+    private var usingFallback: Bool {
+        !catalogFetchSucceeded && catalogGames.isEmpty
+    }
+
+    private var visibleGames: [CatalogGame] {
+        sourceGames.filter {
+            useTestGameFlags ? $0.enabledInTest : $0.enabledInProduction
         }
     }
 
@@ -105,10 +126,20 @@ struct GamesHubView: View {
             .navigationTitle("Games")
             .toolbarBackground(Color.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .task { await refreshGames() }
-            .onChange(of: testMode.uiEnabled) { _, _ in
-                Task { await refreshGames() }
+            .task { await refreshGames(reason: "appear") }
+            .onChange(of: testMode.useMockCheckIns) { _, on in
+                DiagnosticLog.shared.append(
+                    category: "system",
+                    message: "Games filter → \(on && testMode.uiEnabled ? "test" : "production") (Test Mode mock=\(on))"
+                )
+                logGamesVisibility(reason: "test-mode-toggle")
             }
+            .onChange(of: appModel.initialBootstrapFinished) { _, finished in
+                if finished {
+                    Task { await refreshGames(reason: "bootstrap") }
+                }
+            }
+            .refreshable { await refreshGames(reason: "pull") }
             .fullScreenCover(isPresented: $showSwitchSearch) {
                 SwitchSearchView()
             }
@@ -132,10 +163,53 @@ struct GamesHubView: View {
         }
     }
 
-    private func refreshGames() async {
+    private func refreshGames(reason: String) async {
+        let ok = await CatalogStore.shared.refreshGames()
         let rows = await CatalogStore.shared.games
         await MainActor.run {
-            catalogGames = rows
+            catalogFetchSucceeded = ok || !rows.isEmpty
+            if ok || !rows.isEmpty {
+                catalogGames = rows
+            }
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: """
+                Games refresh[\(reason)] ok=\(ok) source=\(usingFallback ? "fallback" : "catalog") \
+                rows=\(catalogGames.count) filter=\(filterLabel) shown=\(visibleGames.count)
+                """
+            )
+            logGamesVisibility(reason: reason)
+        }
+    }
+
+    private func logGamesVisibility(reason: String) {
+        let source = usingFallback ? "fallback" : "catalog"
+        let pool = sourceGames
+        DiagnosticLog.shared.append(
+            category: "system",
+            message: "Games visibility[\(reason)] source=\(source) filter=\(filterLabel) pool=\(pool.count)"
+        )
+        for game in pool {
+            let shown = useTestGameFlags ? game.enabledInTest : game.enabledInProduction
+            let reasonText: String
+            if shown {
+                reasonText = "shown: \(filterLabel) flag on"
+            } else if useTestGameFlags {
+                reasonText = "hidden: enabled_in_test=false"
+            } else {
+                reasonText = "hidden: enabled_in_production=false"
+            }
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: "Games \(game.gameKey) “\(game.title)” test=\(game.enabledInTest) prod=\(game.enabledInProduction) → \(reasonText)"
+            )
+        }
+        if usingFallback {
+            DiagnosticLog.shared.append(
+                category: "system",
+                message: "Games using offline fallback — CMS toggles may not match until catalog_games loads",
+                level: "warn"
+            )
         }
     }
 
