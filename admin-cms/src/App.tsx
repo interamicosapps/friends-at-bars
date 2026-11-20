@@ -20,8 +20,11 @@ type Tab =
   | "tips"
   | "map";
 
+const CMS_ACCESS_DENIED = "This account doesn't have CMS access.";
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [ready, setReady] = useState(false);
   const [tab, setTab] = useState<Tab>("venues");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,11 +34,42 @@ export default function App() {
   const [geoSeed, setGeoSeed] = useState<MapCoords | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) =>
-      setSession(s)
-    );
-    return () => sub.subscription.unsubscribe();
+    let cancelled = false;
+
+    async function assertAdmin(next: Session | null) {
+      if (!next) {
+        if (!cancelled) {
+          setSession(null);
+          setReady(true);
+        }
+        return;
+      }
+      const { data, error: rpcError } = await supabase.rpc("is_admin");
+      if (cancelled) return;
+      if (rpcError || data !== true) {
+        await supabase.auth.signOut();
+        if (!cancelled) {
+          setSession(null);
+          setError(CMS_ACCESS_DENIED);
+          setReady(true);
+        }
+        return;
+      }
+      setError(null);
+      setSession(next);
+      setReady(true);
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled) void assertAdmin(data.session);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      void assertAdmin(s);
+    });
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   async function signIn(e: React.FormEvent) {
@@ -48,6 +82,15 @@ export default function App() {
     });
     setBusy(false);
     if (err) setError(err.message);
+  }
+
+  if (!ready) {
+    return (
+      <div className="login panel">
+        <h1>Bar Fest CMS</h1>
+        <p className="muted">Checking access…</p>
+      </div>
+    );
   }
 
   if (!session) {

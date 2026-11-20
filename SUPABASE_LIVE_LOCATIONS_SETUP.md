@@ -1,5 +1,7 @@
 # Supabase Live Locations Table Setup
 
+> **Superseded for privacy.** The open `SELECT` policy and realtime publication below are replaced by [`supabase/live_locations_privacy.sql`](supabase/live_locations_privacy.sql). That script nulls `latitude` / `longitude`, limits anon and authenticated reads to `venue_name`, `is_active`, `last_updated`, and `user_id`, and removes `live_locations` from `supabase_realtime`. Do not re-run the SQL in this file on the live database.
+
 This document contains the SQL commands needed to create the `live_locations` table in your Supabase database.
 
 ## Steps
