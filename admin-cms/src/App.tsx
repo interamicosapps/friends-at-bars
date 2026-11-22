@@ -9,6 +9,7 @@ import { MapPanel, type MapCoords } from "./MapPanel";
 import { MockAttendancePanel } from "./MockAttendancePanel";
 import { MockWaitPanel } from "./MockWaitPanel";
 import { CatalogFeedbackPanel } from "./CatalogFeedbackPanel";
+import { ChatReportsPanel } from "./ChatReportsPanel";
 
 type Tab =
   | "venues"
@@ -18,6 +19,7 @@ type Tab =
   | "mock"
   | "mockWait"
   | "tips"
+  | "chatReports"
   | "map";
 
 const CMS_ACCESS_DENIED = "This account doesn't have CMS access.";
@@ -132,7 +134,11 @@ export default function App() {
   const shellClass =
     tab === "map"
       ? "app-shell map-mode"
-      : tab === "listings" || tab === "mock" || tab === "mockWait" || tab === "tips"
+      : tab === "listings" ||
+          tab === "mock" ||
+          tab === "mockWait" ||
+          tab === "tips" ||
+          tab === "chatReports"
         ? "app-shell wide"
         : "app-shell";
 
@@ -161,6 +167,7 @@ export default function App() {
             ["mock", "Mock live", "Live"],
             ["mockWait", "Mock wait", "Wait"],
             ["tips", "Tips", "Tips"],
+            ["chatReports", "Chat reports", "Chat"],
             ["map", "Map", "Map"],
           ] as const
         ).map(([id, label, shortLabel]) => (
@@ -194,6 +201,7 @@ export default function App() {
         {tab === "mock" && <MockAttendancePanel />}
         {tab === "mockWait" && <MockWaitPanel />}
         {tab === "tips" && <CatalogFeedbackPanel />}
+        {tab === "chatReports" && <ChatReportsPanel />}
         {tab === "map" && (
           <MapPanel
             onStartVenue={(coords) => {
