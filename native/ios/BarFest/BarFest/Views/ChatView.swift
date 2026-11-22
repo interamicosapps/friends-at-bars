@@ -23,6 +23,9 @@ struct ChatView: View {
     @State private var avatarPickerTarget: ChatAvatarPickerTarget?
     @FocusState private var composerFocused: Bool
     @State private var regionWarningFlash = false
+    @State private var showChatRules = false
+    @State private var pendingSendAfterRules = false
+    @State private var reportThanks = false
 
     private var useLocal: Bool { testMode.uiEnabled && testMode.useMockCheckIns }
     private var remaining: Int { AppConfig.maxChatChars - draft.count }
@@ -351,6 +354,25 @@ struct ChatView: View {
             .sheet(item: $avatarPickerTarget) { target in
                 ChatAvatarPickerSheet(target: target)
             }
+            .sheet(isPresented: $showChatRules) {
+                ChatRulesSheet(
+                    onAgree: {
+                        ChatClientModeration.acceptRules()
+                        showChatRules = false
+                        if pendingSendAfterRules {
+                            pendingSendAfterRules = false
+                            Task { await send() }
+                        }
+                    },
+                    onCancel: {
+                        pendingSendAfterRules = false
+                        showChatRules = false
+                    }
+                )
+            }
+            .alert("Thanks — we'll review it.", isPresented: $reportThanks) {
+                Button("OK", role: .cancel) {}
+            }
             .navigationDestination(item: $openThreadId) { id in
                 ChatThreadView(
                     parentId: id,
@@ -393,7 +415,9 @@ struct ChatView: View {
                 Task { await load() }
             }
             .onChange(of: localChat.posts.count) { _, _ in
-                if useLocal { posts = localChat.feed(sort: sort) }
+                if useLocal {
+                    posts = ChatClientModeration.filterVisible(localChat.feed(sort: sort))
+                }
             }
             .onChange(of: appModel.resolvedGeography?.id) { _, _ in
                 if !localChat.simulatedVenueName.isEmpty
@@ -407,7 +431,7 @@ struct ChatView: View {
 
     @ViewBuilder
     private func chatRow(_ post: ChatPost) -> some View {
-        let isOwn = post.author_id == AnonymousIdentity.userId()
+        let isOwn = post.is_mine
         let avatar = ChatAvatarResolver.selection(
             for: post,
             preference: avatarStore.selection,
@@ -558,6 +582,14 @@ struct ChatView: View {
                         Label("Report", systemImage: "flag")
                     }
                     .tint(.orange)
+                    if !useLocal {
+                        Button {
+                            Task { await blockAuthor(postId: post.id) }
+                        } label: {
+                            Label("Block this user", systemImage: "hand.raised")
+                        }
+                        .tint(.red)
+                    }
                 }
             }
         }
@@ -881,12 +913,12 @@ struct ChatView: View {
             return
         }
         if useLocal {
-            posts = localChat.feed(sort: sort)
+            posts = ChatClientModeration.filterVisible(localChat.feed(sort: sort))
             error = nil
             return
         }
         do {
-            posts = try await ChatService.fetchFeed(sort: sort)
+            posts = ChatClientModeration.filterVisible(try await ChatService.fetchFeed(sort: sort))
             error = nil
         } catch {
             self.error = UserFacingError.message(for: error)
@@ -925,15 +957,20 @@ struct ChatView: View {
         if useLocal {
             // Local feed has no server report — soft-hide + log for Test Mode parity.
             localChat.hide(postIds: [postId])
+            ChatClientModeration.hideLocally(postId: postId)
+            reportThanks = true
             DiagnosticLog.shared.append(
                 category: "chat",
                 message: "Reported (local) post \(postId.uuidString.prefix(8))…"
             )
+            posts.removeAll { $0.id == postId }
         } else {
             do {
                 try await ChatService.report(postId: postId, reason: nil)
+                ChatClientModeration.hideLocally(postId: postId)
+                posts.removeAll { $0.id == postId }
+                reportThanks = true
                 DiagnosticLog.shared.append(category: "chat", message: "Reported post")
-                await load()
             } catch {
                 self.error = UserFacingError.message(for: error)
                 DiagnosticLog.shared.append(
@@ -942,6 +979,16 @@ struct ChatView: View {
                     level: "error"
                 )
             }
+        }
+    }
+
+    private func blockAuthor(postId: UUID) async {
+        do {
+            try await ChatService.blockAuthor(postId: postId)
+            DiagnosticLog.shared.append(category: "chat", message: "Blocked author via post")
+            await load()
+        } catch {
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -955,6 +1002,11 @@ struct ChatView: View {
         guard !trimmed.isEmpty else { return }
         guard trimmed.count <= AppConfig.maxChatChars else {
             error = "150 Character Limit"
+            return
+        }
+        if !useLocal && !ChatClientModeration.hasAcceptedRules {
+            pendingSendAfterRules = true
+            showChatRules = true
             return
         }
         do {

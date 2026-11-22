@@ -110,7 +110,6 @@ struct CatalogListing: Codable, Identifiable, Hashable {
 
 struct ChatPost: Codable, Identifiable, Hashable {
     let id: UUID
-    let author_id: String
     let body: String
     let venue_name: String
     let geography_id: UUID?
@@ -118,7 +117,11 @@ struct ChatPost: Codable, Identifiable, Hashable {
     var is_hidden: Bool
     let created_at: String
     let expires_at: String
+    /// True when this post belongs to the current viewer (from fetch RPCs / local Test Mode).
+    var is_mine: Bool
     var my_vote: Int?
+    /// Stable avatar key within a thread; not joinable to author_id across tables.
+    let author_key: String
     /// Snapshot of the author's avatar at send time (stable even if they change later).
     var avatar_icon: String?
     var avatar_color: String?
@@ -128,6 +131,93 @@ struct ChatPost: Codable, Identifiable, Hashable {
     var reply_count: Int?
 
     var visibleReplyCount: Int { reply_count ?? 0 }
+
+    init(
+        id: UUID,
+        body: String,
+        venue_name: String,
+        geography_id: UUID?,
+        score: Int,
+        is_hidden: Bool,
+        created_at: String,
+        expires_at: String,
+        is_mine: Bool,
+        my_vote: Int?,
+        author_key: String,
+        avatar_icon: String? = nil,
+        avatar_color: String? = nil,
+        parent_id: UUID? = nil,
+        reply_count: Int? = nil
+    ) {
+        self.id = id
+        self.body = body
+        self.venue_name = venue_name
+        self.geography_id = geography_id
+        self.score = score
+        self.is_hidden = is_hidden
+        self.created_at = created_at
+        self.expires_at = expires_at
+        self.is_mine = is_mine
+        self.my_vote = my_vote
+        self.author_key = author_key
+        self.avatar_icon = avatar_icon
+        self.avatar_color = avatar_color
+        self.parent_id = parent_id
+        self.reply_count = reply_count
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, body, venue_name, geography_id, score, is_hidden, created_at, expires_at
+        case is_mine, my_vote, author_key, avatar_icon, avatar_color, parent_id, reply_count
+        case author_id
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        body = try c.decode(String.self, forKey: .body)
+        venue_name = try c.decode(String.self, forKey: .venue_name)
+        geography_id = try c.decodeIfPresent(UUID.self, forKey: .geography_id)
+        score = try c.decode(Int.self, forKey: .score)
+        is_hidden = try c.decode(Bool.self, forKey: .is_hidden)
+        created_at = try c.decode(String.self, forKey: .created_at)
+        expires_at = try c.decode(String.self, forKey: .expires_at)
+        my_vote = try c.decodeIfPresent(Int.self, forKey: .my_vote)
+        avatar_icon = try c.decodeIfPresent(String.self, forKey: .avatar_icon)
+        avatar_color = try c.decodeIfPresent(String.self, forKey: .avatar_color)
+        parent_id = try c.decodeIfPresent(UUID.self, forKey: .parent_id)
+        reply_count = try c.decodeIfPresent(Int.self, forKey: .reply_count)
+
+        if let key = try c.decodeIfPresent(String.self, forKey: .author_key),
+           let mine = try c.decodeIfPresent(Bool.self, forKey: .is_mine) {
+            author_key = key
+            is_mine = mine
+        } else {
+            // Legacy Test Mode cache that still had author_id.
+            let legacy = try c.decodeIfPresent(String.self, forKey: .author_id) ?? "unknown"
+            author_key = legacy
+            is_mine = legacy == AnonymousIdentity.userId()
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(body, forKey: .body)
+        try c.encode(venue_name, forKey: .venue_name)
+        try c.encodeIfPresent(geography_id, forKey: .geography_id)
+        try c.encode(score, forKey: .score)
+        try c.encode(is_hidden, forKey: .is_hidden)
+        try c.encode(created_at, forKey: .created_at)
+        try c.encode(expires_at, forKey: .expires_at)
+        try c.encode(is_mine, forKey: .is_mine)
+        try c.encodeIfPresent(my_vote, forKey: .my_vote)
+        try c.encode(author_key, forKey: .author_key)
+        try c.encodeIfPresent(avatar_icon, forKey: .avatar_icon)
+        try c.encodeIfPresent(avatar_color, forKey: .avatar_color)
+        try c.encodeIfPresent(parent_id, forKey: .parent_id)
+        try c.encodeIfPresent(reply_count, forKey: .reply_count)
+    }
 }
 
 struct CheckInRow: Codable, Hashable, Identifiable {

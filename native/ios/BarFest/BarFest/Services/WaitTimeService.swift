@@ -9,19 +9,31 @@ enum WaitTimeService {
 
     /// Fetches reports still within the longest possible influence window (45+ bucket).
     static func fetchReports(geographyId: UUID) async throws -> [WaitTimeReport] {
-        let cutoff = Date().addingTimeInterval(-TimeInterval(AppConfig.waitTimeMaxInfluenceSeconds))
-        let cutoffString = isoFormatter.string(from: cutoff)
+        struct Row: Decodable {
+            let venue_name: String
+            let wait_minutes: Int
+            let updated_at: String
+            let is_mine: Bool
+        }
 
-        let rows: [WaitTimeReportRow] = try await SupabaseClient.shared.get(
-            path: "rest/v1/venue_wait_reports",
-            query: [
-                URLQueryItem(name: "geography_id", value: "eq.\(geographyId.uuidString)"),
-                URLQueryItem(name: "updated_at", value: "gt.\(cutoffString)"),
-                URLQueryItem(name: "select", value: "venue_name,wait_minutes,updated_at,author_id"),
-                URLQueryItem(name: "order", value: "updated_at.desc"),
+        let rows: [Row] = try await SupabaseClient.shared.rpcJSON(
+            "fetch_wait_summaries",
+            params: [
+                "p_geography_id": geographyId.uuidString,
+                "p_viewer_id": AnonymousIdentity.userId(),
             ]
         )
-        return rows.map { WaitTimeReport(row: $0, formatter: isoFormatter) }
+
+        return rows.map { row in
+            WaitTimeReport(
+                venueName: row.venue_name,
+                minutes: row.wait_minutes,
+                updatedAt: isoFormatter.date(from: row.updated_at)
+                    ?? ISO8601DateFormatter().date(from: row.updated_at)
+                    ?? Date.distantPast,
+                authorId: row.is_mine ? AnonymousIdentity.userId() : "other"
+            )
+        }
     }
 
     /// CMS mock wait bucket counts → summaries for Test Mode (no timestamps).

@@ -24,8 +24,16 @@ final class TestModeStore: ObservableObject {
 
     var uiEnabled: Bool { DevTestMode.isUIEnabled }
 
+    /// Mock data is only active on the Test bundle with the chrome toggle on.
+    var isMockActive: Bool { DevTestMode.isUIEnabled && useMockCheckIns }
+
     private init() {
-        useMockCheckIns = UserDefaults.standard.bool(forKey: Self.mockKey)
+        if DevTestMode.isUIEnabled {
+            useMockCheckIns = UserDefaults.standard.bool(forKey: Self.mockKey)
+        } else {
+            useMockCheckIns = false
+            UserDefaults.standard.removeObject(forKey: Self.mockKey)
+        }
         if UserDefaults.standard.object(forKey: Self.locKey) == nil {
             simulateLocationAllowed = true
         } else {

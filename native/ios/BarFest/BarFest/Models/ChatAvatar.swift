@@ -140,11 +140,13 @@ enum ChatAvatarResolver {
         if let snapped = post.avatarSelection {
             return snapped
         }
-        return selection(
-            forAuthorId: post.author_id,
-            preference: preference,
-            otherPreference: otherPreference
-        )
+        if post.is_mine, let preference {
+            return preference
+        }
+        if post.author_key == TestChatStore.otherAuthorId, let otherPreference {
+            return otherPreference
+        }
+        return derived(from: post.author_key)
     }
 
     /// Own / other-user preference when matched; otherwise a stable hash so strangers stay consistent.

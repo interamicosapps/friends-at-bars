@@ -7,6 +7,14 @@ enum UserFacingError {
     static func message(for error: Error) -> String {
         if error is ChatLocalError { return error.localizedDescription }
         if (error as NSError).domain == "WaitTime" { return error.localizedDescription }
+        let raw = error.localizedDescription
+        if raw.localizedCaseInsensitiveContains("Post blocked by filter") {
+            return "That message was blocked by the filter."
+        }
+        if raw.localizedCaseInsensitiveContains("Slow down — try again later")
+            || raw.localizedCaseInsensitiveContains("Slow down - try again later") {
+            return "Slow down — try again later."
+        }
         return tryAgain
     }
 }

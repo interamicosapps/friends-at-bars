@@ -1360,6 +1360,17 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
         let rest = Array(items.dropFirst())
         switch first.kind {
         case .upsert:
+            // Drop upserts older than 10 minutes so a phone that comes back online
+            // hours later is not counted at a bar it already left.
+            let ageMs = Date().timeIntervalSince1970 * 1000 - first.enqueuedAtMs
+            if ageMs > 10 * 60 * 1000 {
+                logPresence(
+                    "queue drop stale upsert ageMin=\(Int(ageMs / 60_000)) venue=\(first.venueName ?? "nil")"
+                )
+                savePendingWrites(rest)
+                flushNext(rest)
+                return
+            }
             guard let venue = first.venueName else {
                 savePendingWrites(rest)
                 flushNext(rest)
@@ -1452,8 +1463,18 @@ final class VenueLiveLocationEngine: NSObject, CLLocationManagerDelegate {
             logPresence("visit skipped[\(source)] — no API", level: "warn")
             return
         }
+        let fix = onEngineQueue { lastKnownLocation }
+        guard let fix else {
+            logPresence("visit skipped[\(source)] — no fix", level: "warn")
+            return
+        }
         logPresence("visit write start[\(source)] \(venueName)")
-        api.upsertPresenceVisit(userId: userId, venueName: venueName) { [weak self] result in
+        api.upsertPresenceVisit(
+            userId: userId,
+            venueName: venueName,
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude
+        ) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success:

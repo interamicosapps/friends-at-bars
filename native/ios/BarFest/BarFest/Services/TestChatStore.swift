@@ -71,7 +71,6 @@ final class TestChatStore: ObservableObject {
         )
         let post = ChatPost(
             id: UUID(),
-            author_id: author,
             body: trimmed,
             venue_name: venue,
             geography_id: geographyId,
@@ -79,7 +78,9 @@ final class TestChatStore: ObservableObject {
             is_hidden: false,
             created_at: now,
             expires_at: expires,
+            is_mine: author == AnonymousIdentity.userId(),
             my_vote: nil,
+            author_key: author,
             avatar_icon: avatar.icon.rawValue,
             avatar_color: avatar.color.rawValue,
             parent_id: nil,
@@ -105,7 +106,6 @@ final class TestChatStore: ObservableObject {
         let now = ISO8601DateFormatter().string(from: Date())
         let reply = ChatPost(
             id: UUID(),
-            author_id: author,
             body: trimmed,
             venue_name: parent.venue_name,
             geography_id: parent.geography_id,
@@ -113,7 +113,9 @@ final class TestChatStore: ObservableObject {
             is_hidden: false,
             created_at: now,
             expires_at: parent.expires_at,
+            is_mine: author == AnonymousIdentity.userId(),
             my_vote: nil,
+            author_key: author,
             avatar_icon: avatar.icon.rawValue,
             avatar_color: avatar.color.rawValue,
             parent_id: parentId,
@@ -148,7 +150,7 @@ final class TestChatStore: ObservableObject {
             throw ChatLocalError.message("Post not found")
         }
         var post = posts[idx]
-        if post.author_id == userId {
+        if post.is_mine || post.author_key == userId {
             throw ChatLocalError.message("Cannot vote on your own post")
         }
         let desired = direction == "up" ? 1 : -1

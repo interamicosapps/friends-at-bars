@@ -1,43 +1,76 @@
 import Foundation
 
 enum ChatService {
+    private struct ChatRPCRow: Decodable {
+        let id: UUID
+        let body: String
+        let venue_name: String
+        let geography_id: UUID?
+        let score: Int
+        let is_hidden: Bool
+        let created_at: String
+        let expires_at: String
+        let avatar_icon: String?
+        let avatar_color: String?
+        let parent_id: UUID?
+        let reply_count: Int?
+        let is_mine: Bool
+        let my_vote: Int?
+        let author_key: String
+    }
+
+    private static func map(_ row: ChatRPCRow) -> ChatPost {
+        ChatPost(
+            id: row.id,
+            body: row.body,
+            venue_name: row.venue_name,
+            geography_id: row.geography_id,
+            score: row.score,
+            is_hidden: row.is_hidden,
+            created_at: row.created_at,
+            expires_at: row.expires_at,
+            is_mine: row.is_mine,
+            my_vote: row.my_vote,
+            author_key: row.author_key,
+            avatar_icon: row.avatar_icon,
+            avatar_color: row.avatar_color,
+            parent_id: row.parent_id,
+            reply_count: row.reply_count
+        )
+    }
+
     static func fetchFeed(sort: String) async throws -> [ChatPost] {
-        var query: [URLQueryItem] = [
-            URLQueryItem(name: "is_hidden", value: "eq.false"),
-            URLQueryItem(name: "expires_at", value: "gt.\(ISO8601DateFormatter().string(from: Date()))"),
-            URLQueryItem(name: "parent_id", value: "is.null"),
-            URLQueryItem(name: "select", value: "*"),
-            URLQueryItem(name: "limit", value: "50"),
-        ]
-        if sort == "popular" {
-            query.append(URLQueryItem(name: "order", value: "score.desc,created_at.desc"))
-        } else {
-            query.append(URLQueryItem(name: "order", value: "created_at.desc"))
-        }
-        return try await SupabaseClient.shared.get(path: "rest/v1/chat_posts", query: query)
+        let rows: [ChatRPCRow] = try await SupabaseClient.shared.rpcJSON(
+            "fetch_chat_feed",
+            params: [
+                "p_viewer_id": AnonymousIdentity.userId(),
+                "p_sort": sort,
+                "p_limit": 50,
+            ]
+        )
+        return rows.map(map)
     }
 
     static func fetchReplies(parentId: UUID) async throws -> [ChatPost] {
-        let query: [URLQueryItem] = [
-            URLQueryItem(name: "parent_id", value: "eq.\(parentId.uuidString)"),
-            URLQueryItem(name: "is_hidden", value: "eq.false"),
-            URLQueryItem(name: "expires_at", value: "gt.\(ISO8601DateFormatter().string(from: Date()))"),
-            URLQueryItem(name: "select", value: "*"),
-            URLQueryItem(name: "order", value: "created_at.asc"),
-        ]
-        return try await SupabaseClient.shared.get(path: "rest/v1/chat_posts", query: query)
+        let rows: [ChatRPCRow] = try await SupabaseClient.shared.rpcJSON(
+            "fetch_chat_replies",
+            params: [
+                "p_viewer_id": AnonymousIdentity.userId(),
+                "p_parent_id": parentId.uuidString,
+            ]
+        )
+        return rows.map(map)
     }
 
     static func fetchPost(id: UUID) async throws -> ChatPost? {
-        let rows: [ChatPost] = try await SupabaseClient.shared.get(
-            path: "rest/v1/chat_posts",
-            query: [
-                URLQueryItem(name: "id", value: "eq.\(id.uuidString)"),
-                URLQueryItem(name: "select", value: "*"),
-                URLQueryItem(name: "limit", value: "1"),
+        let rows: [ChatRPCRow] = try await SupabaseClient.shared.rpcJSON(
+            "fetch_chat_post",
+            params: [
+                "p_viewer_id": AnonymousIdentity.userId(),
+                "p_post_id": id.uuidString,
             ]
         )
-        return rows.first
+        return rows.first.map(map)
     }
 
     static func createPost(
@@ -120,24 +153,26 @@ enum ChatService {
         }
         try await SupabaseClient.shared.rpcVoid("report_chat_post", params: params)
     }
+
+    static func blockAuthor(postId: UUID) async throws {
+        try await SupabaseClient.shared.rpcVoid("block_author", params: [
+            "p_blocker_id": AnonymousIdentity.userId(),
+            "p_post_id": postId.uuidString,
+        ])
+    }
 }
 
 enum LiveLocationService {
     static func venueCounts(maxAgeSeconds: Int = AppConfig.liveLocationCountMaxAgeSeconds) async throws -> [String: Int] {
         struct Row: Decodable {
             let venue_name: String
-            let is_active: Bool?
-            let last_updated: String?
-            let user_id: String?
+            let live: Int
         }
         let rows: [Row]
         do {
-            rows = try await SupabaseClient.shared.get(
-                path: "rest/v1/live_locations",
-                query: [
-                    URLQueryItem(name: "is_active", value: "eq.true"),
-                    URLQueryItem(name: "select", value: "venue_name,is_active,last_updated,user_id"),
-                ]
+            rows = try await SupabaseClient.shared.rpcJSON(
+                "get_venue_counts",
+                params: ["p_max_age_seconds": maxAgeSeconds]
             )
         } catch {
             await MainActor.run {
@@ -150,29 +185,12 @@ enum LiveLocationService {
             throw error
         }
 
-        let cutoff = Date().addingTimeInterval(TimeInterval(-maxAgeSeconds))
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         var counts: [String: Int] = [:]
-        var stale = 0
-        var missingStamp = 0
-        for row in rows {
-            if let s = row.last_updated {
-                let date = formatter.date(from: s)
-                    ?? ISO8601DateFormatter().date(from: s)
-                if let date, date < cutoff {
-                    stale += 1
-                    continue
-                }
-            } else {
-                missingStamp += 1
-            }
-            counts[row.venue_name, default: 0] += 1
+        for row in rows where row.live > 0 {
+            counts[row.venue_name] = row.live
         }
         let totalPeople = counts.values.reduce(0, +)
         let venueCount = counts.count
-        let staleDropped = stale
-        let missingLastUpdated = missingStamp
         let top = counts.sorted { $0.value > $1.value }.prefix(5)
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: ", ")
@@ -180,9 +198,8 @@ enum LiveLocationService {
             DiagnosticLog.shared.append(
                 category: "location",
                 message: """
-                venueCounts rawActive=\(rows.count) counted=\(totalPeople) \
-                venuesWithPeople=\(venueCount) staleDropped=\(staleDropped) \
-                missingLastUpdated=\(missingLastUpdated) maxAgeSec=\(maxAgeSeconds)
+                venueCounts rpc counted=\(totalPeople) venuesWithPeople=\(venueCount) \
+                maxAgeSec=\(maxAgeSeconds)
                 """
             )
             if !top.isEmpty {
@@ -190,15 +207,10 @@ enum LiveLocationService {
                     category: "location",
                     message: "venueCounts top: \(top)"
                 )
-            } else if rows.isEmpty {
-                DiagnosticLog.shared.append(
-                    category: "location",
-                    message: "venueCounts: no active live_locations rows (nobody checked in / tracking off)"
-                )
             } else {
                 DiagnosticLog.shared.append(
                     category: "location",
-                    message: "venueCounts: \(rows.count) active rows but all stale or uncountable — check last_updated heartbeats"
+                    message: "venueCounts: no active live_locations rows (nobody checked in / tracking off)"
                 )
             }
         }
@@ -211,23 +223,13 @@ enum LiveLocationService {
     ) async throws -> [String: Int] {
         struct Row: Decodable {
             let venue_name: String
-            let user_id: String
-            let last_seen_at: String?
+            let recent: Int
         }
-        let cutoff = Date().addingTimeInterval(TimeInterval(-windowSeconds))
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let cutoffIso = formatter.string(from: cutoff)
-
         let rows: [Row]
         do {
-            rows = try await SupabaseClient.shared.get(
-                path: "rest/v1/presence_visits",
-                query: [
-                    URLQueryItem(name: "mode", value: "eq.while_using"),
-                    URLQueryItem(name: "last_seen_at", value: "gte.\(cutoffIso)"),
-                    URLQueryItem(name: "select", value: "venue_name,user_id,last_seen_at"),
-                ]
+            rows = try await SupabaseClient.shared.rpcJSON(
+                "get_recent_counts",
+                params: ["p_window_seconds": windowSeconds]
             )
         } catch {
             await MainActor.run {
@@ -240,11 +242,10 @@ enum LiveLocationService {
             throw error
         }
 
-        var usersByVenue: [String: Set<String>] = [:]
-        for row in rows {
-            usersByVenue[row.venue_name, default: []].insert(row.user_id)
+        var counts: [String: Int] = [:]
+        for row in rows where row.recent > 0 {
+            counts[row.venue_name] = row.recent
         }
-        let counts = usersByVenue.mapValues(\.count)
         let total = counts.values.reduce(0, +)
         await MainActor.run {
             DiagnosticLog.shared.append(
@@ -308,7 +309,6 @@ enum LiveLocationService {
             )
             return rows.map { ($0.venue_name, $0.attendance, $0.recentValue) }
         } catch {
-            // Older DB without `recent` — fall back so live mock attendance still loads.
             do {
                 struct Legacy: Decodable {
                     let venue_name: String

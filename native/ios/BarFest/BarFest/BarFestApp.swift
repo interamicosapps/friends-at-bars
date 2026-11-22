@@ -233,7 +233,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if TestModeStore.shared.useMockCheckIns {
+        if TestModeStore.shared.isMockActive {
             do {
                 let cms = try await WaitTimeService.fetchMockWaitSummaries()
                     .filter { names.contains($0.key) }
@@ -279,17 +279,9 @@ final class AppModel: ObservableObject {
     }
 
     func submitWaitReport(venueName: String, waitMinutes: Int, isMock: Bool = false) async throws {
-        if TestModeStore.shared.useMockCheckIns {
+        if TestModeStore.shared.isMockActive {
+            // Test Mode keeps waits in TestWaitTimeStore only — never write mock rows to the live table.
             TestWaitTimeStore.shared.upsert(venueName: venueName, minutes: waitMinutes)
-            if isMock {
-                try? await WaitTimeService.submitReport(
-                    venueName: venueName,
-                    waitMinutes: waitMinutes,
-                    latitude: nil,
-                    longitude: nil,
-                    isMock: true
-                )
-            }
             await refreshWaitTimes()
             return
         }
@@ -502,7 +494,7 @@ final class AppModel: ObservableObject {
         do {
             let live: [String: Int]
             let recent: [String: Int]
-            if TestModeStore.shared.useMockCheckIns {
+            if TestModeStore.shared.isMockActive {
                 async let liveTask = LiveLocationService.mockVenueCounts()
                 async let recentTask = LiveLocationService.mockRecentWhileUsingCounts()
                 live = try await liveTask
@@ -601,7 +593,7 @@ final class AppModel: ObservableObject {
                 )
             )
         }
-        let includeTest = DevTestMode.isUIEnabled || TestModeStore.shared.useMockCheckIns
+        let includeTest = DevTestMode.isUIEnabled || TestModeStore.shared.isMockActive
         do {
             try await CatalogStore.shared.refresh(includeTest: includeTest)
             venues = await CatalogStore.shared.venues
@@ -615,7 +607,7 @@ final class AppModel: ObservableObject {
             let wordPack = await CatalogStore.shared.wordPack
             wordPackReady = cmsLibrary != nil || !wordPack.isEmpty
             let generation = nextLiveCountsGeneration()
-            if TestModeStore.shared.useMockCheckIns {
+            if TestModeStore.shared.isMockActive {
                 async let liveTask = LiveLocationService.mockVenueCounts()
                 async let recentTask = LiveLocationService.mockRecentWhileUsingCounts()
                 let live = try await liveTask
@@ -687,7 +679,7 @@ final class AppModel: ObservableObject {
 
     /// Logs listing/venue breakdown to help diagnose Deals showing fewer rows than expected.
     private func logCatalogDiagnostics(source: String) async {
-        let includeTest = DevTestMode.isUIEnabled || TestModeStore.shared.useMockCheckIns
+        let includeTest = DevTestMode.isUIEnabled || TestModeStore.shared.isMockActive
         let version = await CatalogStore.shared.contentVersion.map(String.init) ?? "nil"
         let areas = Dictionary(grouping: listings, by: \.area).mapValues(\.count)
         let areaSummary = areas.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ", ")
@@ -707,7 +699,7 @@ final class AppModel: ObservableObject {
             category: "system",
             message: """
             Catalog[\(source)] venues=\(venues.count) listings=\(listings.count) \
-            priority=\(withPriority) version=\(version) includeTest=\(includeTest) mock=\(TestModeStore.shared.useMockCheckIns)
+            priority=\(withPriority) version=\(version) includeTest=\(includeTest) mock=\(TestModeStore.shared.isMockActive)
             """
         )
         DiagnosticLog.shared.append(

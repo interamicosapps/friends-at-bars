@@ -20,6 +20,9 @@ struct ChatThreadView: View {
     @State private var regionWarningFlash = false
     @State private var selectedIds: Set<UUID> = []
     @State private var showSoftHidden: Bool
+    @State private var showChatRules = false
+    @State private var pendingSendAfterRules = false
+    @State private var reportThanks = false
     @FocusState private var composerFocused: Bool
 
     init(
@@ -110,6 +113,25 @@ struct ChatThreadView: View {
         .onChange(of: showSoftHidden) { _, _ in
             if useLocal { applyLocal() }
         }
+        .sheet(isPresented: $showChatRules) {
+            ChatRulesSheet(
+                onAgree: {
+                    ChatClientModeration.acceptRules()
+                    showChatRules = false
+                    if pendingSendAfterRules {
+                        pendingSendAfterRules = false
+                        Task { await sendReply() }
+                    }
+                },
+                onCancel: {
+                    pendingSendAfterRules = false
+                    showChatRules = false
+                }
+            )
+        }
+        .alert("Thanks — we'll review it.", isPresented: $reportThanks) {
+            Button("OK", role: .cancel) {}
+        }
     }
 
     private var selectToolbar: some View {
@@ -184,7 +206,7 @@ struct ChatThreadView: View {
 
     @ViewBuilder
     private func threadRow(_ post: ChatPost, isParent: Bool) -> some View {
-        let isOwn = post.author_id == AnonymousIdentity.userId()
+        let isOwn = post.is_mine
         let avatar = ChatAvatarResolver.selection(
             for: post,
             preference: avatarStore.selection,
@@ -267,6 +289,14 @@ struct ChatThreadView: View {
                         Label("Report", systemImage: "flag")
                     }
                     .tint(.orange)
+                    if !useLocal {
+                        Button {
+                            Task { await blockAuthor(postId: post.id) }
+                        } label: {
+                            Label("Block this user", systemImage: "hand.raised")
+                        }
+                        .tint(.red)
+                    }
                 }
             }
         }
@@ -374,9 +404,14 @@ struct ChatThreadView: View {
         }
         do {
             let loaded = try await ChatService.fetchPost(id: parentId)
-            if let loaded, !loaded.is_hidden, !isExpired(loaded) {
+            if let loaded,
+               !loaded.is_hidden,
+               !isExpired(loaded),
+               !ChatClientModeration.isLocallyHidden(postId: loaded.id) {
                 parent = loaded
-                replies = try await ChatService.fetchReplies(parentId: parentId)
+                replies = ChatClientModeration.filterVisible(
+                    try await ChatService.fetchReplies(parentId: parentId)
+                )
             } else {
                 parent = nil
                 replies = []
@@ -424,15 +459,28 @@ struct ChatThreadView: View {
     private func report(postId: UUID) async {
         if useLocal {
             localChat.hide(postIds: [postId])
+            ChatClientModeration.hideLocally(postId: postId)
             applyLocal()
+            reportThanks = true
             DiagnosticLog.shared.append(category: "chat", message: "Reported (local) reply")
         } else {
             do {
                 try await ChatService.report(postId: postId, reason: nil)
+                ChatClientModeration.hideLocally(postId: postId)
+                reportThanks = true
                 await reload()
             } catch {
                 self.error = UserFacingError.message(for: error)
             }
+        }
+    }
+
+    private func blockAuthor(postId: UUID) async {
+        do {
+            try await ChatService.blockAuthor(postId: postId)
+            await reload()
+        } catch {
+            self.error = UserFacingError.message(for: error)
         }
     }
 
@@ -444,6 +492,11 @@ struct ChatThreadView: View {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= AppConfig.maxChatChars else { return }
         guard let geoId = parent.geography_id ?? appModel.resolvedGeography?.id else { return }
+        if !useLocal && !ChatClientModeration.hasAcceptedRules {
+            pendingSendAfterRules = true
+            showChatRules = true
+            return
+        }
         do {
             let avatar = (useLocal && localChat.sender == .other)
                 ? avatarStore.otherSelection

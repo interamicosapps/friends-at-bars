@@ -39,10 +39,10 @@ Wired via `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml` (default `AppIco
 
 ## Version / build numbers (hardcoded)
 
-Edit **both** places before each TestFlight upload (must stay in sync):
+Edit **all** places before each TestFlight upload (must stay in sync — production and test use the same numbers):
 
 1. [`BarFest/Info.plist`](BarFest/Info.plist) — `CFBundleShortVersionString` / `CFBundleVersion`
-2. Root [`codemagic.yaml`](../../../codemagic.yaml) — `native-ios-workflow` vars `NATIVE_MARKETING_VERSION` / `NATIVE_BUILD_NUMBER`
+2. Root [`codemagic.yaml`](../../../codemagic.yaml) — `native-ios-workflow` **and** `native-ios-test-workflow` vars `NATIVE_MARKETING_VERSION` / `NATIVE_BUILD_NUMBER`
 
 After `xcodegen`, CI runs `git checkout` on Info.plist and re-applies those hardcodes so XcodeGen cannot reset the build to `1`.
 

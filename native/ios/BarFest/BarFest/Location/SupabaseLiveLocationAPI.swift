@@ -5,7 +5,7 @@ enum SupabaseAPIError: Error {
     case httpStatus(Int, String)
 }
 
-/// PostgREST client for `live_locations` (mirrors JS upsert / deactivate).
+/// PostgREST RPC client for presence (v1.0.3+). Coordinates are checked server-side and never stored.
 final class SupabaseLiveLocationAPI {
     private let baseURL: URL
     private let anonKey: String
@@ -27,103 +27,38 @@ final class SupabaseLiveLocationAPI {
         longitude: Double,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent("rest/v1/live_locations"),
-            resolvingAgainstBaseURL: false
-        ) else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "on_conflict", value: "user_id")]
-
-        guard let url = components.url else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-
-        let iso = ISO8601DateFormatter().string(from: Date())
-        let body = LiveLocationPayload(
-            user_id: userId,
-            venue_name: venueName,
-            latitude: latitude,
-            longitude: longitude,
-            is_active: true,
-            last_updated: iso
+        rpc(
+            "report_presence",
+            body: [
+                "p_user_id": userId,
+                "p_venue_name": venueName,
+                "p_latitude": latitude,
+                "p_longitude": longitude,
+            ],
+            label: "upsert:\(venueName)",
+            completion: completion
         )
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyHeaders(&request)
-        // Single Prefer value — a second setValue(forHTTPHeaderField: "Prefer") overwrites the first
-        // and causes plain INSERT → HTTP 409 on existing user_id.
-        request.setValue(
-            "return=minimal, resolution=merge-duplicates",
-            forHTTPHeaderField: "Prefer"
-        )
-
-        do {
-            request.httpBody = try JSONEncoder().encode(body)
-        } catch {
-            DiagnosticLog.log(
-                category: "location",
-                message: "upsert encode failed venue=\(venueName): \(error.localizedDescription)",
-                level: "error"
-            )
-            completion(.failure(error))
-            return
-        }
-
-        run(request: request, label: "upsert:\(venueName)", completion: completion)
     }
 
     /// Records a While Using App visit for the quieter "N recent" Activities count.
     func upsertPresenceVisit(
         userId: String,
         venueName: String,
+        latitude: Double,
+        longitude: Double,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent("rest/v1/presence_visits"),
-            resolvingAgainstBaseURL: false
-        ) else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "on_conflict", value: "user_id,venue_name")]
-
-        guard let url = components.url else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-
-        let body = PresenceVisitPayload(
-            user_id: userId,
-            venue_name: venueName,
-            mode: "while_using",
-            last_seen_at: ISO8601DateFormatter().string(from: Date())
+        rpc(
+            "record_presence_visit",
+            body: [
+                "p_user_id": userId,
+                "p_venue_name": venueName,
+                "p_latitude": latitude,
+                "p_longitude": longitude,
+            ],
+            label: "visit:\(venueName)",
+            completion: completion
         )
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyHeaders(&request)
-        request.setValue(
-            "return=minimal, resolution=merge-duplicates",
-            forHTTPHeaderField: "Prefer"
-        )
-
-        do {
-            request.httpBody = try JSONEncoder().encode(body)
-        } catch {
-            DiagnosticLog.log(
-                category: "location",
-                message: "presence visit encode failed venue=\(venueName): \(error.localizedDescription)",
-                level: "error"
-            )
-            completion(.failure(error))
-            return
-        }
-
-        run(request: request, label: "visit:\(venueName)", completion: completion)
     }
 
     /// Drops a While Using visit out of the recent window after the user says they are not there.
@@ -132,71 +67,60 @@ final class SupabaseLiveLocationAPI {
         venueName: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent("rest/v1/presence_visits"),
-            resolvingAgainstBaseURL: false
-        ) else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-        components.queryItems = [
-            URLQueryItem(name: "user_id", value: "eq.\(userId)"),
-            URLQueryItem(name: "venue_name", value: "eq.\(venueName)"),
-        ]
-        guard let url = components.url else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-        let body = ["last_seen_at": "1970-01-01T00:00:00Z"]
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        applyHeaders(&request)
-        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        run(request: request, label: "visit-expire:\(venueName)", completion: completion)
+        rpc(
+            "expire_presence_visit",
+            body: [
+                "p_user_id": userId,
+                "p_venue_name": venueName,
+            ],
+            label: "visit-expire:\(venueName)",
+            completion: completion
+        )
     }
 
     func deactivateLiveLocation(
         userId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent("rest/v1/live_locations"),
-            resolvingAgainstBaseURL: false
-        ) else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
-
-        guard let url = components.url else {
-            completion(.failure(SupabaseAPIError.invalidURL))
-            return
-        }
-
-        let body = DeactivatePayload(
-            is_active: false,
-            last_updated: ISO8601DateFormatter().string(from: Date())
+        rpc(
+            "clear_presence",
+            body: [
+                "p_user_id": userId,
+            ],
+            label: "deactivate",
+            completion: completion
         )
+    }
+
+    private func rpc(
+        _ name: String,
+        body: [String: Any],
+        label: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard let url = URL(string: "rest/v1/rpc/\(name)", relativeTo: baseURL)?.absoluteURL else {
+            completion(.failure(SupabaseAPIError.invalidURL))
+            return
+        }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
+        request.httpMethod = "POST"
         applyHeaders(&request)
         request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
 
         do {
-            request.httpBody = try JSONEncoder().encode(body)
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             DiagnosticLog.log(
                 category: "location",
-                message: "deactivate encode failed: \(error.localizedDescription)",
+                message: "\(label) encode failed: \(error.localizedDescription)",
                 level: "error"
             )
             completion(.failure(error))
             return
         }
 
-        run(request: request, label: "deactivate", completion: completion)
+        run(request: request, label: label, completion: completion)
     }
 
     private func applyHeaders(_ request: inout URLRequest) {
